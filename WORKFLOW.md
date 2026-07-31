@@ -29,8 +29,9 @@
 |------|------|------|------|
 | `extract_cv.py` | `python scripts/extract_cv.py <file>` | CV 文件路径 | `{ok, source_type, char_count, cv_hash, text_path, cache_hit, cached_profile_path?, warnings}` |
 | `validate_profile.py` | `python scripts/validate_profile.py`（stdin） | LLM 抽取的 CVProfile JSON | `{ok, profile, notes}` |
-| `merge_jobs.py merge` | `… merge --cv-hash H --cp-hash H`（stdin） | 候选职位数组 | `{to_analyze, to_score_only, in_evaluation, cached, eval_run, stats}` |
-| `merge_jobs.py update` | `… update --cv-hash H --cp-hash H --run-id R`（stdin） | 带快照元数据的打分结果数组 | `{ok, updated, rebased, rejected, conflicts, released}` |
+| `merge_jobs.py merge` | `… merge --cv-hash H --cp-hash H`（stdin） | 候选职位数组 | `{to_analyze, to_score_only, in_evaluation, cached, eval_run, stats, metrics_recorded}` |
+| `merge_jobs.py update` | `… update --cv-hash H --cp-hash H --run-id R`（stdin） | 带快照元数据的打分结果数组 | `{ok, updated, rebased, rejected, conflicts, released, duration_ms, metrics_recorded}` |
+| `summarize_metrics.py` | `… [--days N] [--format json\|markdown] [--fail-on-breach]` | `data/metrics.jsonl` + 活跃 eval runs | 健康状态、比率、p50/p95/p99、积压与阈值违规 |
 | `verify_jobs.py` | `python scripts/verify_jobs.py`（stdin） | URL 数组 | `{results:[{url, alive, reason, final_url}]}` |
 | `fetch_rendered.py` | `python scripts/fetch_rendered.py <url>` | 单 URL | `{ok, text, browser_used}` 或 `{ok:false, error}` |
 | `cp_hash.py` | `python scripts/cp_hash.py`（stdin） | candidate_profile JSON | `{ok, cp_hash}`（规范化后稳定 hash） |
@@ -85,6 +86,7 @@
 
 ### 7. 收尾
 - 简述结果（新增/复用/路径），指出风险（未验证/基于摘要评分的职位）。
+- `metrics_recorded:false` 时提示运行指标未落盘；需要健康检查时运行 `summarize_metrics.py`。指标字段和默认阈值见 `docs/monitoring.md`。
 
 ## 容错阶梯（失效验证 & JD 抓取共用）
 ```

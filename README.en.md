@@ -48,6 +48,7 @@ job-matcher/
 ├── SKILL.md              # trigger description + orchestration entry
 ├── WORKFLOW.md           # agent-neutral full workflow
 ├── config.json           # tunable knobs
+├── docs/monitoring.md     # runtime metrics, thresholds, and health summary
 ├── references/           # instructions read on demand
 │   ├── cv_schema.md          # CV extraction rules
 │   ├── scoring_rubric.md     # 5-dim scoring + tier thresholds
@@ -57,6 +58,8 @@ job-matcher/
 │   ├── validate_profile.py   # validate + seniority→levels mapping
 │   ├── analysis_contract.py  # validate JDProfile/MatchScore worker output
 │   ├── merge_jobs.py         # single writer: dedup/cache/eval snapshots/conditional commit
+│   ├── runtime_metrics.py    # PII-safe JSONL events and health calculations
+│   ├── summarize_metrics.py  # 7/30-day Markdown/JSON health report
 │   ├── cp_hash.py            # stable candidate_profile hash
 │   ├── verify_jobs.py        # dead-link / closed-posting detection
 │   ├── fetch_rendered.py     # headless render fallback (reuses system browser)
@@ -100,8 +103,20 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `headless_budget` | 3 | headless calls per run |
 | `table_lock_timeout_seconds` | 10 | maximum wait for the canonical-table write lock |
 | `stale_lock_seconds` | 120 | age at which an abandoned lock may be reclaimed |
+| `monitoring_default_window_days` | 7 | default health-report window |
+| `monitoring_thresholds` | see config | conflict, rejection, success, lock-wait, and backlog limits |
 
-Runtime state has one canonical table, `data/jobs_table.json`. Each evaluation batch gets a minimal `data/eval_runs/<run_id>.json` snapshot. Workers return results, the orchestrator conditionally commits evaluation-owned fields, and a completed snapshot is released after a PII-free summary is appended to `history.jsonl`.
+Runtime state has one canonical table, `data/jobs_table.json`. Each evaluation batch gets a minimal `data/eval_runs/<run_id>.json` snapshot. Workers return results, the orchestrator conditionally commits evaluation-owned fields, and a completed snapshot is released after a PII-free summary is appended to `history.jsonl`. Every merge/update also appends a PII-safe event to `data/metrics.jsonl`.
+
+## 📈 Runtime monitoring
+
+```text
+python scripts/summarize_metrics.py --days 7 --format markdown
+python scripts/summarize_metrics.py --days 30 --format json
+python scripts/summarize_metrics.py --fail-on-breach
+```
+
+The report covers throughput/cache behavior, evaluation success/rejection/conflict rates, command and lock-wait p50/p95/p99, plus active runs, pending tasks, and oldest backlog age. Threshold violations produce `degraded`; `--fail-on-breach` also exits with code 2. See [the monitoring guide](docs/monitoring.md) for definitions and privacy boundaries.
 
 ## 🔧 Dependencies
 

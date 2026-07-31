@@ -48,6 +48,7 @@ job-matcher/
 ├── SKILL.md              # 触发描述 + 编排入口
 ├── WORKFLOW.md           # agent-中立完整流程
 ├── config.json           # 配置旋钮
+├── docs/monitoring.md     # 运行指标、阈值与健康汇总
 ├── references/           # subagent 按需读取的指令
 │   ├── cv_schema.md          # CV 抽取规则
 │   ├── scoring_rubric.md     # 5 维打分 + 五档阈值
@@ -57,6 +58,8 @@ job-matcher/
 │   ├── validate_profile.py   # 校验 + seniority→levels 映射
 │   ├── analysis_contract.py  # 校验 JDProfile/MatchScore worker 输出
 │   ├── merge_jobs.py         # 单写入器：去重/缓存/评估快照/条件化回写
+│   ├── runtime_metrics.py    # PII-safe JSONL 指标与健康计算
+│   ├── summarize_metrics.py  # 7/30 天 Markdown/JSON 健康报告
 │   ├── verify_jobs.py        # 失效职位状态码检测
 │   ├── fetch_rendered.py     # headless 渲染兜底（复用系统浏览器）
 │   ├── render_html.py        # 渲染 HTML 报告
@@ -99,8 +102,20 @@ agent 会自动识别。然后在对话里：
 | `headless_budget` | 3 | 每次运行 headless 上限 |
 | `table_lock_timeout_seconds` | 10 | 等待主表写锁的最长秒数 |
 | `stale_lock_seconds` | 120 | 回收异常遗留锁的时间阈值 |
+| `monitoring_default_window_days` | 7 | 默认健康报告窗口 |
+| `monitoring_thresholds` | 见配置 | 冲突、拒绝、成功率、锁等待和积压阈值 |
 
-运行时只保留一个职位主表 `data/jobs_table.json`。每轮待评估职位写入最小化快照 `data/eval_runs/<run_id>.json`；worker 完成后由主 agent 串行回写评估字段，成功完成的快照会释放，仅在 `history.jsonl` 留下不含 CV/JD 正文的摘要。
+运行时只保留一个职位主表 `data/jobs_table.json`。每轮待评估职位写入最小化快照 `data/eval_runs/<run_id>.json`；worker 完成后由主 agent 串行回写评估字段，成功完成的快照会释放，仅在 `history.jsonl` 留下不含 CV/JD 正文的摘要。每次 merge/update 另写一条 PII-safe `data/metrics.jsonl` 事件。
+
+## 📈 运行监控
+
+```text
+python scripts/summarize_metrics.py --days 7 --format markdown
+python scripts/summarize_metrics.py --days 30 --format json
+python scripts/summarize_metrics.py --fail-on-breach
+```
+
+报告包含吞吐/缓存、评估成功/拒绝/冲突率、命令与锁等待 p50/p95/p99，以及活跃 run、pending task 和最老积压时间。默认阈值违规时状态为 `degraded`；`--fail-on-breach` 同时返回退出码 2。字段定义、隐私边界和接入方式见 [运行时监控文档](docs/monitoring.md)。
 
 ## 🔧 依赖
 

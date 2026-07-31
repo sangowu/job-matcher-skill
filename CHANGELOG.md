@@ -7,7 +7,16 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-No changes yet.
+### Added
+
+- PII-safe `data/metrics.jsonl` events for merge/update success and failure paths.
+- Runtime duration and lock-wait p50/p95/p99, evaluation rates, queue backlog, and configurable health thresholds.
+- `scripts/summarize_metrics.py` for Markdown/JSON health reports and automation-friendly threshold exits.
+- Deterministic tests for metric sanitization, summary calculations, failure recording, and concurrent JSONL appends.
+
+### Fixed
+
+- `stats.new` now means jobs added by the current merge instead of all rows still carrying `status: new`.
 
 ## [2.0.0] - 2026-07-31
 

@@ -40,6 +40,7 @@ from _jobutil import (
     load_config,
     make_dedup_key,
 )
+from runtime_metrics import record_metric
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = SKILL_ROOT / "data"
@@ -48,10 +49,27 @@ ARCHIVE_PATH = DATA_DIR / "archive.json"
 EVAL_RUNS_DIR = DATA_DIR / "eval_runs"
 EVAL_HISTORY_PATH = EVAL_RUNS_DIR / "history.jsonl"
 LOCK_PATH = DATA_DIR / "jobs_table.lock"
+METRICS_PATH = DATA_DIR / "metrics.jsonl"
 
 
 class DataStoreError(RuntimeError):
     """Raised when the canonical job store cannot be read or committed safely."""
+
+
+class DataStoreReadError(DataStoreError):
+    """Raised when persisted JSON cannot be read safely."""
+
+
+class DataStoreWriteError(DataStoreError):
+    """Raised when persisted JSON cannot be committed atomically."""
+
+
+class LockTimeoutError(DataStoreError):
+    """Raised when the canonical-table lock cannot be acquired in time."""
+
+
+class InputDataError(ValueError):
+    """Raised when stdin does not match the command contract."""
 
 
 def _now() -> datetime:
@@ -64,9 +82,9 @@ def _load(path: Path, *, default: dict | None = None) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        raise DataStoreError(f"cannot read valid JSON from {path}: {error}") from error
+        raise DataStoreReadError(f"cannot read valid JSON from {path}: {error}") from error
     if not isinstance(data, dict):
-        raise DataStoreError(f"expected a JSON object in {path}")
+        raise DataStoreReadError(f"expected a JSON object in {path}")
     return data
 
 
@@ -82,7 +100,7 @@ def _save(path: Path, data: dict) -> None:
             os.fsync(handle.fileno())
         os.replace(temp_path, path)
     except OSError as error:
-        raise DataStoreError(f"could not atomically write {path}: {error}") from error
+        raise DataStoreWriteError(f"could not atomically write {path}: {error}") from error
     finally:
         if temp_path.exists():
             temp_path.unlink()
@@ -97,27 +115,38 @@ def _table_write_lock():
     LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     descriptor = None
+    stale_lock_recoveries = 0
 
     while descriptor is None:
         try:
             descriptor = os.open(str(LOCK_PATH), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
+        except (FileExistsError, PermissionError) as error:
+            if isinstance(error, PermissionError) and not LOCK_PATH.exists():
+                raise DataStoreError(f"cannot access job-table lock: {LOCK_PATH}") from error
             try:
                 age = time.time() - LOCK_PATH.stat().st_mtime
                 if age > stale_after:
-                    LOCK_PATH.unlink()
-                    continue
+                    try:
+                        LOCK_PATH.unlink()
+                    except PermissionError:
+                        pass
+                    else:
+                        stale_lock_recoveries += 1
+                        continue
             except FileNotFoundError:
                 continue
             if time.monotonic() - started >= timeout:
-                raise DataStoreError(f"timed out waiting for job-table lock: {LOCK_PATH}")
+                raise LockTimeoutError(f"timed out waiting for job-table lock: {LOCK_PATH}")
             time.sleep(0.05)
 
     try:
         os.write(descriptor, f"pid={os.getpid()} created_at={_now().isoformat()}\n".encode("ascii"))
         os.close(descriptor)
         descriptor = None
-        yield {"lock_wait_ms": round((time.monotonic() - started) * 1000, 2)}
+        yield {
+            "lock_wait_ms": round((time.monotonic() - started) * 1000, 2),
+            "stale_lock_recoveries": stale_lock_recoveries,
+        }
     finally:
         if descriptor is not None:
             os.close(descriptor)
@@ -333,14 +362,14 @@ def _archive_stale(table: dict, ttl_days: int) -> int:
 
 
 def cmd_merge(cv_hash: str, cp_hash: str) -> None:
+    started = time.monotonic()
     cfg = load_config()
     ttl_days = int(cfg.get("jd_ttl_days", 30))
     mk = f"{cv_hash}:{cp_hash}"
 
     candidates = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace") or "[]")
     if not isinstance(candidates, list):
-        print(json.dumps({"ok": False, "error": "输入必须是职位候选数组"}))
-        sys.exit(1)
+        raise InputDataError("输入必须是职位候选数组")
     with _table_write_lock() as lock_metrics:
         table = _load(TABLE_PATH)
         jobs = table.get("jobs")
@@ -360,6 +389,7 @@ def cmd_merge(cv_hash: str, cp_hash: str) -> None:
         active_eval_keys = _active_eval_keys()
         today = date.today().isoformat()
         to_analyze, to_score_only, cached, in_evaluation = [], [], [], []
+        newly_added = 0
 
         for dk, cand in batch.items():
             cand_keys = all_url_keys(cand)
@@ -406,6 +436,7 @@ def cmd_merge(cv_hash: str, cp_hash: str) -> None:
                     "verified": None, "scored_from": None,
                 }
                 jobs.append(newjob)
+                newly_added += 1
                 by_dedup[dk] = newjob
                 for uk in cand_keys:
                     by_urlkey[uk] = newjob
@@ -417,24 +448,33 @@ def cmd_merge(cv_hash: str, cp_hash: str) -> None:
 
         stats = {
             "candidates_in": len(candidates), "deduped": len(batch),
-            "new": sum(1 for j in jobs if j["status"] == "new"),
+            "new": newly_added, "newly_added": newly_added,
             "to_analyze": len(to_analyze), "to_score_only": len(to_score_only),
             "cached": len(cached), "in_evaluation": len(in_evaluation), "archived": archived,
             "table_size": len(jobs), **lock_metrics,
         }
 
+    stats["duration_ms"] = round((time.monotonic() - started) * 1000, 2)
+    metrics_recorded = record_metric(
+        METRICS_PATH,
+        "merge",
+        True,
+        **stats,
+        eval_tasks_created=len(to_analyze) + len(to_score_only),
+    )
     print(json.dumps({"ok": True, "to_analyze": to_analyze,
                       "to_score_only": to_score_only, "cached": cached,
                       "in_evaluation": in_evaluation,
-                      "eval_run": eval_run, "stats": stats}))
+                      "eval_run": eval_run, "stats": stats,
+                      "metrics_recorded": metrics_recorded}))
 
 
 def cmd_update(cv_hash: str, cp_hash: str, run_id: str) -> None:
+    started = time.monotonic()
     mk = f"{cv_hash}:{cp_hash}"
     results = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace") or "[]")
     if not isinstance(results, list):
-        print(json.dumps({"ok": False, "error": "输入必须是打分结果数组"}))
-        sys.exit(1)
+        raise InputDataError("输入必须是打分结果数组")
 
     run_path = EVAL_RUNS_DIR / f"{run_id}.json"
     with _table_write_lock() as lock_metrics:
@@ -544,19 +584,57 @@ def cmd_update(cv_hash: str, cp_hash: str, run_id: str) -> None:
             })
             run_path.unlink()
 
-        output = {
-            "ok": True,
-            "run_id": run_id,
-            "updated": updated,
-            "rebased": rebased,
-            "idempotent": idempotent,
-            "rejected": rejected,
-            "conflicts": conflicts,
-            "released": released,
-            **lock_metrics,
-        }
+        pending_tasks = sum(1 for task in tasks if task.get("status") == "pending")
 
+    duration_ms = round((time.monotonic() - started) * 1000, 2)
+    metrics_recorded = record_metric(
+        METRICS_PATH,
+        "update",
+        True,
+        results_in=len(results),
+        updated=updated,
+        rebased=rebased,
+        idempotent=idempotent,
+        rejected=len(rejected),
+        conflicts=len(conflicts),
+        released=released,
+        task_count=len(tasks),
+        completed_tasks=completed_tasks,
+        conflict_tasks=conflict_tasks,
+        pending_tasks=pending_tasks,
+        duration_ms=duration_ms,
+        **lock_metrics,
+    )
+    output = {
+        "ok": True,
+        "run_id": run_id,
+        "updated": updated,
+        "rebased": rebased,
+        "idempotent": idempotent,
+        "rejected": rejected,
+        "conflicts": conflicts,
+        "released": released,
+        "duration_ms": duration_ms,
+        "metrics_recorded": metrics_recorded,
+        **lock_metrics,
+    }
     print(json.dumps(output))
+
+
+def _failure_kind(error: Exception) -> str:
+    if isinstance(error, DataStoreReadError):
+        return "data_store_read"
+    if isinstance(error, DataStoreWriteError):
+        return "data_store_write"
+    if isinstance(error, LockTimeoutError):
+        return "lock_timeout"
+    if isinstance(error, InputDataError):
+        return "input_validation"
+    if isinstance(error, json.JSONDecodeError):
+        return "input_json"
+    if isinstance(error, DataStoreError):
+        return "data_store"
+    return "unexpected"
 
 
 def main() -> None:
@@ -566,16 +644,37 @@ def main() -> None:
     ap.add_argument("--cp-hash", required=True)
     ap.add_argument("--run-id", help="Evaluation run id returned by merge; required for update.")
     args = ap.parse_args()
+    started = time.monotonic()
     try:
         if args.mode == "merge":
             cmd_merge(args.cv_hash, args.cp_hash)
         else:
             if not args.run_id:
-                ap.error("--run-id is required for update")
+                raise InputDataError("--run-id is required for update")
             cmd_update(args.cv_hash, args.cp_hash, args.run_id)
-    except (DataStoreError, json.JSONDecodeError) as error:
-        print(json.dumps({"ok": False, "error": str(error)}))
+    except (DataStoreError, InputDataError, json.JSONDecodeError) as error:
+        metrics_recorded = record_metric(
+            METRICS_PATH,
+            args.mode,
+            False,
+            duration_ms=round((time.monotonic() - started) * 1000, 2),
+            failure_kind=_failure_kind(error),
+        )
+        print(json.dumps({
+            "ok": False,
+            "error": str(error),
+            "metrics_recorded": metrics_recorded,
+        }))
         sys.exit(1)
+    except Exception as error:
+        record_metric(
+            METRICS_PATH,
+            args.mode,
+            False,
+            duration_ms=round((time.monotonic() - started) * 1000, 2),
+            failure_kind=_failure_kind(error),
+        )
+        raise
 
 
 if __name__ == "__main__":

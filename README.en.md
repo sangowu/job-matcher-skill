@@ -22,6 +22,7 @@ A lightweight take on [JobRadar](https://github.com/sangowu/JobRadar) — pure a
 - **Main agent = orchestrator**: runs scripts, fuses the query, asks the user, spawns subagents.
 - **Subagents do the heavy-context work** (CV extraction / search / scoring): raw text stays inside subagents; the main context only carries "paths + small JSON".
 - **Python scripts do the deterministic work**: parse, validate, dedup/aggregate/cache, verify, render.
+- **Parallel compute, serialized commits**: search and evaluation workers may overlap, while `jobs_table.json` has one guarded write path with evaluation snapshots, a cross-process lock, and atomic replacement.
 
 ```
 CV + query
@@ -29,8 +30,8 @@ CV + query
    │ [cache check]                → hit → skip extraction
    │ [subagent] extract CVProfile → [script] validate_profile
    │ [main agent] fuse query      → search_plan + candidate_profile
-   │ [parallel subagents] web search + parse + prefilter → [script] merge_jobs (dedup/aggregate/cache)
-   │ [parallel subagents] coarse → fine (fetch JD) + 5-dim scoring + liveness check
+   │ [parallel subagents] web search + parse + prefilter → [script] merge_jobs (dedup/cache/eval snapshot)
+   │ [parallel subagents] coarse → fine (fetch JD) + scoring + liveness → [script] conditional commit
    │ [script] render_html         → report_*.html (auto-opened)
    ▼
 interactive HTML report
@@ -52,7 +53,8 @@ job-matcher/
 ├── scripts/              # deterministic Python scripts
 │   ├── extract_cv.py         # parse CV → text + hash
 │   ├── validate_profile.py   # validate + seniority→levels mapping
-│   ├── merge_jobs.py         # dedup + aggregate + cache decision (merge/update)
+│   ├── analysis_contract.py  # validate JDProfile/MatchScore worker output
+│   ├── merge_jobs.py         # single writer: dedup/cache/eval snapshots/conditional commit
 │   ├── cp_hash.py            # stable candidate_profile hash
 │   ├── verify_jobs.py        # dead-link / closed-posting detection
 │   ├── fetch_rendered.py     # headless render fallback (reuses system browser)
@@ -94,6 +96,10 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `seniority_mode` | balanced | strict / balanced / stretch |
 | `enable_headless_fallback` | true | headless fallback switch |
 | `headless_budget` | 3 | headless calls per run |
+| `table_lock_timeout_seconds` | 10 | maximum wait for the canonical-table write lock |
+| `stale_lock_seconds` | 120 | age at which an abandoned lock may be reclaimed |
+
+Runtime state has one canonical table, `data/jobs_table.json`. Each evaluation batch gets a minimal `data/eval_runs/<run_id>.json` snapshot. Workers return results, the orchestrator conditionally commits evaluation-owned fields, and a completed snapshot is released after a PII-free summary is appended to `history.jsonl`.
 
 ## 🔧 Dependencies
 

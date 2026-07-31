@@ -20,6 +20,7 @@
 - 你是**编排者**：调脚本、融合 query、追问用户、（若有）委派子代理。
 - **重上下文工作**（CV 抽取、搜索+解析、打分）尽量交给子代理；大块原始文本（CV 全文、搜索结果、JD 全文）**留在子代理/文件**，你的上下文只保留「路径 + 小 JSON」。
 - 无子代理时你自己串行做这些步骤，但**仍坚持**"大文本写文件、上下文只留摘要"。
+- 搜索与评估 worker 可以并行；`jobs_table.json` 是唯一主表，只有编排者可以通过 `merge_jobs.py` 写入。worker 不得直接修改主表或共享评估快照。
 - 脚本输出是纯 ASCII JSON，解析后使用。所有路径相对本 skill 目录。
 
 ## 脚本契约（你的确定性工具箱）
@@ -28,8 +29,8 @@
 |------|------|------|------|
 | `extract_cv.py` | `python scripts/extract_cv.py <file>` | CV 文件路径 | `{ok, source_type, char_count, cv_hash, text_path, cache_hit, cached_profile_path?, warnings}` |
 | `validate_profile.py` | `python scripts/validate_profile.py`（stdin） | LLM 抽取的 CVProfile JSON | `{ok, profile, notes}` |
-| `merge_jobs.py merge` | `… merge --cv-hash H --cp-hash H`（stdin） | 候选职位数组 | `{to_analyze, to_score_only, cached, stats}` |
-| `merge_jobs.py update` | `… update --cv-hash H --cp-hash H`（stdin） | 打分结果数组 | `{ok, updated}` |
+| `merge_jobs.py merge` | `… merge --cv-hash H --cp-hash H`（stdin） | 候选职位数组 | `{to_analyze, to_score_only, in_evaluation, cached, eval_run, stats}` |
+| `merge_jobs.py update` | `… update --cv-hash H --cp-hash H --run-id R`（stdin） | 带快照元数据的打分结果数组 | `{ok, updated, rebased, rejected, conflicts, released}` |
 | `verify_jobs.py` | `python scripts/verify_jobs.py`（stdin） | URL 数组 | `{results:[{url, alive, reason, final_url}]}` |
 | `fetch_rendered.py` | `python scripts/fetch_rendered.py <url>` | 单 URL | `{ok, text, browser_used}` 或 `{ok:false, error}` |
 | `cp_hash.py` | `python scripts/cp_hash.py`（stdin） | candidate_profile JSON | `{ok, cp_hash}`（规范化后稳定 hash） |
@@ -63,7 +64,8 @@
 
 ### 4. 检索职位（web 搜索 + 脚本，自适应分批）
 - 按 search_playbook 自适应分批：每批执行若干条 query 的 **web 搜索**（有子代理则并行委派、各 1 次搜索；否则你逐条搜），按 search_playbook「搜索职责」解析+三维初筛，得结构化职位数组。
-- 汇总 → `merge_jobs.py merge` → `{to_analyze, to_score_only, cached, stats}`。
+- 汇总 → `merge_jobs.py merge` → `{to_analyze, to_score_only, in_evaluation, cached, eval_run, stats}`。
+- `merge` 同时创建 `data/eval_runs/<run_id>.json` 评估任务快照，并在 `eval_run` 返回路径。`in_evaluation` 中的职位已有未完成任务，不要重复委派。
 - 按 stats 判断是否追加下一批（阈值/上限/连续空批见 playbook）。
 - 一行进度：`第N批 搜X条→候选Y→新Z/缓存W`。
 
@@ -71,7 +73,9 @@
 - **粗排**：对 `to_analyze`+`to_score_only` 用 snippet 做 5 维快速估分排序（有子代理则分片并行）。
 - **精排**：取 Top-(top_n+precise_buffer) → 抓 JD 全文（用**抓取**能力或回退脚本）→ 抽 jd_profile + 精确 5 维打分；`to_score_only` 复用已有 jd_profile 只打分。
 - **失效验证**（精排 Top-N）：`verify_jobs.py` 查死链；`possibly_closed` 的走容错阶梯确认；失效则剔除、从次位递补。
-- 写回：`merge_jobs.py update`（喂 `[{dedup_key, jd_profile, match_score, verified, scored_from}]`）。
+- 每个 worker 必须原样回传任务中的 `dedup_key`、`base_record_version`、`jd_input_hash`，再附加 `jd_profile`、`match_score`、`verified`、`scored_from`。不得回传或覆盖 title/company/url/source 等搜索字段。
+- 写回：`merge_jobs.py update --run-id <eval_run.run_id>`。脚本会校验评分契约，只合并评估字段；搜索期间仅来源等非评估输入变化时安全 rebase，JD 输入变化时报告 conflict 并拒绝旧结果。
+- 同一 run 可增量提交多个 worker 结果；全部任务完成或被判定为冲突后 `released:true`，任务快照自动释放并在 `data/eval_runs/history.jsonl` 留一条不含 CV/JD 正文的运行摘要。冲突职位由后续 `merge` 重新建立新快照。
 
 ### 6. 生成报告（脚本）
 - 写 `data/run_meta.json`：`{profile_summary, new_count, cached_count, lang}`（lang = CVProfile.search_language）。
@@ -95,3 +99,4 @@
 - 失败一律**降级不阻塞**；搜 0 结果/全失效时如实告知并建议放宽条件。
 - 大块文本留子代理/文件，上下文只放路径与小 JSON。
 - 不臆造职位或字段；CV 含 PII，数据落 `data/`（已 .gitignore）。
+- 并行只用于搜索、抓取和评估计算；所有 `merge/update` 由编排者串行提交。脚本仍使用跨进程锁和原子替换防止误并发及中断损坏。

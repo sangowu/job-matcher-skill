@@ -17,7 +17,7 @@
 - 🔎 **实时职位检索**：基于 WebSearch 自适应分批搜索，按 CV 语言切换市场（中/英）。
 - 🎯 **5 维匹配打分**：title / seniority / skills / location / must-have，输出五档投递建议（强烈投递→跳过）。
 - 🗂️ **增量缓存**：CV、JD、匹配分三层缓存；多来源同职位自动聚合；换 query 自动失效重算。
-- 📊 **可交互报告**：两栏布局（左职位列表 30% + 右详情 70%）+ 评分徽章 + 深色模式 + 排序/筛选/搜索 + 中英 i18n，自包含单文件 HTML。
+- 📊 **可交互报告**：两栏布局（左职位列表 30% + 右详情 70%）+ 评分徽章 + 深色模式 + 排序/筛选/搜索 + 7/30 天运行健康快照 + 中英 i18n，自包含单文件 HTML。
 
 ## 🏗️ 架构
 
@@ -115,7 +115,7 @@ python scripts/summarize_metrics.py --days 30 --format json
 python scripts/summarize_metrics.py --fail-on-breach
 ```
 
-报告包含吞吐/缓存、评估成功/拒绝/冲突率、命令与锁等待 p50/p95/p99，以及活跃 run、pending task 和最老积压时间。默认阈值违规时状态为 `degraded`；`--fail-on-breach` 同时返回退出码 2。字段定义、隐私边界和接入方式见 [运行时监控文档](docs/monitoring.md)。
+报告包含吞吐/缓存、评估成功/拒绝/冲突率、命令与锁等待 p50/p95/p99，以及活跃 run、pending task 和最老积压时间。每次生成 HTML 时会自动嵌入 7/30 天静态快照，可从顶部状态入口查看；默认阈值违规时状态为 `degraded`。CLI 的 `--fail-on-breach` 同时返回退出码 2。字段定义、隐私边界和接入方式见 [运行时监控文档](docs/monitoring.md)。
 
 ## 🔧 依赖
 

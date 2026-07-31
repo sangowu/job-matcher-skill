@@ -4,6 +4,7 @@ Job Matcher 是本地 CLI skill，不需要常驻 Prometheus 服务。运行监�
 
 - `data/metrics.jsonl`：每次 `merge` / `update` 的结构化事件。
 - `scripts/summarize_metrics.py`：按时间窗口汇总健康状态、比率、分位数和队列积压。
+- `scripts/render_html.py`：每次生成职位报告时自动计算 7/30 天快照并嵌入 HTML。
 
 ## 使用
 
@@ -19,6 +20,12 @@ python scripts/summarize_metrics.py --fail-on-breach
 ```
 
 没有运行数据时脚本仍会正常输出报告，状态为 `no_data`；无样本的比率和分位数显示为 `null` / `n/a`，不会被误判为 0 或 `healthy`。
+
+## HTML 报告展示
+
+每次运行 `render_html.py` 时会读取同一份 PII-safe 指标和活跃评估清单，自动计算最近 7 天与 30 天的健康快照。职位报告顶部显示状态入口；点击后可在全屏监控层中切换窗口，查看关键指标和阈值告警。
+
+这是生成时快照，不是常驻实时页面：打开报告后不会轮询本地文件，下一次生成报告时才会更新。摘要计算失败不会阻断职位报告，监控区只显示 `unavailable`，不会嵌入原始异常文本或本地路径。`render_html.py` 的 JSON 输出额外包含当前 7 天窗口的 `health_status` 与 `health_breaches`。
 
 ## 事件字段
 
@@ -90,4 +97,5 @@ python scripts/summarize_metrics.py --fail-on-breach
 - 指标文件是本地 append-only JSONL，当前不自动压缩或清理。
 - 文件锁只覆盖同一文件系统，不提供跨主机协调。
 - 没有主动通知渠道；`--fail-on-breach` 可接入 Windows Task Scheduler、cron 或后续告警系统。
+- HTML 中展示的是报告生成时的 7/30 天静态快照，不会自动刷新或提供历史趋势图。
 - 若将来改造成常驻服务，再考虑将相同低基数指标导出到 Prometheus/OpenTelemetry。

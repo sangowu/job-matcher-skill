@@ -2,13 +2,14 @@
 """模块6：渲染静态 HTML 报告。
 
 读 jobs_table.json，按当前 cv_hash:cp_hash 取 match_score 展平职位，
-注入 assets/template.html（占位符替换，零第三方依赖），输出自包含 HTML 并自动打开。
+注入 assets/template.html（占位符替换，零第三方依赖），同时嵌入 7/30 天
+PII-safe 运行健康快照，输出自包含 HTML 并自动打开。
 
 用法:
   python render_html.py --cv-hash H --cp-hash H [--meta-file F] [--no-open]
 
 meta-file(可选 JSON): {profile_summary, new_count, cached_count, lang}
-输出: {"ok": true, "report_path": "...", "job_count": N}
+输出: {"ok": true, "report_path": "...", "job_count": N, "health_status": "..."}
 """
 from __future__ import annotations
 
@@ -17,14 +18,58 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from _jobutil import load_config
+from runtime_metrics import DEFAULT_THRESHOLDS, build_summaries
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = SKILL_ROOT / "data"
 TABLE_PATH = DATA_DIR / "jobs_table.json"
 TEMPLATE_PATH = SKILL_ROOT / "assets" / "template.html"
 REPORTS_DIR = DATA_DIR / "reports"
+METRICS_PATH = DATA_DIR / "metrics.jsonl"
+EVAL_RUNS_DIR = DATA_DIR / "eval_runs"
+
+
+def _unavailable_summary(days: int, thresholds: dict) -> dict:
+    generated_at = datetime.now(timezone.utc)
+    return {
+        "schema_version": 1,
+        "generated_at": generated_at.isoformat(),
+        "window": {
+            "days": days,
+            "since": (generated_at - timedelta(days=days)).isoformat(),
+        },
+        "status": "unavailable",
+        "thresholds": thresholds,
+        "breaches": [],
+        "metrics": {},
+    }
+
+
+def build_health_payload() -> dict:
+    """Build static monitoring snapshots without making report rendering depend on them."""
+    config = load_config()
+    configured = config.get("monitoring_thresholds")
+    thresholds = {
+        **DEFAULT_THRESHOLDS,
+        **(configured if isinstance(configured, dict) else {}),
+    }
+    try:
+        return build_summaries(
+            METRICS_PATH,
+            EVAL_RUNS_DIR,
+            days=(7, 30),
+            thresholds=thresholds,
+        )
+    except Exception:
+        # Monitoring is best effort. Do not expose exception text or block the job report.
+        return {
+            f"{days}d": _unavailable_summary(days, thresholds)
+            for days in (7, 30)
+        }
 
 
 def flatten(job: dict, mk: str) -> dict:
@@ -102,11 +147,13 @@ def main() -> None:
 
     mk = f"{args.cv_hash}:{args.cp_hash}"
     jobs = [flatten(j, mk) for j in table.get("jobs", [])]
+    health = build_health_payload()
 
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
     html = (template
             .replace("__JOBS_JSON__", json.dumps(jobs, ensure_ascii=False))
             .replace("__META_JSON__", json.dumps(meta, ensure_ascii=False))
+            .replace("__HEALTH_JSON__", json.dumps(health, ensure_ascii=False))
             .replace("__LANG__", lang))
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -134,8 +181,11 @@ def main() -> None:
     if not args.no_open:
         open_file(out)
 
+    current_health = health["7d"]
     print(json.dumps({"ok": True, "report_path": str(out), "job_count": len(jobs),
-                      "opened": not args.no_open}))
+                      "opened": not args.no_open,
+                      "health_status": current_health["status"],
+                      "health_breaches": len(current_health["breaches"])}))
 
 
 if __name__ == "__main__":

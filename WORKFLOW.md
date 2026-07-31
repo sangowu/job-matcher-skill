@@ -35,7 +35,7 @@
 | `verify_jobs.py` | `python scripts/verify_jobs.py`（stdin） | URL 数组 | `{results:[{url, alive, reason, final_url}]}` |
 | `fetch_rendered.py` | `python scripts/fetch_rendered.py <url>` | 单 URL | `{ok, text, browser_used}` 或 `{ok:false, error}` |
 | `cp_hash.py` | `python scripts/cp_hash.py`（stdin） | candidate_profile JSON | `{ok, cp_hash}`（规范化后稳定 hash） |
-| `render_html.py` | `… --cv-hash H --cp-hash H [--meta-file F]` | jobs_table + meta | `{ok, report_path, job_count}` |
+| `render_html.py` | `… --cv-hash H --cp-hash H [--meta-file F]` | jobs_table + meta + PII-safe metrics | `{ok, report_path, job_count, health_status, health_breaches}` |
 
 指令文档（按需读）：`references/cv_schema.md`、`references/scoring_rubric.md`、`references/search_playbook.md`。配置：`config.json`。
 
@@ -81,6 +81,7 @@
 ### 6. 生成报告（脚本）
 - 写 `data/run_meta.json`：`{profile_summary, new_count, cached_count, lang}`（lang = CVProfile.search_language）。
 - `python scripts/render_html.py --cv-hash H --cp-hash H --meta-file data/run_meta.json` → 生成并**自动打开报告**。
+- 渲染时自动计算并嵌入最近 7/30 天运行健康静态快照；顶部状态入口可查看关键指标和阈值告警。监控计算失败只显示 `unavailable`，不阻断职位报告。
 - ⚠ 每轮**只在这里 render 一次**；返回的 `opened: true` 表示报告**已自动打开**，**不要再手动打开报告**（os.startfile / 浏览器 / 重复 render 都不要），否则会打开多次。
 - 把 `report_path` 告诉用户。
 

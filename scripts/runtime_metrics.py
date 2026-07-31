@@ -261,18 +261,16 @@ def _breach(
         })
 
 
-def build_summary(
-    metrics_path: Path,
-    eval_runs_dir: Path,
+def _build_summary_from_events(
+    events: list[dict],
+    malformed_events: int,
+    queue: dict,
     *,
-    days: int = 7,
-    thresholds: dict | None = None,
-    now: datetime | None = None,
+    current: datetime,
+    days: int,
+    limits: dict,
 ) -> dict:
-    current = (now or utc_now()).astimezone(timezone.utc)
     since = current - timedelta(days=days)
-    limits = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
-    events, malformed_events = load_events(metrics_path, since)
     merge_events = [event for event in events if event.get("operation") == "merge" and event.get("ok") is True]
     update_events = [event for event in events if event.get("operation") == "update" and event.get("ok") is True]
     failed_events = [event for event in events if event.get("ok") is False]
@@ -286,7 +284,6 @@ def build_summary(
     cached = sum(_number(event, "cached") for event in merge_events)
     durations = [_number(event, "duration_ms") for event in events if _number(event, "duration_ms") >= 0]
     lock_waits = [_number(event, "lock_wait_ms") for event in events if _number(event, "lock_wait_ms") >= 0]
-    queue = queue_snapshot(eval_runs_dir, current)
     write_failures = sum(1 for event in failed_events if event.get("failure_kind") == "data_store_write")
 
     metrics = {
@@ -369,6 +366,70 @@ def build_summary(
         "breaches": breaches,
         "metrics": metrics,
     }
+
+
+def build_summary(
+    metrics_path: Path,
+    eval_runs_dir: Path,
+    *,
+    days: int = 7,
+    thresholds: dict | None = None,
+    now: datetime | None = None,
+) -> dict:
+    current = (now or utc_now()).astimezone(timezone.utc)
+    limits = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
+    events, malformed_events = load_events(metrics_path, current - timedelta(days=days))
+    queue = queue_snapshot(eval_runs_dir, current)
+    return _build_summary_from_events(
+        events,
+        malformed_events,
+        queue,
+        current=current,
+        days=days,
+        limits=limits,
+    )
+
+
+def build_summaries(
+    metrics_path: Path,
+    eval_runs_dir: Path,
+    *,
+    days: tuple[int, ...] = (7, 30),
+    thresholds: dict | None = None,
+    now: datetime | None = None,
+) -> dict[str, dict]:
+    """Build multiple windows with one metrics-file read and one queue scan."""
+    windows = tuple(dict.fromkeys(days))
+    if not windows or any(day <= 0 for day in windows):
+        raise ValueError("days must contain positive windows")
+    current = (now or utc_now()).astimezone(timezone.utc)
+    limits = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
+    events, malformed_events = load_events(
+        metrics_path,
+        current - timedelta(days=max(windows)),
+    )
+    stamped_events = [
+        (_parse_timestamp(event.get("timestamp")), event)
+        for event in events
+    ]
+    queue = queue_snapshot(eval_runs_dir, current)
+    summaries = {}
+    for window in windows:
+        since = current - timedelta(days=window)
+        window_events = [
+            event
+            for timestamp, event in stamped_events
+            if timestamp is not None and timestamp >= since
+        ]
+        summaries[f"{window}d"] = _build_summary_from_events(
+            window_events,
+            malformed_events,
+            queue,
+            current=current,
+            days=window,
+            limits=limits,
+        )
+    return summaries
 
 
 def render_markdown(summary: dict) -> str:

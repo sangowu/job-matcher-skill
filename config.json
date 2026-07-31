@@ -12,5 +12,17 @@
   "headless_budget": 3,
   "report_keep_history": true,
   "table_lock_timeout_seconds": 10,
-  "stale_lock_seconds": 120
+  "stale_lock_seconds": 120,
+  "monitoring_default_window_days": 7,
+  "monitoring_thresholds": {
+    "conflict_rate_max": 0.02,
+    "rejected_rate_max": 0.01,
+    "evaluation_success_rate_min": 0.98,
+    "lock_wait_p95_ms_max": 100,
+    "oldest_pending_age_minutes_max": 30,
+    "failed_events_max": 0,
+    "write_failures_max": 0,
+    "malformed_events_max": 0,
+    "malformed_manifests_max": 0
+  }
 }

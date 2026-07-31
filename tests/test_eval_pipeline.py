@@ -29,6 +29,7 @@ def isolated_store(monkeypatch, tmp_path):
     monkeypatch.setattr(merge_jobs, "EVAL_RUNS_DIR", data_dir / "eval_runs")
     monkeypatch.setattr(merge_jobs, "EVAL_HISTORY_PATH", data_dir / "eval_runs" / "history.jsonl")
     monkeypatch.setattr(merge_jobs, "LOCK_PATH", data_dir / "jobs_table.lock")
+    monkeypatch.setattr(merge_jobs, "METRICS_PATH", data_dir / "metrics.jsonl")
     monkeypatch.setattr(
         merge_jobs,
         "load_config",
@@ -122,6 +123,11 @@ def test_merge_creates_minimal_versioned_eval_snapshot(isolated_store, monkeypat
     assert task["status"] == "pending"
     assert "cv_text" not in task
     assert "match_scores" not in task
+    assert output["metrics_recorded"] is True
+    metric = json.loads((isolated_store / "metrics.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert metric["operation"] == "merge"
+    assert metric["newly_added"] == 1
+    assert "cv_hash" not in metric and "run_id" not in metric and "dedup_key" not in metric
 
 
 def test_search_can_overlap_evaluation_without_losing_sources(isolated_store, monkeypatch, capsys):
@@ -131,6 +137,7 @@ def test_search_can_overlap_evaluation_without_losing_sources(isolated_store, mo
 
     enriched = candidate(url="https://linkedin.com/jobs/view/123", source="linkedin")
     second = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [enriched], "cv", "cp")
+    assert second["stats"]["new"] == 0
     assert second["eval_run"] is None
     assert second["stats"]["in_evaluation"] == 1
 
@@ -264,6 +271,27 @@ def test_corrupt_canonical_table_fails_closed(isolated_store):
 
     with pytest.raises(merge_jobs.DataStoreError, match="cannot read valid JSON"):
         merge_jobs._load(table_path)
+
+
+def test_cli_failure_records_sanitized_runtime_metric(isolated_store, monkeypatch, capsys):
+    isolated_store.mkdir(parents=True, exist_ok=True)
+    (isolated_store / "jobs_table.json").write_text("{not valid JSON", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", [
+        "merge_jobs.py", "merge", "--cv-hash", "secret-cv", "--cp-hash", "secret-cp",
+    ])
+    monkeypatch.setattr(sys, "stdin", BinaryStdin([]))
+
+    with pytest.raises(SystemExit) as raised:
+        merge_jobs.main()
+
+    assert raised.value.code == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["metrics_recorded"] is True
+    metric_text = (isolated_store / "metrics.jsonl").read_text(encoding="utf-8")
+    metric = json.loads(metric_text)
+    assert metric["ok"] is False
+    assert metric["failure_kind"] == "data_store_read"
+    assert "secret-cv" not in metric_text and "secret-cp" not in metric_text
 
 
 def test_twenty_concurrent_writers_preserve_parseable_table(isolated_store):

@@ -10,7 +10,7 @@ from pathlib import Path
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from runtime_metrics import build_summary, record_metric, render_markdown  # noqa: E402
+from runtime_metrics import build_summaries, build_summary, record_metric, render_markdown  # noqa: E402
 
 
 def test_record_metric_drops_high_cardinality_and_sensitive_fields(tmp_path):
@@ -136,6 +136,33 @@ def test_summary_distinguishes_no_data_and_ignores_partial_last_line(tmp_path):
     partial = build_summary(metrics_path, tmp_path / "eval_runs", now=now)
     assert partial["metrics"]["malformed_events"] == 0
     assert partial["status"] == "no_data"
+
+
+def test_multi_window_summary_matches_individual_summaries(tmp_path):
+    now = datetime(2026, 7, 31, 12, tzinfo=timezone.utc)
+    metrics_path = tmp_path / "metrics.jsonl"
+    eval_runs_dir = tmp_path / "eval_runs"
+    record_metric(
+        metrics_path,
+        "merge",
+        True,
+        now=now - timedelta(days=10),
+        candidates_in=20,
+        newly_added=4,
+    )
+    record_metric(
+        metrics_path,
+        "update",
+        True,
+        now=now - timedelta(hours=1),
+        results_in=10,
+        updated=10,
+    )
+
+    summaries = build_summaries(metrics_path, eval_runs_dir, now=now)
+
+    assert summaries["7d"] == build_summary(metrics_path, eval_runs_dir, days=7, now=now)
+    assert summaries["30d"] == build_summary(metrics_path, eval_runs_dir, days=30, now=now)
 
 
 def test_concurrent_metric_appends_remain_parseable(tmp_path):

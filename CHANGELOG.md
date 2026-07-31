@@ -12,7 +12,10 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - PII-safe `data/metrics.jsonl` events for merge/update success and failure paths.
 - Runtime duration and lock-wait p50/p95/p99, evaluation rates, queue backlog, and configurable health thresholds.
 - `scripts/summarize_metrics.py` for Markdown/JSON health reports and automation-friendly threshold exits.
+- Automatic 7-day and 30-day health snapshots embedded in every generated HTML report.
+- A header health indicator and full-screen, bilingual monitoring view with KPI cards and threshold alerts.
 - Deterministic tests for metric sanitization, summary calculations, failure recording, and concurrent JSONL appends.
+- Render integration tests for window isolation, no-data/degraded states, graceful monitoring failure, and PII exclusion.
 
 ### Fixed
 

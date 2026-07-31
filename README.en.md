@@ -17,7 +17,7 @@ A lightweight take on [JobRadar](https://github.com/sangowu/JobRadar) — pure a
 - 🔎 **Live job retrieval**: adaptive batched web search; market switches by CV language.
 - 🎯 **5-dimension scoring**: title / seniority / skills / location / must-have, with a five-tier recommendation (strong apply → skip).
 - 🗂️ **Incremental cache**: three-layer cache (CV / JD / match score); multi-source same-job aggregation; auto re-score when the query changes.
-- 📊 **Interactive report**: two-column layout (job list 30% + detail 70%) + score badges + dark mode + sort/filter/search + zh/en i18n, a self-contained single-file HTML.
+- 📊 **Interactive report**: two-column layout (job list 30% + detail 70%) + score badges + dark mode + sort/filter/search + 7/30-day runtime health snapshots + zh/en i18n, a self-contained single-file HTML.
 
 ## 🏗️ Architecture
 
@@ -116,7 +116,7 @@ python scripts/summarize_metrics.py --days 30 --format json
 python scripts/summarize_metrics.py --fail-on-breach
 ```
 
-The report covers throughput/cache behavior, evaluation success/rejection/conflict rates, command and lock-wait p50/p95/p99, plus active runs, pending tasks, and oldest backlog age. Threshold violations produce `degraded`; `--fail-on-breach` also exits with code 2. See [the monitoring guide](docs/monitoring.md) for definitions and privacy boundaries.
+The report covers throughput/cache behavior, evaluation success/rejection/conflict rates, command and lock-wait p50/p95/p99, plus active runs, pending tasks, and oldest backlog age. Every HTML render automatically embeds static 7/30-day snapshots behind the header status control. Threshold violations produce `degraded`; the CLI's `--fail-on-breach` also exits with code 2. See [the monitoring guide](docs/monitoring.md) for definitions and privacy boundaries.
 
 ## 🔧 Dependencies
 

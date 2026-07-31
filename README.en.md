@@ -2,6 +2,8 @@
 
 **English** | [中文](README.md)
 
+Release documentation: [Changelog](CHANGELOG.md) · [v2.0.0 release notes](docs/releases/v2.0.0.md)
+
 > An **agent skill (for Claude Code & Codex)**: give it your **CV + job intent**, and it extracts your CV fields, retrieves matching jobs via **live web search**, and generates an **interactive HTML report**.
 
 A lightweight take on [JobRadar](https://github.com/sangowu/JobRadar) — pure agent-native capabilities (web search + subagents + Python scripts), **zero external services**, borrowing JobRadar's schema, algorithms and UI style.

@@ -2,6 +2,8 @@
 
 [English](README.en.md) | **中文**
 
+版本文档：[更新记录](CHANGELOG.md) · [v2.0.0 发布说明](docs/releases/v2.0.0.md)
+
 > 一个 **agent skill（Claude Code 与 Codex 通用）**：输入**简历(CV) + 求职意向**，自动抽取简历字段、用 **web 搜索实时检索**匹配职位，生成一份**可交互的 HTML 报告**。
 
 是 [JobRadar](https://github.com/sangowu/JobRadar) 的**轻量版**——纯 agent 原生能力（web 搜索 + 子代理 + Python 脚本），**零外部服务依赖**，借鉴 JobRadar 的 schema、算法与界面风格。

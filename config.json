@@ -10,5 +10,7 @@
   "seniority_mode": "balanced",
   "enable_headless_fallback": true,
   "headless_budget": 3,
-  "report_keep_history": true
+  "report_keep_history": true,
+  "table_lock_timeout_seconds": 10,
+  "stale_lock_seconds": 120
 }

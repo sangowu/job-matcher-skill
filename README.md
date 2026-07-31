@@ -22,6 +22,7 @@
 - **主 agent = 编排者**：调脚本、融合 query、追问用户、spawn subagent。
 - **subagent 承担重上下文工作**（CV 抽取 / 搜索 / 打分）：大块原始文本留在 subagent，主上下文只搬「路径 + 小 JSON」，保持整洁。
 - **Python 脚本承担确定性工作**：解析、校验、去重聚合缓存、失效验证、渲染。
+- **并行计算、串行提交**：搜索和评估 worker 可重叠运行；`jobs_table.json` 只有一个写入路径，使用评估快照、跨进程锁和原子替换防止丢失更新。
 
 ```
 CV + query
@@ -29,8 +30,8 @@ CV + query
    │ [缓存检查]                 → 命中则跳过抽取
    │ [subagent] 抽取 CVProfile  → [脚本] validate_profile
    │ [主agent] 融合 query       → search_plan + candidate_profile
-   │ [并行 subagent] WebSearch+解析+初筛 → [脚本] merge_jobs(去重/聚合/缓存)
-   │ [并行 subagent] 粗排→精排抓JD+5维打分 + 失效验证(容错阶梯)
+   │ [并行 subagent] WebSearch+解析+初筛 → [脚本] merge_jobs(去重/聚合/缓存+评估快照)
+   │ [并行 subagent] 粗排→精排抓JD+5维打分 + 失效验证 → [脚本] 条件化回写
    │ [脚本] render_html         → report_*.html（自动打开）
    ▼
 可交互 HTML 报告
@@ -52,7 +53,8 @@ job-matcher/
 ├── scripts/              # 确定性 Python 脚本
 │   ├── extract_cv.py         # 解析 CV → 文本 + hash
 │   ├── validate_profile.py   # 校验 + seniority→levels 映射
-│   ├── merge_jobs.py         # 去重 + 聚合 + 缓存判定（merge/update）
+│   ├── analysis_contract.py  # 校验 JDProfile/MatchScore worker 输出
+│   ├── merge_jobs.py         # 单写入器：去重/缓存/评估快照/条件化回写
 │   ├── verify_jobs.py        # 失效职位状态码检测
 │   ├── fetch_rendered.py     # headless 渲染兜底（复用系统浏览器）
 │   ├── render_html.py        # 渲染 HTML 报告
@@ -93,6 +95,10 @@ agent 会自动识别。然后在对话里：
 | `seniority_mode` | balanced | strict / balanced / stretch |
 | `enable_headless_fallback` | true | headless 兜底开关 |
 | `headless_budget` | 3 | 每次运行 headless 上限 |
+| `table_lock_timeout_seconds` | 10 | 等待主表写锁的最长秒数 |
+| `stale_lock_seconds` | 120 | 回收异常遗留锁的时间阈值 |
+
+运行时只保留一个职位主表 `data/jobs_table.json`。每轮待评估职位写入最小化快照 `data/eval_runs/<run_id>.json`；worker 完成后由主 agent 串行回写评估字段，成功完成的快照会释放，仅在 `history.jsonl` 留下不含 CV/JD 正文的摘要。
 
 ## 🔧 依赖
 

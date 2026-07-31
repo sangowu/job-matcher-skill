@@ -7,6 +7,10 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-07-31
+
+Detailed release notes: [docs/releases/v2.1.0.md](docs/releases/v2.1.0.md).
+
 ### Added
 
 - PII-safe `data/metrics.jsonl` events for merge/update success and failure paths.
@@ -60,4 +64,6 @@ Detailed release notes and migration guidance: [docs/releases/v2.0.0.md](docs/re
 - GitHub Actions: 8/8 tests passed on Ubuntu in 2.12 seconds and Windows in 0.95 seconds.
 - Main CI run: [30623328782](https://github.com/sangowu/job-matcher-skill/actions/runs/30623328782).
 
+[Unreleased]: https://github.com/sangowu/job-matcher-skill/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/sangowu/job-matcher-skill/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/sangowu/job-matcher-skill/compare/v1.0.0...aefbdf9816a0ff17f246eb3c4b501cffa3e51c25

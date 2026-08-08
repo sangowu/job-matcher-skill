@@ -7,6 +7,11 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `[project]` metadata in `pyproject.toml` with `version` as the single source of truth, read at runtime by `_jobutil.skill_version()` and reported by `summarize_metrics.py`.
+- Tests that fail when `pyproject.toml`, the newest `CHANGELOG.md` release heading, and `docs/releases/vX.Y.Z.md` drift apart.
+
 ## [2.2.0] - 2026-08-08
 
 Detailed release notes: [docs/releases/v2.2.0.md](docs/releases/v2.2.0.md).

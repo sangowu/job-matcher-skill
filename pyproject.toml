@@ -1,3 +1,14 @@
+# Metadata only: this skill is consumed by copying the directory into an
+# agent's skills folder, not by installing a wheel, so there is no
+# [build-system] table. `version` is the single source of truth -- read at
+# runtime by _jobutil.skill_version() and checked against CHANGELOG.md by
+# tests/test_version.py.
+[project]
+name = "job-matcher"
+version = "2.2.0"
+description = "Agent skill that turns a CV plus job intent into an interactive job-match report."
+requires-python = ">=3.10"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

@@ -499,6 +499,10 @@ def render_markdown(summary: dict) -> str:
         f"- Status: **{summary['status']}**",
         f"- Window: {summary['window']['days']} days",
         f"- Generated: {summary['generated_at']}",
+    ]
+    if summary.get("skill_version"):
+        lines.append(f"- Skill version: {summary['skill_version']}")
+    lines += [
         "",
         "| Metric | Value |",
         "|---|---:|",

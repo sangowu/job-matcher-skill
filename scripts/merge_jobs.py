@@ -306,9 +306,33 @@ def _active_eval_keys() -> set[str]:
     return active
 
 
+def _absorb(agg: dict, candidate: dict, src: dict) -> None:
+    """把一条候选并入本批已有的聚合条目。"""
+    srcs = {rs["source"] for rs in agg["raw_sources"]}
+    if src["source"] not in srcs:
+        agg["raw_sources"].append(src)
+    elif src["url"]:
+        # 同源不同 URL（如列表页+详情页）：URL 不能丢，
+        # 记入 alt_urls 供 all_url_keys 强命中用。
+        known = {rs.get("url") for rs in agg["raw_sources"]} | set(agg.get("alt_urls", []))
+        known.add(agg.get("url", ""))
+        if src["url"] not in known:
+            agg.setdefault("alt_urls", []).append(src["url"])
+    for field in ("location", "snippet", "salary", "date_posted", "url"):
+        if not agg.get(field) and candidate.get(field):
+            agg[field] = candidate[field]
+
+
 def _aggregate_batch(candidates: list) -> dict:
-    """本批内按 dedup_key 聚合，合并 raw_sources（按 source 去重）。"""
+    """本批内聚合：先按 dedup_key，再按 url_key 兜底。
+
+    只按 dedup_key 聚合会漏掉「同一职位、URL 里 job-id 相同、但招聘站改写了
+    标题」的情况（AI Engineer → Senior AI Engineer）。这类条目要等到表级
+    url_key 比对才合并，那时评估已经按两条派发出去、白白多花一次 LLM 调用。
+    这里补一层批内 url_key 索引，把它们在派发前就并成一条。
+    """
     batch: dict[str, dict] = {}
+    by_url_key: dict[str, str] = {}
     for c in candidates:
         if not isinstance(c, dict):
             continue
@@ -320,22 +344,20 @@ def _aggregate_batch(candidates: list) -> dict:
             "url": c.get("url", ""),
             "date_posted": c.get("date_posted", ""),
         }
-        if dk in batch:
-            agg = batch[dk]
-            srcs = {rs["source"] for rs in agg["raw_sources"]}
-            if src["source"] not in srcs:
-                agg["raw_sources"].append(src)
-            elif src["url"]:
-                # 同源不同 URL（如列表页+详情页）：URL 不能丢，
-                # 记入 alt_urls 供 all_url_keys 强命中用。
-                known = {rs.get("url") for rs in agg["raw_sources"]} | set(agg.get("alt_urls", []))
-                known.add(agg.get("url", ""))
-                if src["url"] not in known:
-                    agg.setdefault("alt_urls", []).append(src["url"])
-            for f in ("location", "snippet", "salary", "date_posted", "url"):
-                if not agg.get(f) and c.get(f):
-                    agg[f] = c[f]
+        candidate_keys = all_url_keys({"url": c.get("url", "")})
+
+        # dedup_key 命中优先（公司+职位名一致即同一职位）；否则看 url_key。
+        target = dk if dk in batch else None
+        if target is None:
+            for key in candidate_keys:
+                if key in by_url_key:
+                    target = by_url_key[key]
+                    break
+
+        if target is not None:
+            _absorb(batch[target], c, src)
         else:
+            target = dk
             batch[dk] = {
                 "dedup_key": dk,
                 "title": c.get("title", ""),
@@ -347,6 +369,8 @@ def _aggregate_batch(candidates: list) -> dict:
                 "date_posted": c.get("date_posted", ""),
                 "raw_sources": [src],
             }
+        for key in candidate_keys:
+            by_url_key.setdefault(key, target)
     return batch
 
 

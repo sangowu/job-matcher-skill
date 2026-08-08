@@ -9,6 +9,8 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Overlapped orchestration guidance in `WORKFLOW.md` and `SKILL.md`: batch N evaluation workers and batch N+1 search workers are spawned in the same message, backed by the existing eval-run snapshot/conflict machinery; `max_parallel_subagents` is documented as a shared global budget (1 search + 2 evaluation during overlap).
+- One-stop precise-ranking worker guidance: fetch JD, extract `jd_profile`, and score inside a single subagent, keeping the full JD text out of the orchestrator context.
 - Regional job-platform URL canonicalization (liepin, zhipin, lagou, seek, reed) so cross-source dedup gets exact `url_key` hits outside the international ATS ecosystem.
 - Multi-market site strategy in `search_playbook.md` (Ireland/UK, continental Europe, Australia/NZ, mainland China, plus a locale-inference rule for other markets).
 - Query-variant dedup rule in `search_playbook.md`: seniority/stack modifiers on the same role no longer spend extra websearch budget.

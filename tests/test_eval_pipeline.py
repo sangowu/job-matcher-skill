@@ -264,6 +264,26 @@ def test_one_hundred_interleaved_search_updates_are_preserved(isolated_store, mo
     assert all(job["match_scores"]["cv:cp"]["overall_score"] == 80 for job in jobs)
 
 
+def test_same_source_second_url_is_kept_as_url_key(isolated_store, monkeypatch, capsys):
+    listing = candidate(url="https://www.seek.com.au/jobs/in-dublin", source="seek")
+    detail = candidate(url="https://www.seek.com.au/job/81234567", source="seek")
+
+    output = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [listing, detail], "cv", "cp")
+
+    assert output["stats"]["deduped"] == 1
+    job = load_table(isolated_store)["jobs"][0]
+    assert "seek:81234567" in job["url_keys"]
+
+    # 后续单独出现详情页 URL 时应强命中同一条记录，而不是新增职位
+    followup = invoke(
+        monkeypatch, capsys, merge_jobs.cmd_merge,
+        [candidate(title="Renamed Role", url="https://www.seek.com.au/job/81234567", source="seek")],
+        "cv", "cp",
+    )
+    assert followup["stats"]["new"] == 0
+    assert len(load_table(isolated_store)["jobs"]) == 1
+
+
 def test_stale_eval_run_is_abandoned_and_jobs_released(isolated_store, monkeypatch, capsys):
     first = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
     run_path = Path(first["eval_run"]["path"])

@@ -25,17 +25,26 @@ locations : CV.preferred_locations + (remote if open_to_remote)  ← query 不�
 
 ### search_plan 生成（≤5 条，有序）
 - `roles`：取 top-2，并对每个做 **LLM 适度同义扩展**（2-3 个变体，含目标语言写法）。
+  - **变体去重**：只保留"方向不同"的变体（如 AI Engineer vs ML Engineer vs 算法工程师）；
+    仅加了资历/技术栈修饰的变体（Senior / Junior / Python / Staff + 同一 role）**不算新 query**——
+    搜索引擎对这类词返回高度重叠，白白消耗 `max_websearch_calls`（仅 6 次）。
 - `locations`：CV 地点 + remote，取 top-2。
 - 组合：主role×主地点(P1) > 主role×次地点(P2) > 次role×主地点(P3)… ≤4 条 + 1 条站点定向 = **≤5**。
 - `query_string`：加 `jobs / hiring / careers` 等词，提升招聘页命中、利于解析出 company+title。
 - `language` = `CVProfile.search_language`（**CV 语言**）。
 
-### 按 CV 语言分市场
-| search_language | 站点策略 |
-|-----------------|---------|
-| `en` | 可加 `site:` 定向：greenhouse.io / lever.co / linkedin.com/jobs / ashbyhq.com |
-| `zh` | 不用 site 限定（或本地站如 zhipin/lagou/liepin）；用中文职位词 |
-| 其他 | 不限定站点，纯关键词 |
+### 按市场分站点策略（search_language + 地点共同决定）
+| 市场 | 站点策略 |
+|------|---------|
+| 国际 ATS（任何英语地点通用） | 可加 `site:` 定向：greenhouse.io / lever.co / linkedin.com/jobs / ashbyhq.com |
+| 爱尔兰 / 英国 | 上行 + irishjobs.ie / jobs.ie / reed.co.uk / cv-library.co.uk |
+| 欧陆（德/法/西等） | stepstone / indeed 本地域名 / infojobs（西）；职位词用当地语言+英语双写 |
+| 澳大利亚 / 新西兰 | seek.com.au / seek.co.nz |
+| 中国大陆 | 不用 site 限定（或 zhipin / lagou / liepin）；用中文职位词 |
+| 其他市场 | 不限定站点，纯关键词；**按地点推断当地主流招聘平台**，把平台名拼进 query（如 "堪培拉 AI engineer seek"） |
+
+规则：先按 `search_language` 选职位词语言，再按目标地点叠加当地平台；不确定当地平台时
+用一条 query 先探测（"<城市> top job sites"型判断交给你自己的常识，不额外消耗搜索预算）。
 
 ### candidate_profile 输出
 ```json

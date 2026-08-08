@@ -325,6 +325,13 @@ def _aggregate_batch(candidates: list) -> dict:
             srcs = {rs["source"] for rs in agg["raw_sources"]}
             if src["source"] not in srcs:
                 agg["raw_sources"].append(src)
+            elif src["url"]:
+                # 同源不同 URL（如列表页+详情页）：URL 不能丢，
+                # 记入 alt_urls 供 all_url_keys 强命中用。
+                known = {rs.get("url") for rs in agg["raw_sources"]} | set(agg.get("alt_urls", []))
+                known.add(agg.get("url", ""))
+                if src["url"] not in known:
+                    agg.setdefault("alt_urls", []).append(src["url"])
             for f in ("location", "snippet", "salary", "date_posted", "url"):
                 if not agg.get(f) and c.get(f):
                     agg[f] = c[f]

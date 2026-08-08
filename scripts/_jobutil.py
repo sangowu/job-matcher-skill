@@ -41,39 +41,54 @@ def make_dedup_key(company: str, title: str) -> str:
     return f"{normalize_company(company)}|{normalize_title(title)}"
 
 
-# ── 失效职位关键词（移植自 schemas._CLOSED_PATTERN）──────────────────────────────
-_CLOSED_PATTERN = re.compile(
-    r"\b("
-    r"applications?\s+(are\s+)?(now\s+)?(closed|ended|no longer accepted)"
-    r"|no longer (accepting|available|open)"
-    r"|position (has been |is )?(filled|closed|removed)"
-    r"|this (job|position|vacancy|role) (is|has been|has) (closed|expired|filled|removed)"
-    r"|job (is\s+)?no longer available"
-    r"|vacancy (is\s+)?(closed|filled)"
-    r"|(posting|listing|advert|advertisement)\s+(has\s+)?(expired|been removed)"
-    r"|expired on indeed"
-    r"|this exact role may not be open"
-    r"|posting is to advertise potential job opportunities"
-    r"|该职位已(关闭|下线|结束|停止招聘)"
-    r"|职位已(关闭|下线|失效)"
-    r"|停止招聘"
-    r")\b",
-    re.IGNORECASE,
-)
+# ── 失效职位关键词（移植自 schemas._CLOSED_PATTERN，按语言分组便于扩展）─────────────
+# 关键词只覆盖已收录语言的确定性信号；其他语言/模糊表述由精排 LLM 兜底判断
+# （见 references/scoring_rubric.md「失效判断」）。新增语言时追加一个分组即可。
+_CLOSED_PATTERNS: list[re.Pattern] = [
+    # en
+    re.compile(
+        r"\b("
+        r"applications?\s+(are\s+)?(now\s+)?(closed|ended|no longer accepted)"
+        r"|no longer (accepting|available|open)"
+        r"|position (has been |is )?(filled|closed|removed)"
+        r"|this (job|position|vacancy|role) (is|has been|has) (closed|expired|filled|removed)"
+        r"|job (is\s+)?no longer available"
+        r"|vacancy (is\s+)?(closed|filled)"
+        r"|(posting|listing|advert|advertisement)\s+(has\s+)?(expired|been removed)"
+        r"|expired on indeed"
+        r"|this exact role may not be open"
+        r"|posting is to advertise potential job opportunities"
+        r")\b",
+        re.IGNORECASE,
+    ),
+    # zh（中文无词边界，不用 \b）
+    re.compile(
+        r"该职位已(关闭|下线|结束|停止招聘)"
+        r"|职位已(关闭|下线|失效)"
+        r"|停止招聘"
+    ),
+]
 
 
 def is_closed_posting(text: str) -> bool:
-    return bool(text) and bool(_CLOSED_PATTERN.search(text))
+    return bool(text) and any(pattern.search(text) for pattern in _CLOSED_PATTERNS)
 
 
 # ── URL 规范化 → url_key（缓存命中键）────────────────────────────────────────────
-# 主流招聘平台的 job-id 提取规则：命中即作为精确主键
+# 主流招聘平台的 job-id 提取规则：命中即作为精确主键。
+# 覆盖国际 ATS + 各区域主流招聘站（中国/澳新/英国），保证多地区搜索下
+# 同一职位的不同落地 URL 能强命中同一个 url_key。
 _PLATFORM_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("greenhouse", re.compile(r"greenhouse\.io/[^/]+/jobs/(\d+)", re.I)),
     ("lever", re.compile(r"lever\.co/[^/]+/([0-9a-f]{8}-[0-9a-f-]{20,})", re.I)),
     ("linkedin", re.compile(r"linkedin\.com/jobs/view/(\d+)", re.I)),
     ("ashby", re.compile(r"ashbyhq\.com/[^/]+/([0-9a-f]{8}-[0-9a-f-]{20,})", re.I)),
     ("workday", re.compile(r"myworkdayjobs\.com/.+/job/[^/]+/[^/]*?_(R-?\d+)", re.I)),
+    ("liepin", re.compile(r"liepin\.com/(?:[a-z]+/)?job/(\d+)", re.I)),
+    ("zhipin", re.compile(r"zhipin\.com/job_detail/([0-9a-z~_-]+)\.html", re.I)),
+    ("lagou", re.compile(r"lagou\.com/(?:wn/)?jobs/(\d+)", re.I)),
+    ("seek", re.compile(r"seek\.(?:com\.au|co\.nz)/job/(\d+)", re.I)),
+    ("reed", re.compile(r"reed\.co\.uk/jobs/[^/]+/(\d+)", re.I)),
 ]
 
 # job-id 类参数：规范化时保留（小写比较）
@@ -126,11 +141,14 @@ def canonicalize_url(url: str) -> str:
 
 
 def all_url_keys(job: dict) -> list[str]:
-    """一个职位（含多来源）的全部 url_key。"""
+    """一个职位（含多来源与同源备用 URL）的全部 url_key。"""
     urls = [job.get("url", "")]
     for rs in job.get("raw_sources") or []:
         if isinstance(rs, dict) and rs.get("url"):
             urls.append(rs["url"])
+    for alt in job.get("alt_urls") or []:
+        if isinstance(alt, str) and alt:
+            urls.append(alt)
     keys = []
     for u in urls:
         k = canonicalize_url(u)

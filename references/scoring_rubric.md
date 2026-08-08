@@ -41,22 +41,38 @@
 overall_score = 0.25*title + 0.25*skills + 0.25*must_have + 0.15*seniority + 0.10*location
 ```
 技能匹配用语义等价（Python≈Python3，K8s≈Kubernetes）。
+**overall_score 永远等于加权和**（校验容差 ±0.2），不允许单独改 overall——
+要压低总分就压低对应维度分（见下面的硬规则）。
+
+## 资历硬规则（确定性，先于主观判断）
+
+维度分先按语义打，再套用以下**上限**（取二者较小值）：
+
+| 条件 | 强制上限 |
+|------|---------|
+| 候选人为 new_grad/intern 且 JD 要求 ≥3 年经验 | `seniority_score ≤ 15` |
+| 候选人为 junior 且 JD 要求 ≥5 年经验 | `seniority_score ≤ 25` |
+| JD 资历落在候选人 `blocked_seniority_levels` | `seniority_score ≤ 10` |
+| JD 资历落在 `stretch_seniority_levels` | `seniority_score ≤ 70`，倾向 `stretch_apply` |
 
 ## 候选人硬约束过滤（来自 candidate_profile）
-打分前先过滤——**命中即直接 `recommendation = "skip"`、overall 置低**：
+命中以下任一 → `recommendation = "skip"`，并**通过压维度分把 overall 压低**
+（把不满足的对应维度打 0–20：薪资/工作模式/雇佣类型问题压 `must_have_score`，
+deal_breaker 性质问题压 `must_have_score` 和 `title_score`），overall 仍为加权和：
 - `hard_filters` 不满足（如薪资低于下限、要求 remote 但职位 onsite、雇佣类型不符）。
 - 命中 `deal_breakers`（如"纯外包"、"需 996"、"实习"）。
 
-## recommendation 五档（按 overall_score）
+## recommendation 五档（按 overall_score，与 JobRadar 同口径）
 | 档 | 阈值 |
 |----|------|
 | `strong_apply` | ≥ 85 |
 | `apply` | ≥ 70 |
-| `stretch_apply` | ≥ 55 |
-| `low_priority` | ≥ 40 |
-| `skip` | < 40 或 命中硬约束/deal_breaker |
+| `stretch_apply` | ≥ 60 |
+| `low_priority` | ≥ 20 |
+| `skip` | < 20 或 命中硬约束/deal_breaker |
 
-seniority 落在 `stretch_levels` 的，倾向 `stretch_apply`。
+**只许降档，不许升档**：recommendation 可以比分数档更保守（如 90 分但有硬伤 → `skip`），
+但不能比分数档更激进（如 50 分给 `apply` 会被 update 拒收）。
 
 ## 输出 MatchScore
 ```json

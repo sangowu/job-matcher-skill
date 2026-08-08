@@ -7,6 +7,13 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Recommendation thresholds now match JobRadar: `stretch_apply` ≥ 60 (was 55) and `low_priority` ≥ 20 (was 40).
+- `scoring_rubric.md` adds deterministic seniority caps (ported from JobRadar's profile guards) and clarifies that hard-filter/deal-breaker hits lower `overall_score` by lowering the affected dimension scores, never by editing the weighted total directly.
+- `analysis_contract.py` rejects recommendations more aggressive than the score band (downgrades stay allowed), so an evaluation can no longer pair a low score with `apply`.
+- `_CLOSED_PATTERN` covers JobRadar's newer evergreen-posting phrases ("this exact role may not be open", "posting is to advertise potential job opportunities").
+
 ### Security
 
 - Escape `</` when embedding job/meta/health JSON into the HTML report so external job content cannot break out of the inline `<script>` block.

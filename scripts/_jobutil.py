@@ -52,6 +52,8 @@ _CLOSED_PATTERN = re.compile(
     r"|vacancy (is\s+)?(closed|filled)"
     r"|(posting|listing|advert|advertisement)\s+(has\s+)?(expired|been removed)"
     r"|expired on indeed"
+    r"|this exact role may not be open"
+    r"|posting is to advertise potential job opportunities"
     r"|该职位已(关闭|下线|结束|停止招聘)"
     r"|职位已(关闭|下线|失效)"
     r"|停止招聘"

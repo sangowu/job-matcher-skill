@@ -26,6 +26,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - `_aggregate_batch` no longer drops a second URL from the same source within one batch (listing page + detail page); extra URLs are kept as `alt_urls` and feed `all_url_keys` for exact matching.
+- `_aggregate_batch` now falls back to `url_key` matching after `dedup_key`, so an aggregator re-listing with a rewritten title (same job id in the URL) is collapsed before evaluation is dispatched instead of after, removing one wasted LLM evaluation per occurrence.
 
 ### Security
 

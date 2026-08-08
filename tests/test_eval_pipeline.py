@@ -284,6 +284,44 @@ def test_same_source_second_url_is_kept_as_url_key(isolated_store, monkeypatch, 
     assert len(load_table(isolated_store)["jobs"]) == 1
 
 
+def test_retitled_duplicate_in_one_batch_costs_a_single_evaluation(isolated_store, monkeypatch, capsys):
+    # Aggregator re-listing: same job id in the URL, rewritten title.
+    detail = candidate(title="AI Engineer", url="https://www.reed.co.uk/jobs/ai-engineer/55512345", source="reed")
+    listing = candidate(
+        title="Senior AI Engineer - London (Hybrid)",
+        url="https://www.reed.co.uk/jobs/senior-ai-engineer-london-hybrid/55512345",
+        source="reed",
+    )
+
+    output = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [detail, listing], "cv", "cp")
+
+    assert output["stats"]["deduped"] == 1
+    assert len(output["to_analyze"]) == 1
+    assert len(load_table(isolated_store)["jobs"]) == 1
+
+
+def test_dedup_key_match_still_wins_over_url_key(isolated_store, monkeypatch, capsys):
+    # Same company+title on two unrelated URLs stays one job, as before.
+    first = candidate(url="https://example.com/jobs/a")
+    second = candidate(url="https://example.com/jobs/b", source="linkedin")
+
+    output = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [first, second], "cv", "cp")
+
+    assert output["stats"]["deduped"] == 1
+    job = load_table(isolated_store)["jobs"][0]
+    assert {row["source"] for row in job["raw_sources"]} == {"company", "linkedin"}
+
+
+def test_distinct_jobs_are_not_merged_by_aggregation(isolated_store, monkeypatch, capsys):
+    output = invoke(
+        monkeypatch, capsys, merge_jobs.cmd_merge,
+        [candidate(1), candidate(2), candidate(3)], "cv", "cp",
+    )
+
+    assert output["stats"]["deduped"] == 3
+    assert len(load_table(isolated_store)["jobs"]) == 3
+
+
 def test_stale_eval_run_is_abandoned_and_jobs_released(isolated_store, monkeypatch, capsys):
     first = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
     run_path = Path(first["eval_run"]["path"])

@@ -25,6 +25,23 @@ SCORE_WEIGHTS = {
     "location_score": 0.10,
 }
 RECOMMENDATIONS = {"strong_apply", "apply", "stretch_apply", "low_priority", "skip"}
+# 从最保守到最激进；recommendation 只能等于或低于分数对应档（只降不升）。
+RECOMMENDATION_ORDER = ("skip", "low_priority", "stretch_apply", "apply", "strong_apply")
+# 与 JobRadar 同口径的分档阈值（见 references/scoring_rubric.md）。
+RECOMMENDATION_BANDS = (
+    (85.0, "strong_apply"),
+    (70.0, "apply"),
+    (60.0, "stretch_apply"),
+    (20.0, "low_priority"),
+)
+
+
+def score_band(overall_score: float) -> str:
+    """Return the recommendation band implied by the overall score."""
+    for threshold, band in RECOMMENDATION_BANDS:
+        if overall_score >= threshold:
+            return band
+    return "skip"
 SCORED_FROM = {"jd", "snippet"}
 VERIFIED_VALUES = {"alive", "closed", "unverified", "unknown"}
 ALLOWED_RESULT_FIELDS = {
@@ -121,6 +138,13 @@ def _validate_match_score(value: object) -> dict:
     recommendation = str(value.get("recommendation") or "").strip().lower()
     if recommendation not in RECOMMENDATIONS:
         raise AnalysisContractError("match_score.recommendation is invalid")
+    band = score_band(normalized["overall_score"])
+    if RECOMMENDATION_ORDER.index(recommendation) > RECOMMENDATION_ORDER.index(band):
+        raise AnalysisContractError(
+            f"match_score.recommendation {recommendation!r} is more aggressive than the "
+            f"score band {band!r} for overall_score {normalized['overall_score']}; "
+            "downgrades are allowed, upgrades are not"
+        )
     normalized["recommendation"] = recommendation
 
     for field in ("strengths", "weaknesses", "matched_keywords", "missing_must_haves"):

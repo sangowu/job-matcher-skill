@@ -7,12 +7,23 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Regional job-platform URL canonicalization (liepin, zhipin, lagou, seek, reed) so cross-source dedup gets exact `url_key` hits outside the international ATS ecosystem.
+- Multi-market site strategy in `search_playbook.md` (Ireland/UK, continental Europe, Australia/NZ, mainland China, plus a locale-inference rule for other markets).
+- Query-variant dedup rule in `search_playbook.md`: seniority/stack modifiers on the same role no longer spend extra websearch budget.
+- LLM fallback rule for closed-posting detection in `scoring_rubric.md`; `_CLOSED_PATTERNS` is now grouped per language for easy extension.
+
 ### Changed
 
 - Recommendation thresholds now match JobRadar: `stretch_apply` ≥ 60 (was 55) and `low_priority` ≥ 20 (was 40).
 - `scoring_rubric.md` adds deterministic seniority caps (ported from JobRadar's profile guards) and clarifies that hard-filter/deal-breaker hits lower `overall_score` by lowering the affected dimension scores, never by editing the weighted total directly.
 - `analysis_contract.py` rejects recommendations more aggressive than the score band (downgrades stay allowed), so an evaluation can no longer pair a low score with `apply`.
 - `_CLOSED_PATTERN` covers JobRadar's newer evergreen-posting phrases ("this exact role may not be open", "posting is to advertise potential job opportunities").
+
+### Fixed
+
+- `_aggregate_batch` no longer drops a second URL from the same source within one batch (listing page + detail page); extra URLs are kept as `alt_urls` and feed `all_url_keys` for exact matching.
 
 ### Security
 

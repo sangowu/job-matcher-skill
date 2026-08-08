@@ -94,6 +94,12 @@ deal_breaker 性质问题压 `must_have_score` 和 `title_score`），overall �
 - CV 是中文 → 这些分析文本用中文；CV 是英文 → 用英文。
 - 不要用英文分析中文 CV（反之亦然）。`matched_keywords` 保持技能原文（如 Python、Kubernetes）。
 
+## 失效判断（精排时兜底）
+
+脚本层的关闭关键词（`_jobutil._CLOSED_PATTERNS`）只覆盖英文/中文的确定性表述。
+精排抓到 JD 全文后，**由打分者自行判断**正文是否表明职位已关闭/下线/仅为人才库广告——
+**任何语言**都适用。判定已关闭 → `verified = "closed"`，不打高分不推荐。
+
 ## 批量与并行
 - 一次评一片职位（如 5-8 个），输出每个的 MatchScore。
 - **有子代理则多片并行**（受 `max_parallel_subagents` 约束）；否则串行逐片。

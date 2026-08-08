@@ -54,7 +54,19 @@ _UPDATE_FIELDS = {
     "conflict_tasks",
     "pending_tasks",
 }
+# One full user-facing round: first search through report. Kept separate from
+# per-script duration_ms so round wall clock never skews merge/update percentiles.
+_ROUND_FIELDS = {
+    "round_duration_ms",
+    "orchestration",
+    "batches",
+    "evaluations",
+    "jobs_reported",
+}
+ORCHESTRATION_MODES = ("serial", "overlapped")
 _FAILURE_FIELDS = {"failure_kind"}
+_SCRIPT_OPERATIONS = ("merge", "update")
+OPERATIONS = (*_SCRIPT_OPERATIONS, "round")
 _THREAD_APPEND_LOCK = threading.Lock()
 
 
@@ -139,9 +151,12 @@ def record_metric(
     **values: object,
 ) -> bool:
     """Append one sanitized event. Observability failures never break the pipeline."""
-    if operation not in {"merge", "update"}:
+    if operation not in OPERATIONS:
         return False
-    allowed = _COMMON_FIELDS | (_MERGE_FIELDS if operation == "merge" else _UPDATE_FIELDS)
+    if operation == "round":
+        allowed = set(_ROUND_FIELDS)
+    else:
+        allowed = _COMMON_FIELDS | (_MERGE_FIELDS if operation == "merge" else _UPDATE_FIELDS)
     if not ok:
         allowed |= _FAILURE_FIELDS
     event: dict[str, object] = {
@@ -283,9 +298,31 @@ def _build_summary_from_events(
     conflicts = sum(_number(event, "conflicts") for event in update_events)
     candidates_in = sum(_number(event, "candidates_in") for event in merge_events)
     cached = sum(_number(event, "cached") for event in merge_events)
-    durations = [_number(event, "duration_ms") for event in events if _number(event, "duration_ms") >= 0]
-    lock_waits = [_number(event, "lock_wait_ms") for event in events if _number(event, "lock_wait_ms") >= 0]
+    script_events = [event for event in events if event.get("operation") in _SCRIPT_OPERATIONS]
+    durations = [_number(event, "duration_ms") for event in script_events if _number(event, "duration_ms") >= 0]
+    lock_waits = [_number(event, "lock_wait_ms") for event in script_events if _number(event, "lock_wait_ms") >= 0]
     write_failures = sum(1 for event in failed_events if event.get("failure_kind") == "data_store_write")
+
+    round_events = [event for event in events if event.get("operation") == "round" and event.get("ok") is True]
+    rounds: dict[str, object] = {"completed": len(round_events)}
+    for mode in ORCHESTRATION_MODES:
+        mode_durations = [
+            _number(event, "round_duration_ms")
+            for event in round_events
+            if event.get("orchestration") == mode and _number(event, "round_duration_ms") > 0
+        ]
+        rounds[mode] = {
+            "rounds": len(mode_durations),
+            "p50_ms": percentile(mode_durations, 0.50),
+            "p95_ms": percentile(mode_durations, 0.95),
+        }
+    serial_p50 = rounds["serial"]["p50_ms"]  # type: ignore[index]
+    overlapped_p50 = rounds["overlapped"]["p50_ms"]  # type: ignore[index]
+    rounds["overlap_saving_pct"] = (
+        round((serial_p50 - overlapped_p50) / serial_p50 * 100, 1)
+        if serial_p50 and overlapped_p50
+        else None
+    )
 
     metrics = {
         "events_total": len(events),
@@ -319,6 +356,7 @@ def _build_summary_from_events(
             "p99": percentile(lock_waits, 0.99),
         },
         "stale_lock_recoveries": int(sum(_number(event, "stale_lock_recoveries") for event in events)),
+        "rounds": rounds,
         "queue": queue,
     }
 
@@ -447,6 +485,10 @@ def render_markdown(summary: dict) -> str:
         ("Conflict rate", metrics["conflict_rate"]),
         ("Duration p95 (ms)", metrics["duration_ms"]["p95"]),
         ("Lock wait p95 (ms)", metrics["lock_wait_ms"]["p95"]),
+        ("Rounds completed", metrics["rounds"]["completed"]),
+        ("Round p50 serial (ms)", metrics["rounds"]["serial"]["p50_ms"]),
+        ("Round p50 overlapped (ms)", metrics["rounds"]["overlapped"]["p50_ms"]),
+        ("Overlap saving (%)", metrics["rounds"]["overlap_saving_pct"]),
         ("Active runs", queue["active_runs"]),
         ("Pending tasks", queue["pending_tasks"]),
         ("Oldest pending (minutes)", queue["oldest_pending_age_minutes"]),

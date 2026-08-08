@@ -43,6 +43,7 @@
 | `fetch_rendered.py` | `python scripts/fetch_rendered.py <url>` | 单 URL | `{ok, text, browser_used}` 或 `{ok:false, error}` |
 | `cp_hash.py` | `python scripts/cp_hash.py`（stdin） | candidate_profile JSON | `{ok, cp_hash}`（规范化后稳定 hash） |
 | `render_html.py` | `… --cv-hash H --cp-hash H [--meta-file F]` | jobs_table + meta + PII-safe metrics | `{ok, report_path, job_count, health_status, health_breaches}` |
+| `round_timer.py` | `… start` / `… finish --round-id R --orchestration serial\|overlapped` | 整轮起止 | `{ok, round_id}` / `{ok, round_duration_ms, metrics_recorded}` |
 
 指令文档（按需读）：`references/cv_schema.md`、`references/scoring_rubric.md`、`references/search_playbook.md`。配置：`config.json`。
 
@@ -50,6 +51,7 @@
 
 ### 0. 准备
 - 读 `config.json` 拿参数。
+- `python scripts/round_timer.py start` → 记下 `round_id`（整轮计时，第 7 步收尾时结束）。失败不阻塞流程。
 - **灵活识别输入**：从用户消息找出 CV（文件路径，或粘贴的大段简历文本）和 query（求职意向）。
   - 只有 query 没 CV → 追问 CV。
   - 有 CV 没 query → 可继续，但目标职位/地点缺失时按第 3 步规则追问。
@@ -97,6 +99,9 @@
 - 把 `report_path` 告诉用户。
 
 ### 7. 收尾
+- `python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|serial --batches N --evaluations N --jobs-reported N`
+  —— `overlapped` 表示本轮真的把「第 N 批评估」和「第 N+1 批搜索」并行发出过，否则填 `serial`。
+  如实填写：这是唯一能实测重叠编排收益的数据来源，填错会让对比失去意义。
 - 简述结果（新增/复用/路径），指出风险（未验证/基于摘要评分的职位）。
 - `metrics_recorded:false` 时提示运行指标未落盘；需要健康检查时运行 `summarize_metrics.py`。指标字段和默认阈值见 `docs/monitoring.md`。
 

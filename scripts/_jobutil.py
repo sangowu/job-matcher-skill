@@ -20,6 +20,23 @@ def load_config() -> dict:
         return {}
 
 
+_VERSION_RE = re.compile(r'^version\s*=\s*"([^"]+)"', re.MULTILINE)
+
+
+def skill_version() -> str:
+    """Read the version from pyproject.toml, the single source of truth.
+
+    Parsed with a regex rather than tomllib because CI still runs Python 3.10,
+    where tomllib does not exist. Returns "unknown" if the file is missing or
+    malformed -- version reporting must never break the pipeline.
+    """
+    try:
+        match = _VERSION_RE.search((SKILL_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    except OSError:
+        return "unknown"
+    return match.group(1) if match else "unknown"
+
+
 # ── 公司/职位归一化 + 去重键（移植自 schemas.py）─────────────────────────────────
 _LEGAL_SUFFIXES = re.compile(
     r",?\s*\b(llc|inc|ltd|co|corp|group|gmbh|ag|sa|sas|bv|nv|plc)\.?(?=\s|$)", re.IGNORECASE

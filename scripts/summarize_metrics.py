@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from _jobutil import load_config
+from _jobutil import load_config, skill_version
 from runtime_metrics import DEFAULT_THRESHOLDS, build_summary, render_markdown
 
 
@@ -38,6 +38,7 @@ def main() -> None:
         days=days,
         thresholds=thresholds,
     )
+    summary["skill_version"] = skill_version()
     if args.format == "json":
         print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
     else:

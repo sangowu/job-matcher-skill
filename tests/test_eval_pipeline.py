@@ -264,6 +264,49 @@ def test_one_hundred_interleaved_search_updates_are_preserved(isolated_store, mo
     assert all(job["match_scores"]["cv:cp"]["overall_score"] == 80 for job in jobs)
 
 
+def test_stale_eval_run_is_abandoned_and_jobs_released(isolated_store, monkeypatch, capsys):
+    first = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
+    run_path = Path(first["eval_run"]["path"])
+    manifest = load_run(run_path)
+    manifest["created_at"] = "2020-01-01T00:00:00+00:00"
+    run_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    second = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
+
+    assert second["stats"]["abandoned_runs"] == 1
+    assert second["stats"]["in_evaluation"] == 0
+    assert second["eval_run"]["task_count"] == 1
+    assert not run_path.exists()
+    history = [
+        json.loads(line)
+        for line in (isolated_store / "eval_runs" / "history.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert any(row["status"] == "abandoned" and row["run_id"] == first["eval_run"]["run_id"] for row in history)
+
+
+def test_fresh_eval_run_is_not_abandoned(isolated_store, monkeypatch, capsys):
+    first = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
+
+    second = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
+
+    assert second["stats"]["abandoned_runs"] == 0
+    assert second["stats"]["in_evaluation"] == 1
+    assert Path(first["eval_run"]["path"]).exists()
+
+
+def test_corrupt_run_manifest_is_recovered_without_blocking_merge(isolated_store, monkeypatch, capsys):
+    first = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
+    run_path = Path(first["eval_run"]["path"])
+    run_path.write_text("{not valid JSON", encoding="utf-8")
+
+    second = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
+
+    assert second["ok"] is True
+    assert second["stats"]["abandoned_runs"] == 1
+    assert second["eval_run"]["task_count"] == 1
+    assert not run_path.exists()
+
+
 def test_corrupt_canonical_table_fails_closed(isolated_store):
     isolated_store.mkdir(parents=True, exist_ok=True)
     table_path = isolated_store / "jobs_table.json"

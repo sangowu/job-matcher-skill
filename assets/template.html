@@ -119,7 +119,7 @@ const I18N = {
     rec_strong_apply: "强烈投递", rec_apply: "建议投递", rec_stretch_apply: "可冲刺",
     rec_low_priority: "低优先级", rec_skip: "跳过",
     remote: "远程", unverified: "⚠ 有效性未确认", from_snippet: "基于摘要评分",
-    closed: "疑似已关闭", apply: "投递 →", sources: "来源", stale_score: "上次评分",
+    closed: "疑似已关闭", apply: "投递 →", sources: "来源", stale_score: "待重评",
     d_breakdown: "评分拆解", d_strengths: "优势", d_weak: "待加强",
     d_musthave: "必备要求", d_good: "加分项", d_skills: "要求技能",
     dim_title: "方向", dim_seniority: "资历", dim_skills: "技能", dim_location: "地点", dim_must: "必备",
@@ -157,7 +157,7 @@ const I18N = {
     rec_strong_apply: "Strong apply", rec_apply: "Apply", rec_stretch_apply: "Stretch",
     rec_low_priority: "Low priority", rec_skip: "Skip",
     remote: "Remote", unverified: "⚠ Unverified", from_snippet: "Scored from snippet",
-    closed: "Possibly closed", apply: "Apply →", sources: "Sources", stale_score: "prev. score",
+    closed: "Possibly closed", apply: "Apply →", sources: "Sources", stale_score: "needs re-score",
     d_breakdown: "Score breakdown", d_strengths: "Strengths", d_weak: "Gaps",
     d_musthave: "Must-have", d_good: "Nice-to-have", d_skills: "Required skills",
     dim_title: "Title", dim_seniority: "Seniority", dim_skills: "Skills", dim_location: "Location", dim_must: "Must-have",
@@ -387,7 +387,7 @@ function renderDetail(job) {
   if (job.verified === "unverified") flags.push(chip(t("unverified"), "bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400"));
   if (job.scored_from === "snippet") flags.push(chip(t("from_snippet"), "bg-gray-100 dark:bg-gray-700 text-gray-500"));
   if (job.possibly_closed) flags.push(chip(t("closed"), "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"));
-  if (job.stale_score && job.score != null) flags.push(chip(t("stale_score"), "bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400"));
+  if (job.stale_score && job.score == null) flags.push(chip(t("stale_score"), "bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400"));
 
   pane.innerHTML = `
     <div class="max-w-3xl card-enter">

@@ -248,13 +248,58 @@ def _append_eval_history(row: dict) -> None:
         os.fsync(handle.fileno())
 
 
+def _expire_stale_runs(stale_hours: float) -> int:
+    """作废超龄未完成的评估快照，释放其占用的职位。
+
+    编排者若中途死亡，pending 快照会让这些职位永远停在 in_evaluation、
+    不再被派发。超过 stale_hours 的 run 记入 history（status=abandoned）
+    后删除，由下一次 merge 重新建立快照。无法解析的损坏 manifest 同样
+    回收——它会卡死后续所有 merge。
+    """
+    if not EVAL_RUNS_DIR.exists():
+        return 0
+    cutoff = _now() - timedelta(hours=stale_hours)
+    expired = 0
+    for path in EVAL_RUNS_DIR.glob("eval-*.json"):
+        try:
+            manifest = _load(path, default={})
+        except DataStoreReadError:
+            manifest = {}
+        created = None
+        try:
+            created = datetime.fromisoformat(str(manifest.get("created_at") or ""))
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+        if created is not None and created >= cutoff:
+            continue
+        tasks = [task for task in (manifest.get("tasks") or []) if isinstance(task, dict)]
+        _append_eval_history({
+            "run_id": str(manifest.get("run_id") or path.stem),
+            "cv_hash": str(manifest.get("cv_hash") or ""),
+            "cp_hash": str(manifest.get("cp_hash") or ""),
+            "task_count": len(tasks),
+            "completed_tasks": sum(1 for task in tasks if task.get("status") == "completed"),
+            "conflict_tasks": sum(1 for task in tasks if task.get("status") == "conflict"),
+            "status": "abandoned",
+            "completed_at": _now().isoformat(),
+        })
+        path.unlink()
+        expired += 1
+    return expired
+
+
 def _active_eval_keys() -> set[str]:
     """Return jobs already owned by a pending evaluation run."""
     if not EVAL_RUNS_DIR.exists():
         return set()
     active: set[str] = set()
     for path in EVAL_RUNS_DIR.glob("eval-*.json"):
-        manifest = _load(path, default={})
+        try:
+            manifest = _load(path, default={})
+        except DataStoreReadError:
+            continue  # 损坏 manifest 由 _expire_stale_runs 回收，不阻塞 merge
         for task in manifest.get("tasks") or []:
             if isinstance(task, dict) and task.get("status") == "pending" and task.get("dedup_key"):
                 active.add(str(task["dedup_key"]))
@@ -386,6 +431,7 @@ def cmd_merge(cv_hash: str, cp_hash: str) -> None:
             by_dedup[job["dedup_key"]] = job
 
         batch = _aggregate_batch(candidates)
+        abandoned_runs = _expire_stale_runs(float(cfg.get("eval_run_stale_hours", 2)))
         active_eval_keys = _active_eval_keys()
         today = date.today().isoformat()
         to_analyze, to_score_only, cached, in_evaluation = [], [], [], []
@@ -451,6 +497,7 @@ def cmd_merge(cv_hash: str, cp_hash: str) -> None:
             "new": newly_added, "newly_added": newly_added,
             "to_analyze": len(to_analyze), "to_score_only": len(to_score_only),
             "cached": len(cached), "in_evaluation": len(in_evaluation), "archived": archived,
+            "abandoned_runs": abandoned_runs,
             "table_size": len(jobs), **lock_metrics,
         }
 

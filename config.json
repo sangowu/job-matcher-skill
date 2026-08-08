@@ -13,6 +13,7 @@
   "report_keep_history": true,
   "table_lock_timeout_seconds": 10,
   "stale_lock_seconds": 120,
+  "eval_run_stale_hours": 2,
   "monitoring_default_window_days": 7,
   "monitoring_thresholds": {
     "conflict_rate_max": 0.02,

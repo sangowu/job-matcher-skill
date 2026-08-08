@@ -72,24 +72,41 @@ def build_health_payload() -> dict:
         }
 
 
+def _embed_json(obj: object) -> str:
+    """序列化为可安全内嵌 <script> 的 JSON：`</` 转义为 `<\\/`。
+
+    职位 title/snippet 来自外部网页，可能含 `</script>`，不转义会提前终止
+    内联脚本块，导致外部数据注入报告 HTML。`\\/` 是合法 JSON 转义，
+    浏览器端 JSON 语义不变。
+    """
+    return json.dumps(obj, ensure_ascii=False).replace("</", "<\\/")
+
+
+def _safe_url(url: str) -> str:
+    """只放行 http/https 链接，拦截 javascript: 等可执行 scheme。"""
+    url = (url or "").strip()
+    if url.lower().startswith(("http://", "https://")):
+        return url
+    return ""
+
+
 def flatten(job: dict, mk: str) -> dict:
     scores = job.get("match_scores") or {}
-    ms = scores.get(mk)
-    stale = ms is None and bool(scores)
-    if stale:
-        ms = list(scores.values())[-1]  # 回退：用最近一次评分，避免历史职位（不同 cp_hash）显示空白
-    ms = ms or {}
+    # 只认当前 cv:cp 口径的评分。不回退其他 CV/求职意向的旧分：
+    # 评分是 JD × CV × 意向的函数，跨口径展示会误导（stale_score 标记待重评）。
+    ms = scores.get(mk) or {}
+    stale = not ms and bool(scores)
     return {
         "title": job.get("title", ""),
         "company": job.get("company", ""),
         "location": job.get("location", ""),
-        "url": job.get("url", ""),
+        "url": _safe_url(job.get("url", "")),
         "salary": job.get("salary", ""),
         "date_posted": job.get("date_posted", ""),
         "first_seen": job.get("first_seen", ""),
         "status": job.get("status", "existing"),
         "sources": [rs.get("source", "") for rs in job.get("raw_sources", [])],
-        "source_urls": [{"source": rs.get("source", ""), "url": rs.get("url", "")}
+        "source_urls": [{"source": rs.get("source", ""), "url": _safe_url(rs.get("url", ""))}
                         for rs in job.get("raw_sources", [])],
         "possibly_closed": job.get("possibly_closed", False),
         "verified": job.get("verified"),
@@ -151,9 +168,9 @@ def main() -> None:
 
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
     html = (template
-            .replace("__JOBS_JSON__", json.dumps(jobs, ensure_ascii=False))
-            .replace("__META_JSON__", json.dumps(meta, ensure_ascii=False))
-            .replace("__HEALTH_JSON__", json.dumps(health, ensure_ascii=False))
+            .replace("__JOBS_JSON__", _embed_json(jobs))
+            .replace("__META_JSON__", _embed_json(meta))
+            .replace("__HEALTH_JSON__", _embed_json(health))
             .replace("__LANG__", lang))
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)

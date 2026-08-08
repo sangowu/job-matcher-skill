@@ -7,6 +7,21 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- Escape `</` when embedding job/meta/health JSON into the HTML report so external job content cannot break out of the inline `<script>` block.
+- Reject non-http(s) job and source URLs (for example `javascript:`) before they reach report links.
+- Prompt-injection guidance in `references/scoring_rubric.md` and `references/search_playbook.md`: search results and JD text are untrusted data; embedded instructions must be ignored.
+
+### Fixed
+
+- Stale evaluation runs (pending longer than `eval_run_stale_hours`, default 2) and corrupt run manifests are now abandoned during `merge`, releasing jobs that would otherwise stay `in_evaluation` forever; abandoned runs are logged to `data/eval_runs/history.jsonl` and counted as `abandoned_runs` in merge stats.
+- Reports no longer fall back to match scores from a different CV/candidate-profile pair; such jobs render unscored with a "needs re-score" badge instead of showing a misleading score.
+
+### Removed
+
+- `scripts/_build_table.py`, a leftover one-off script that bypassed the merge contract and carried hardcoded personal data.
+
 ## [2.1.0] - 2026-07-31
 
 Detailed release notes: [docs/releases/v2.1.0.md](docs/releases/v2.1.0.md).

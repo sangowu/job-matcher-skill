@@ -39,6 +39,7 @@ _MERGE_FIELDS = {
     "archived",
     "table_size",
     "eval_tasks_created",
+    "abandoned_runs",
 }
 _UPDATE_FIELDS = {
     "results_in",

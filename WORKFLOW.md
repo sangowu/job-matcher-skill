@@ -21,6 +21,13 @@
 - **重上下文工作**（CV 抽取、搜索+解析、打分）尽量交给子代理；大块原始文本（CV 全文、搜索结果、JD 全文）**留在子代理/文件**，你的上下文只保留「路径 + 小 JSON」。
 - 无子代理时你自己串行做这些步骤，但**仍坚持**"大文本写文件、上下文只留摘要"。
 - 搜索与评估 worker 可以并行；`jobs_table.json` 是唯一主表，只有编排者可以通过 `merge_jobs.py` 写入。worker 不得直接修改主表或共享评估快照。
+- **批间重叠（有子代理时的推荐模式）**：第 N 批 `merge` 返回 `eval_run` 后，在**同一条消息里**
+  同时发出「第 N 批的评估 worker」和「第 N+1 批的搜索 worker」——评估不等下一批搜索，
+  搜索也不等上一批评估。快照机制兜底：重叠期间同一职位不会被重复派发（`in_evaluation`），
+  JD 输入被搜索改动时 `update` 报 conflict 拒收旧结果，编排者中途死亡留下的超龄快照
+  由下一次 `merge` 自动作废回收（`eval_run_stale_hours`，默认 2 小时）。
+- `max_parallel_subagents` 是**全局**并发预算（搜索+评估 worker 共用）；
+  重叠期建议 1 个搜索 worker、其余给评估（默认 3 → 1 搜 + 2 评）。
 - 脚本输出是纯 ASCII JSON，解析后使用。所有路径相对本 skill 目录。
 
 ## 脚本契约（你的确定性工具箱）
@@ -68,11 +75,15 @@
 - 汇总 → `merge_jobs.py merge` → `{to_analyze, to_score_only, in_evaluation, cached, eval_run, stats}`。
 - `merge` 同时创建 `data/eval_runs/<run_id>.json` 评估任务快照，并在 `eval_run` 返回路径。`in_evaluation` 中的职位已有未完成任务，不要重复委派。
 - 按 stats 判断是否追加下一批（阈值/上限/连续空批见 playbook）。
+- **重叠执行**：决定追加第 N+1 批时，不必等第 N 批评完——把「第 N 批评估 worker（第 5 步）」
+  和「第 N+1 批搜索 worker」放进同一条消息并行发出，评估结果回来就增量 `update`。
 - 一行进度：`第N批 搜X条→候选Y→新Z/缓存W`。
 
 ### 5. 匹配排序（打分 + 脚本，读 `references/scoring_rubric.md`）
 - **粗排**：对 `to_analyze`+`to_score_only` 用 snippet 做 5 维快速估分排序（有子代理则分片并行）。
-- **精排**：取 Top-(top_n+precise_buffer) → 抓 JD 全文（用**抓取**能力或回退脚本）→ 抽 jd_profile + 精确 5 维打分；`to_score_only` 复用已有 jd_profile 只打分。
+- **精排（worker 一条龙）**：取 Top-(top_n+precise_buffer)，每个精排 worker 在**一个子代理内**
+  完成「抓 JD 全文（用**抓取**能力或回退脚本）→ 抽 jd_profile → 精确 5 维打分 → 回传结构化结果」，
+  JD 全文留在 worker 内不回传；`to_score_only` 复用已有 jd_profile 只打分。
 - **失效验证**（精排 Top-N）：`verify_jobs.py` 查死链；`possibly_closed` 的走容错阶梯确认；失效则剔除、从次位递补。
 - 每个 worker 必须原样回传任务中的 `dedup_key`、`base_record_version`、`jd_input_hash`，再附加 `jd_profile`、`match_score`、`verified`、`scored_from`。不得回传或覆盖 title/company/url/source 等搜索字段。
 - 写回：`merge_jobs.py update --run-id <eval_run.run_id>`。脚本会校验评分契约，只合并评估字段；搜索期间仅来源等非评估输入变化时安全 rebase，JD 输入变化时报告 conflict 并拒绝旧结果。

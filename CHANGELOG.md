@@ -9,6 +9,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `scripts/round_timer.py` and a PII-safe `round` metric event (`round_duration_ms`, `orchestration`, `batches`, `evaluations`, `jobs_reported`) that time a full matching round, making the serial-vs-overlapped comparison measurable instead of merely modeled. Round durations are excluded from script-level `duration_ms` percentiles; `summarize_metrics.py` reports per-mode p50/p95 and `overlap_saving_pct`.
 - Overlapped orchestration guidance in `WORKFLOW.md` and `SKILL.md`: batch N evaluation workers and batch N+1 search workers are spawned in the same message, backed by the existing eval-run snapshot/conflict machinery; `max_parallel_subagents` is documented as a shared global budget (1 search + 2 evaluation during overlap).
 - One-stop precise-ranking worker guidance: fetch JD, extract `jd_profile`, and score inside a single subagent, keeping the full JD text out of the orchestrator context.
 - Regional job-platform URL canonicalization (liepin, zhipin, lagou, seek, reed) so cross-source dedup gets exact `url_key` hits outside the international ATS ecosystem.

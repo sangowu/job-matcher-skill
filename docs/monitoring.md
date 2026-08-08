@@ -2,7 +2,7 @@
 
 Job Matcher 是本地 CLI skill，不需要常驻 Prometheus 服务。运行监控采用两个低依赖组件：
 
-- `data/metrics.jsonl`：每次 `merge` / `update` 的结构化事件。
+- `data/metrics.jsonl`：每次 `merge` / `update` / `round` 的结构化事件。
 - `scripts/summarize_metrics.py`：按时间窗口汇总健康状态、比率、分位数和队列积压。
 - `scripts/render_html.py`：每次生成职位报告时自动计算 7/30 天快照并嵌入 HTML。
 
@@ -35,7 +35,7 @@ python scripts/summarize_metrics.py --fail-on-breach
 |---|---|
 | `schema_version` | 指标事件 schema 版本，当前为 1 |
 | `timestamp` | UTC ISO-8601 时间 |
-| `operation` | `merge` 或 `update` |
+| `operation` | `merge`、`update` 或 `round` |
 | `ok` | 操作是否成功 |
 | `duration_ms` | 命令端到端耗时 |
 | `lock_wait_ms` | 等待职位主表锁的时间 |
@@ -60,8 +60,30 @@ python scripts/summarize_metrics.py --fail-on-breach
 | `active_runs` | 当前仍有 pending task 的评估 run 数 |
 | `pending_tasks` | 当前 pending task 总数 |
 | `oldest_pending_age_minutes` | 最老活跃 run 的等待分钟数 |
+| `rounds.<mode>.p50_ms / p95_ms` | 按编排模式分组的整轮时长分位数 |
+| `rounds.overlap_saving_pct` | (serial p50 − overlapped p50) / serial p50，缺任一模式时为 `null` |
 
 分位数采用观测窗口内样本排序后的最近秩值。这里的延迟用于本机回归和异常发现，不是生产 SLA。
+
+## 整轮计时（serial vs overlapped）
+
+脚本级 `duration_ms` 只覆盖单次 merge/update 调用，相比编排者在两次调用之间做的搜索与评估工作
+可以忽略不计——因此它无法回答「批间重叠到底有没有用」。`scripts/round_timer.py` 给整轮（首次搜索
+到出报告）计时，写入一条 `round` 事件：
+
+```text
+python scripts/round_timer.py start          # -> {"round_id": "round-..."}
+python scripts/round_timer.py finish --round-id <R> --orchestration overlapped \
+    --batches 3 --evaluations 14 --jobs-reported 12
+```
+
+`--orchestration` 只接受 `serial` / `overlapped`，须如实填写——这是唯一能实测重叠收益的数据来源。
+`round` 事件字段：`round_duration_ms`、`orchestration`、`batches`、`evaluations`、`jobs_reported`，
+同样只有时长与计数，不含任何 CV / JD / 职位 / 查询文本。
+
+整轮时长**不计入** `duration_ms` 分位数，避免污染脚本级数字。汇总输出按模式给出
+`rounds.serial.p50_ms` / `rounds.overlapped.p50_ms` 与 `overlap_saving_pct`；两种模式都有样本前
+`overlap_saving_pct` 显示 `n/a`，不会拿单边数据编出一个收益。
 
 ## 默认健康阈值
 

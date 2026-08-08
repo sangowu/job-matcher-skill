@@ -7,6 +7,10 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-08-08
+
+Detailed release notes: [docs/releases/v2.2.0.md](docs/releases/v2.2.0.md).
+
 ### Added
 
 - `scripts/round_timer.py` and a PII-safe `round` metric event (`round_duration_ms`, `orchestration`, `batches`, `evaluations`, `jobs_reported`) that time a full matching round, making the serial-vs-overlapped comparison measurable instead of merely modeled. Round durations are excluded from script-level `duration_ms` percentiles; `summarize_metrics.py` reports per-mode p50/p95 and `overlap_saving_pct`.
@@ -26,6 +30,8 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Stale evaluation runs (pending longer than `eval_run_stale_hours`, default 2) and corrupt run manifests are now abandoned during `merge`, releasing jobs that would otherwise stay `in_evaluation` forever; abandoned runs are logged to `data/eval_runs/history.jsonl` and counted as `abandoned_runs` in merge stats.
+- Reports no longer fall back to match scores from a different CV/candidate-profile pair; such jobs render unscored with a "needs re-score" badge instead of showing a misleading score.
 - `_aggregate_batch` no longer drops a second URL from the same source within one batch (listing page + detail page); extra URLs are kept as `alt_urls` and feed `all_url_keys` for exact matching.
 - `_aggregate_batch` now falls back to `url_key` matching after `dedup_key`, so an aggregator re-listing with a rewritten title (same job id in the URL) is collapsed before evaluation is dispatched instead of after, removing one wasted LLM evaluation per occurrence.
 
@@ -34,11 +40,6 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Escape `</` when embedding job/meta/health JSON into the HTML report so external job content cannot break out of the inline `<script>` block.
 - Reject non-http(s) job and source URLs (for example `javascript:`) before they reach report links.
 - Prompt-injection guidance in `references/scoring_rubric.md` and `references/search_playbook.md`: search results and JD text are untrusted data; embedded instructions must be ignored.
-
-### Fixed
-
-- Stale evaluation runs (pending longer than `eval_run_stale_hours`, default 2) and corrupt run manifests are now abandoned during `merge`, releasing jobs that would otherwise stay `in_evaluation` forever; abandoned runs are logged to `data/eval_runs/history.jsonl` and counted as `abandoned_runs` in merge stats.
-- Reports no longer fall back to match scores from a different CV/candidate-profile pair; such jobs render unscored with a "needs re-score" badge instead of showing a misleading score.
 
 ### Removed
 
@@ -101,6 +102,7 @@ Detailed release notes and migration guidance: [docs/releases/v2.0.0.md](docs/re
 - GitHub Actions: 8/8 tests passed on Ubuntu in 2.12 seconds and Windows in 0.95 seconds.
 - Main CI run: [30623328782](https://github.com/sangowu/job-matcher-skill/actions/runs/30623328782).
 
-[Unreleased]: https://github.com/sangowu/job-matcher-skill/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/sangowu/job-matcher-skill/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/sangowu/job-matcher-skill/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/sangowu/job-matcher-skill/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/sangowu/job-matcher-skill/compare/v1.0.0...aefbdf9816a0ff17f246eb3c4b501cffa3e51c25

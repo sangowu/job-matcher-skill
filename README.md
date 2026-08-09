@@ -14,9 +14,10 @@
 
 - 📄 **简历解析**：支持 PDF / DOCX / TXT / MD，或直接粘贴文本（不做 OCR）。
 - 🧠 **结构化抽取**：抽取目标职位、技能、资历(seniority)、地点、语言等，自动按相关年限定级。
-- 🔎 **实时职位检索**：基于 WebSearch 自适应分批搜索，按 CV 语言切换市场（中/英）。
-- 🎯 **5 维匹配打分**：title / seniority / skills / location / must-have，输出五档投递建议（强烈投递→跳过）。
-- 🗂️ **增量缓存**：CV、JD、匹配分三层缓存；多来源同职位自动聚合；换 query 自动失效重算。
+- 🔎 **实时职位检索**：基于 WebSearch 自适应分批搜索；按 CV 语言选职位词，按目标地点叠加当地平台（爱尔兰/英国、欧陆、澳新、中国大陆，其余市场按语言+地点推断）。
+- 🎯 **5 维匹配打分**：title / seniority / skills / location / must-have，输出五档投递建议（强烈投递→跳过）。资历硬规则与契约校验拦截打分漂移。
+- 🗂️ **增量缓存**：CV、JD、匹配分三层缓存；多来源同职位自动聚合（含区域平台 job-id 强命中）；换 query 自动失效重算。
+- 🛡️ **不可信输入隔离**：搜索结果与 JD 正文按纯数据处理并忽略其中指令；报告内嵌 JSON 转义、链接限 http(s)。
 - 📊 **可交互报告**：两栏布局（左职位列表 30% + 右详情 70%）+ 评分徽章 + 深色模式 + 排序/筛选/搜索 + 7/30 天运行健康快照 + 中英 i18n，自包含单文件 HTML。
 
 ## 🏗️ 架构
@@ -24,7 +25,7 @@
 - **主 agent = 编排者**：调脚本、融合 query、追问用户、spawn subagent。
 - **subagent 承担重上下文工作**（CV 抽取 / 搜索 / 打分）：大块原始文本留在 subagent，主上下文只搬「路径 + 小 JSON」，保持整洁。
 - **Python 脚本承担确定性工作**：解析、校验、去重聚合缓存、失效验证、渲染。
-- **并行计算、串行提交**：搜索和评估 worker 可重叠运行；`jobs_table.json` 只有一个写入路径，使用评估快照、跨进程锁和原子替换防止丢失更新。
+- **并行计算、串行提交**：第 N 批评估与第 N+1 批搜索并行发出（批间重叠）；`jobs_table.json` 只有一个写入路径，使用评估快照、跨进程锁和原子替换防止丢失更新。超龄未完成的快照会在下次 merge 时作废回收，职位不会永久卡在评估中。
 
 ```
 CV + query
@@ -60,6 +61,8 @@ job-matcher/
 │   ├── merge_jobs.py         # 单写入器：去重/缓存/评估快照/条件化回写
 │   ├── runtime_metrics.py    # PII-safe JSONL 指标与健康计算
 │   ├── summarize_metrics.py  # 7/30 天 Markdown/JSON 健康报告
+│   ├── round_timer.py        # 整轮计时，按编排模式对比墙钟
+│   ├── cp_hash.py            # 稳定的 candidate_profile hash
 │   ├── verify_jobs.py        # 失效职位状态码检测
 │   ├── fetch_rendered.py     # headless 渲染兜底（复用系统浏览器）
 │   ├── render_html.py        # 渲染 HTML 报告
@@ -96,12 +99,14 @@ agent 会自动识别。然后在对话里：
 | `max_parallel_subagents` | 3 | 批内并行上限 |
 | `max_websearch_calls` | 6 | WebSearch 总次数上限 |
 | `stop_threshold` | 12 | 净有效职位达标停止 |
+| `consecutive_empty_stop` | 2 | 连续 N 批 0 结果则停止 |
 | `jd_ttl_days` | 30 | JD 缓存有效期 |
 | `seniority_mode` | balanced | strict / balanced / stretch |
 | `enable_headless_fallback` | true | headless 兜底开关 |
 | `headless_budget` | 3 | 每次运行 headless 上限 |
 | `table_lock_timeout_seconds` | 10 | 等待主表写锁的最长秒数 |
 | `stale_lock_seconds` | 120 | 回收异常遗留锁的时间阈值 |
+| `eval_run_stale_hours` | 2 | 作废未完成评估快照的时间阈值 |
 | `monitoring_default_window_days` | 7 | 默认健康报告窗口 |
 | `monitoring_thresholds` | 见配置 | 冲突、拒绝、成功率、锁等待和积压阈值 |
 
@@ -116,6 +121,15 @@ python scripts/summarize_metrics.py --fail-on-breach
 ```
 
 报告包含吞吐/缓存、评估成功/拒绝/冲突率、命令与锁等待 p50/p95/p99，以及活跃 run、pending task 和最老积压时间。每次生成 HTML 时会自动嵌入 7/30 天静态快照，可从顶部状态入口查看；默认阈值违规时状态为 `degraded`。CLI 的 `--fail-on-breach` 同时返回退出码 2。字段定义、隐私边界和接入方式见 [运行时监控文档](docs/monitoring.md)。
+
+整轮墙钟另行采集——脚本级耗时相比编排者在两次调用之间的搜索与评估工作可以忽略，无法回答「批间重叠值不值」：
+
+```text
+python scripts/round_timer.py start          # → {"round_id": "round-..."}
+python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|serial
+```
+
+汇总按编排模式给出 p50/p95 与 `overlap_saving_pct`；两种模式都有样本前显示 `n/a`。
 
 ## 🔧 依赖
 

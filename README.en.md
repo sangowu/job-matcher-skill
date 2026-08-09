@@ -14,9 +14,10 @@ A lightweight take on [JobRadar](https://github.com/sangowu/JobRadar) — pure a
 
 - 📄 **CV parsing**: PDF / DOCX / TXT / MD, or pasted text (no OCR).
 - 🧠 **Structured extraction**: target roles, skills, seniority, locations, languages; auto-leveling by *relevant* years.
-- 🔎 **Live job retrieval**: adaptive batched web search; market switches by CV language.
-- 🎯 **5-dimension scoring**: title / seniority / skills / location / must-have, with a five-tier recommendation (strong apply → skip).
-- 🗂️ **Incremental cache**: three-layer cache (CV / JD / match score); multi-source same-job aggregation; auto re-score when the query changes.
+- 🔎 **Live job retrieval**: adaptive batched web search; role wording follows the CV language while target platforms follow the location (Ireland/UK, continental Europe, Australia/NZ, mainland China, and an inference rule for everywhere else).
+- 🎯 **5-dimension scoring**: title / seniority / skills / location / must-have, with a five-tier recommendation (strong apply → skip). Deterministic seniority caps and contract validation catch scoring drift.
+- 🗂️ **Incremental cache**: three-layer cache (CV / JD / match score); multi-source same-job aggregation with exact job-id matching on regional platforms; auto re-score when the query changes.
+- 🛡️ **Untrusted input isolation**: search results and JD text are treated as data and their embedded instructions ignored; report JSON is escaped and links are restricted to http(s).
 - 📊 **Interactive report**: two-column layout (job list 30% + detail 70%) + score badges + dark mode + sort/filter/search + 7/30-day runtime health snapshots + zh/en i18n, a self-contained single-file HTML.
 
 ## 🏗️ Architecture
@@ -24,7 +25,7 @@ A lightweight take on [JobRadar](https://github.com/sangowu/JobRadar) — pure a
 - **Main agent = orchestrator**: runs scripts, fuses the query, asks the user, spawns subagents.
 - **Subagents do the heavy-context work** (CV extraction / search / scoring): raw text stays inside subagents; the main context only carries "paths + small JSON".
 - **Python scripts do the deterministic work**: parse, validate, dedup/aggregate/cache, verify, render.
-- **Parallel compute, serialized commits**: search and evaluation workers may overlap, while `jobs_table.json` has one guarded write path with evaluation snapshots, a cross-process lock, and atomic replacement.
+- **Parallel compute, serialized commits**: batch N's evaluation runs alongside batch N+1's search, while `jobs_table.json` has one guarded write path with evaluation snapshots, a cross-process lock, and atomic replacement. Snapshots left pending too long are abandoned on the next merge, so jobs never stay stuck in evaluation.
 
 ```
 CV + query
@@ -60,6 +61,7 @@ job-matcher/
 │   ├── merge_jobs.py         # single writer: dedup/cache/eval snapshots/conditional commit
 │   ├── runtime_metrics.py    # PII-safe JSONL events and health calculations
 │   ├── summarize_metrics.py  # 7/30-day Markdown/JSON health report
+│   ├── round_timer.py        # full-round timing, compared per orchestration mode
 │   ├── cp_hash.py            # stable candidate_profile hash
 │   ├── verify_jobs.py        # dead-link / closed-posting detection
 │   ├── fetch_rendered.py     # headless render fallback (reuses system browser)
@@ -97,12 +99,14 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `max_parallel_subagents` | 3 | per-batch parallelism cap |
 | `max_websearch_calls` | 6 | total web-search call cap |
 | `stop_threshold` | 12 | stop once enough net-valid jobs found |
+| `consecutive_empty_stop` | 2 | stop after N consecutive empty batches |
 | `jd_ttl_days` | 30 | JD cache validity |
 | `seniority_mode` | balanced | strict / balanced / stretch |
 | `enable_headless_fallback` | true | headless fallback switch |
 | `headless_budget` | 3 | headless calls per run |
 | `table_lock_timeout_seconds` | 10 | maximum wait for the canonical-table write lock |
 | `stale_lock_seconds` | 120 | age at which an abandoned lock may be reclaimed |
+| `eval_run_stale_hours` | 2 | age at which an unfinished evaluation snapshot is abandoned |
 | `monitoring_default_window_days` | 7 | default health-report window |
 | `monitoring_thresholds` | see config | conflict, rejection, success, lock-wait, and backlog limits |
 
@@ -117,6 +121,15 @@ python scripts/summarize_metrics.py --fail-on-breach
 ```
 
 The report covers throughput/cache behavior, evaluation success/rejection/conflict rates, command and lock-wait p50/p95/p99, plus active runs, pending tasks, and oldest backlog age. Every HTML render automatically embeds static 7/30-day snapshots behind the header status control. Threshold violations produce `degraded`; the CLI's `--fail-on-breach` also exits with code 2. See [the monitoring guide](docs/monitoring.md) for definitions and privacy boundaries.
+
+Full-round wall clock is collected separately, because per-script duration is a rounding error next to the search and evaluation work between calls and cannot answer whether overlapped batching pays off:
+
+```text
+python scripts/round_timer.py start          # -> {"round_id": "round-..."}
+python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|serial
+```
+
+The summary reports p50/p95 per mode plus `overlap_saving_pct`, which stays `n/a` until both modes have samples.
 
 ## 🔧 Dependencies
 

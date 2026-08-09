@@ -109,7 +109,7 @@
 ```
 抓取正文（你的 fetch 工具）→ 失败退避重试1次
   → requests 静态抓（可在子代理内，或脚本）扫关闭关键词
-  → fetch_rendered.py <url>（headless，受 headless_budget 约束，缺浏览器自动跳过）
+  → fetch_rendered.py <url>（仅当 enable_headless_fallback 为 true；受 headless_budget 约束，缺浏览器自动跳过）
   → 全失败：标注「未验证」/「基于摘要评分」，不阻塞
 ```
 

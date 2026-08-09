@@ -62,8 +62,9 @@ locations : CV.preferred_locations + (remote if open_to_remote)  ← query 不�
   → 汇总回传 → merge_jobs.py(聚合/缓存判定) → 统计净有效新职位
   ├─ ≥ stop_threshold(12) → 停
   └─ < 阈值 → 追加下一批（plan 剩余 query）
-停止条件（任一）：净有效≥12 / web 搜索累计≥6 / 连续 2 批 0 结果
-批内并行（有子代理时）≤ max_parallel_subagents(3)
+停止条件（任一）：净有效 ≥ stop_threshold(12) / web 搜索累计 ≥ max_websearch_calls(6)
+                / 连续 consecutive_empty_stop(2) 批 0 结果
+批内并行（有子代理时）≤ max_parallel_subagents(3)，与评估 worker 共用该预算
 ```
 
 ### 外部内容安全（搜索执行方必读）

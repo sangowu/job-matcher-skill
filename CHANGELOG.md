@@ -11,6 +11,18 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `[project]` metadata in `pyproject.toml` with `version` as the single source of truth, read at runtime by `_jobutil.skill_version()` and reported by `summarize_metrics.py`.
 - Tests that fail when `pyproject.toml`, the newest `CHANGELOG.md` release heading, and `docs/releases/vX.Y.Z.md` drift apart.
+- Documentation drift tests: every script and every `config.json` knob must appear in both READMEs, every release note must be linked, and no knob may exist that nothing reads.
+
+### Documentation
+
+- Both READMEs now cover `round_timer.py` and `cp_hash.py`, the `eval_run_stale_hours` and `consecutive_empty_stop` knobs, the multi-market search strategy, batch overlap, abandoned-snapshot recovery, and the untrusted-input boundary.
+- `search_playbook.md` names `stop_threshold`, `max_websearch_calls`, and `consecutive_empty_stop` instead of hardcoding their values in prose.
+- The fallback ladder in `WORKFLOW.md` and `scoring_rubric.md` now honors `enable_headless_fallback`, which previously existed in `config.json` but was referenced nowhere.
+- `docs/releases/v2.2.0.md` records the post-release controlled measurement of batch overlap (measured 16.6–22.1% saving, within 0.3 pp of the model) and narrows the remaining limitation to live-latency variance.
+
+### Removed
+
+- `cv_cache` and `report_keep_history` from `config.json`. Neither was read by any script or referenced by any instruction document — CV profiles are always cached and reports always keep history — so they promised control that did not exist.
 
 ## [2.2.0] - 2026-08-08
 

@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-25T22:21:59.142147+00:00",
+  "skill_version": "2.3.0",
+  "run_kind": "ats_phase1_public_api_exploratory_run",
+  "limits": {
+    "max_workers": 3,
+    "lever_page_size": 50,
+    "lever_max_pages": 3,
+    "request_timeout_seconds": 20.0
+  },
+  "summary": {
+    "boards_total": 6,
+    "boards_succeeded": 5,
+    "boards_failed": 1,
+    "requests_succeeded": 7,
+    "jobs_normalized": 455,
+    "truncated_boards": 1,
+    "strong_identity_duplicate_records": 0,
+    "weak_company_title_collision_records": 99,
+    "wall_clock_ms": 20166.471
+  },
+  "findings": [
+    "greenhouse_large_board_timeout",
+    "lever_three_page_cap_truncated",
+    "weak_identity_collision_risk"
+  ],
+  "privacy": {
+    "contains_job_titles": false,
+    "contains_job_urls": false,
+    "contains_job_descriptions": false,
+    "contains_candidate_data": false,
+    "contains_api_keys": false
+  }
+}

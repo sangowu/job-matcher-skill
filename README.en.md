@@ -54,7 +54,8 @@ job-matcher/
 ├── references/           # instructions read on demand
 │   ├── cv_schema.md          # CV extraction rules
 │   ├── scoring_rubric.md     # 5-dim scoring + tier thresholds
-│   └── search_playbook.md    # fan-out / per-market / adaptive batching
+│   ├── search_playbook.md    # fan-out / per-market / adaptive batching
+│   └── ats_phase1_boards.json # public-company sample for the ATS baseline
 ├── scripts/              # deterministic Python scripts
 │   ├── extract_cv.py         # parse CV → text + hash
 │   ├── validate_profile.py   # validate + seniority→levels mapping
@@ -69,6 +70,7 @@ job-matcher/
 │   ├── browser_setup.py      # one-shot localhost setup page
 │   ├── browser_workflow.py   # listing pagination/pause state machine
 │   ├── benchmark_pipeline.py # fixed small core/Fake Provider benchmark
+│   ├── benchmark_ats.py      # bounded PII-safe public ATS API baseline (not production)
 │   ├── cp_hash.py            # stable candidate_profile hash
 │   ├── verify_jobs.py        # dead-link / closed-posting detection
 │   ├── fetch_rendered.py     # headless render fallback (reuses system browser)
@@ -161,6 +163,8 @@ python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|s
 The summary reports p50/p95 per mode plus `overlap_saving_pct`, which stays `n/a` until both modes have samples.
 
 Release regressions use a fixed 15-job cold dataset and 10 Fake sessions: `python scripts/benchmark_pipeline.py --output <json> --baseline docs/performance/v2.2.0-small-baseline.json`. The artifact contains raw iterations, p50/p95, absolute and relative changes, with no real web search or cloud-provider calls.
+
+ATS Phase 1 is a development benchmark only and is not part of the normal job-search pipeline: `python scripts/benchmark_ats.py --output <json> --page-size 50 --max-pages 10`. It calls only the official public GET endpoints listed in the sample configuration and does not persist job descriptions, titles, or URLs. See [`docs/ats-provider-phase1.md`](docs/ats-provider-phase1.md) for the design and production-entry gates.
 
 ## 🔧 Dependencies
 

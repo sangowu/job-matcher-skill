@@ -136,14 +136,16 @@ def test_kernel_provider_maps_to_documented_computer_control_api():
     provider.click("session-1", x=10, y=20)
     provider.type_text("session-1", text="hello")
     provider.press("session-1", keys=["Ctrl+l"])
+    provider.press("session-1", keys=["Enter", "Ctrl+ENTER"])
     provider.scroll("session-1", x=20, y=30, delta_y=120)
     provider.close("session-1")
 
     assert client.browsers.computer.calls == [
         ("screenshot", {"id": "session-1"}),
         ("click", {"id": "session-1", "x": 10, "y": 20}),
-        ("type", {"id": "session-1", "text": "hello", "smooth": False}),
+        ("type", {"id": "session-1", "text": "hello"}),
         ("press", {"id": "session-1", "keys": ["Ctrl+l"]}),
+        ("press", {"id": "session-1", "keys": ["Return", "Ctrl+Return"]}),
         ("scroll", {"id": "session-1", "x": 20, "y": 30, "delta_x": 0, "delta_y": 120}),
     ]
     assert client.browsers.deleted == ["session-1"]

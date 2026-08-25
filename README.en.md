@@ -134,7 +134,7 @@ Runtime state has one canonical table, `data/jobs_table.json`. Each evaluation b
 The remote browser is optional. After installing the extra, launch the one-shot setup page. It binds only to `127.0.0.1`; after a successful connection test the key goes to the OS keychain, while non-secret settings go to ignored `data/browser_provider.json`:
 
 ```text
-python -m pip install kernel keyring
+python -m pip install "kernel>=0.94,<1" keyring
 python scripts/browser_setup.py
 python scripts/browser_control.py test
 ```
@@ -172,7 +172,7 @@ Release regressions use a fixed 15-job cold dataset and 10 Fake sessions: `pytho
 ```bash
 pip install pdfplumber python-docx requests
 pip install playwright   # optional
-pip install kernel keyring  # optional remote browser
+pip install "kernel>=0.94,<1" keyring  # optional remote browser
 ```
 
 ## 📄 License

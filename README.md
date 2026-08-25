@@ -134,7 +134,7 @@ agent 会自动识别。然后在对话里：
 远程浏览器为可选功能。安装依赖后运行一次性本地设置页；页面只绑定 `127.0.0.1`，连接测试成功后把 API Key 保存到系统密钥库，非敏感设置保存到已忽略的 `data/browser_provider.json`：
 
 ```text
-python -m pip install kernel keyring
+python -m pip install "kernel>=0.94,<1" keyring
 python scripts/browser_setup.py
 python scripts/browser_control.py test
 ```
@@ -172,7 +172,7 @@ python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|s
 ```bash
 pip install pdfplumber python-docx requests
 pip install playwright   # 可选
-pip install kernel keyring  # 可选远程浏览器
+pip install "kernel>=0.94,<1" keyring  # 可选远程浏览器
 ```
 
 ---

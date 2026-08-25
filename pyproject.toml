@@ -10,7 +10,7 @@ description = "Agent skill that turns a CV plus job intent into an interactive j
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
-remote-browser = ["kernel", "keyring"]
+remote-browser = ["kernel>=0.94,<1", "keyring"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

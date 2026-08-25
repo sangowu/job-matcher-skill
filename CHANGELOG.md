@@ -41,6 +41,11 @@ Detailed release notes: [docs/releases/v2.3.0.md](docs/releases/v2.3.0.md).
 - API keys, cookies, session IDs, Live View URLs, page URLs, typed text, screenshots, CV/JD text, and arbitrary exception strings are excluded from metrics by strict field and category allowlists.
 - Remote stealth is disabled by default; the workflow prohibits automatic CAPTCHA solving, login simulation, proxy rotation, or bypassing site controls.
 
+### Fixed
+
+- Real Kernel SDK 0.94.0 smoke testing found that `type_text` no longer accepts the legacy `smooth` keyword. The adapter now uses the current `type_text(id, text=...)` contract, and the optional dependency range records the tested `0.94.x` API family.
+- The same smoke run found that the remote Linux host expects the X11 `Return` key symbol instead of the common agent spelling `Enter`. The adapter now normalizes `Enter`, `ENTER`, and combinations such as `Ctrl+Enter` before calling Kernel.
+
 ### Performance
 
 - On the fixed 15-job cold benchmark, core total p50 changed from 55.741 ms to 60.666 ms (+8.8%) and p95 from 64.107 ms to 64.604 ms (+0.8%), with all 15 jobs merged, updated, and rendered in every run. This feature release does not claim a deterministic-core speedup; the small render overhead remains visible and documented.

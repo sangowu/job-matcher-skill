@@ -251,12 +251,15 @@ class KernelBrowserProvider:
         self._client.browsers.computer.click_mouse(id=session_id, x=x, y=y)
 
     def type_text(self, session_id: str, *, text: str) -> None:
-        self._client.browsers.computer.type_text(
-            id=session_id, text=text, smooth=False
-        )
+        self._client.browsers.computer.type_text(id=session_id, text=text)
 
     def press(self, session_id: str, *, keys: list[str]) -> None:
-        self._client.browsers.computer.press_key(id=session_id, keys=keys)
+        normalized = []
+        for key in keys:
+            parts = key.split("+")
+            parts = ["Return" if part.lower() == "enter" else part for part in parts]
+            normalized.append("+".join(parts))
+        self._client.browsers.computer.press_key(id=session_id, keys=normalized)
 
     def scroll(self, session_id: str, *, x: int, y: int, delta_y: int) -> None:
         self._client.browsers.computer.scroll(

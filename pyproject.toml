@@ -5,9 +5,12 @@
 # tests/test_version.py.
 [project]
 name = "job-matcher"
-version = "2.2.0"
+version = "2.3.0"
 description = "Agent skill that turns a CV plus job intent into an interactive job-match report."
 requires-python = ">=3.10"
+
+[project.optional-dependencies]
+remote-browser = ["kernel", "keyring"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

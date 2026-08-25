@@ -2,7 +2,7 @@
 
 Job Matcher 是本地 CLI skill，不需要常驻 Prometheus 服务。运行监控采用两个低依赖组件：
 
-- `data/metrics.jsonl`：每次 `merge` / `update` / `round` 的结构化事件。
+- `data/metrics.jsonl`：每次 `merge` / `update` / `round` / `subagent` / `browser` 的结构化事件。
 - `scripts/summarize_metrics.py`：按时间窗口汇总健康状态、比率、分位数和队列积压。
 - `scripts/render_html.py`：每次生成职位报告时自动计算 7/30 天快照并嵌入 HTML。
 
@@ -17,6 +17,11 @@ python scripts/summarize_metrics.py --days 30 --format json
 
 # 存在阈值违规时返回退出码 2，可用于定时任务或 CI
 python scripts/summarize_metrics.py --fail-on-breach
+
+# 子代理完成后记录请求值与实际值；运行时未接受 override 时用 inherited + fallback
+python scripts/subagent_metrics.py record --role search --ok \
+  --model-effective gpt-5.6-luna --effort-effective low \
+  --duration-ms 1200 --items-in 1 --items-out 8 --valid-items 6 --rejected-items 2
 ```
 
 没有运行数据时脚本仍会正常输出报告，状态为 `no_data`；无样本的比率和分位数显示为 `null` / `n/a`，不会被误判为 0 或 `healthy`。
@@ -33,9 +38,9 @@ python scripts/summarize_metrics.py --fail-on-breach
 
 | 字段 | 说明 |
 |---|---|
-| `schema_version` | 指标事件 schema 版本，当前为 1 |
+| `schema_version` | 指标事件 schema 版本，当前为 2；汇总仍兼容已有 v1 事件 |
 | `timestamp` | UTC ISO-8601 时间 |
-| `operation` | `merge`、`update` 或 `round` |
+| `operation` | `merge`、`update`、`round`、`subagent` 或 `browser` |
 | `ok` | 操作是否成功 |
 | `duration_ms` | 命令端到端耗时 |
 | `lock_wait_ms` | 等待职位主表锁的时间 |
@@ -44,6 +49,10 @@ python scripts/summarize_metrics.py --fail-on-breach
 `merge` 事件还记录候选输入、批内去重、本轮新增、缓存命中、待评估、评估中、归档、主表大小和新建评估任务数。
 
 `update` 事件还记录输入结果、成功更新、安全 rebase、幂等重试、拒绝、冲突、run 释放和任务状态数量。
+
+`subagent` 事件记录角色、请求/实际模型、请求/实际 reasoning effort、是否发生继承回退、耗时及输入/输出/有效/拒绝条数。汇总按实际生效 profile 分组，避免把模型切换失败算成目标模型成绩。
+
+`browser` 事件记录 Provider、动作、耗时、页码/链接计数、接管、限流和估算费用。session id、Live View URL、页面 URL、键盘输入和截图不允许进入事件。
 
 失败事件只记录低基数 `failure_kind`：`input_validation`、`input_json`、`data_store_read`、`data_store_write`、`lock_timeout`、`data_store` 或 `unexpected`。不记录原始异常消息，避免路径或输入内容进入指标日志。
 
@@ -62,6 +71,14 @@ python scripts/summarize_metrics.py --fail-on-breach
 | `oldest_pending_age_minutes` | 最老活跃 run 的等待分钟数 |
 | `rounds.<mode>.p50_ms / p95_ms` | 按编排模式分组的整轮时长分位数 |
 | `rounds.overlap_saving_pct` | (serial p50 − overlapped p50) / serial p50，缺任一模式时为 `null` |
+| `subagents.success_rate` | 成功子代理调用 / 全部子代理调用 |
+| `subagents.valid_item_rate` | 有效输出条数 / 总输出条数 |
+| `subagents.fallback_rate` | 未按请求模型/effort 执行的调用 / 全部子代理调用 |
+| `subagents.by_profile` | 按 role + 实际模型 + 实际 effort 分组的运行数、成功率、有效率、回退率与 p50/p95 |
+| `browsers.success_rate` | 成功视觉动作 / 全部视觉动作 |
+| `browsers.sessions_created` | 成功创建的远程浏览器会话数 |
+| `browsers.handoffs` / `rate_limited` | 人工接管和限流事件计数 |
+| `browsers.estimated_cost_usd` | 本窗口记录的估算费用合计；不是供应商账单 |
 
 分位数采用观测窗口内样本排序后的最近秩值。这里的延迟用于本机回归和异常发现，不是生产 SLA。
 
@@ -111,6 +128,7 @@ python scripts/round_timer.py finish --round-id <R> --orchestration overlapped \
 - `cv_hash`、`cp_hash`、`run_id`、`dedup_key`
 - 职位 URL、公司名、职位名
 - 原始异常消息
+- API Key、Cookie、session id、Live View URL、页面 URL、查询/键盘输入和截图内容
 
 指标追加使用进程内线程锁和短时跨进程文件锁。写入失败时业务操作不会回滚，命令输出会返回 `metrics_recorded:false`，便于编排者告警。
 

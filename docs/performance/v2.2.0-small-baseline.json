@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "benchmark": "deterministic-core-small",
+  "recorded_at": "2026-08-25T17:43:10.566715+00:00",
+  "skill_version": "2.2.0",
+  "commit": "2fc388958c665c6cb1c97e6f5cc92dcdc463a43d",
+  "environment": {
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.13.5"
+  },
+  "fixture": {
+    "synthetic_jobs": 15,
+    "iterations": 10,
+    "warmups": 2,
+    "external_calls": 0,
+    "cache_state": "cold isolated store per iteration"
+  },
+  "metrics": {
+    "merge_wall_ms": {
+      "min_ms": 5.375,
+      "p50_ms": 6.282,
+      "p95_ms": 7.269,
+      "max_ms": 7.269
+    },
+    "update_wall_ms": {
+      "min_ms": 27.14,
+      "p50_ms": 31.98,
+      "p95_ms": 37.202,
+      "max_ms": 37.202
+    },
+    "render_wall_ms": {
+      "min_ms": 17.065,
+      "p50_ms": 18.94,
+      "p95_ms": 21.564,
+      "max_ms": 21.564
+    },
+    "core_total_wall_ms": {
+      "min_ms": 52.723,
+      "p50_ms": 55.741,
+      "p95_ms": 64.107,
+      "max_ms": 64.107
+    }
+  },
+  "runs": [
+    {"run": 1, "merge_wall_ms": 6.776, "merge_reported_ms": 5.17, "update_wall_ms": 30.826, "update_reported_ms": 18.73, "render_wall_ms": 17.645, "core_total_wall_ms": 55.247, "jobs_merged": 15, "jobs_updated": 15, "jobs_rendered": 15, "metrics_events": 2, "table_bytes": 27341, "report_bytes": 49517},
+    {"run": 2, "merge_wall_ms": 6.131, "merge_reported_ms": 4.72, "update_wall_ms": 35.295, "update_reported_ms": 19.21, "render_wall_ms": 21.078, "core_total_wall_ms": 62.505, "jobs_merged": 15, "jobs_updated": 15, "jobs_rendered": 15, "metrics_events": 2, "table_bytes": 27341, "report_bytes": 49513},
+    {"run": 3, "merge_wall_ms": 7.269, "merge_reported_ms": 5.84, "update_wall_ms": 29.951, "update_reported_ms": 18.81, "render_wall_ms": 17.242, "core_total_wall_ms": 54.462, "jobs_merged": 15, "jobs_updated": 15, "jobs_rendered": 15, "metrics_events": 2, "table_bytes": 27341, "report_bytes": 49517},
+    {"run": 4, "merge_wall_ms": 6.035, "merge_reported_ms": 4.64, "update_wall_ms": 33.135, "update_reported_ms": 19.92, "render_wall_ms": 17.065, "core_total_wall_ms": 56.235, "jobs_merged": 15, "jobs_updated": 15, "jobs_rendered": 15, "metrics_events": 2, "table_bytes": 27341, "report_bytes": 49515},
+    {"run": 5, "merge_wall_ms": 5.375, "merge_reported_ms": 4.1, "update_wall_ms": 29.865, "update_reported_ms": 17.42, "render_wall_ms": 18.017, "core_total_wall_ms": 53.256, "jobs_merged": 15, "jobs_updated": 15, "jobs_rendered": 15, "metrics_events": 2, "table_bytes": 27341, "report_bytes": 49515},
+    {"run": 6, "merge_wall_ms": 5.891, "merge_reported_ms": 4.28, "update_wall_ms": 30.536, "update_reported_ms": 19.44, "render_wall_ms": 17.527, "core_total_wall_ms": 53.954, "jobs_merged": 15, "jobs_updated": 15, "jobs_rendered": 15, "metrics_events": 2, "table_bytes": 27341, "report_bytes": 49517},
+    {"run": 7, "merge_wall_ms": 5.721, "merge_reported_ms": 4.35, "update_wall_ms": 27.14, "update_reported_ms": 16.28, "render_wall_ms": 19.863, "core_total_wall_ms": 52.723, "jobs_merged": 15, "jobs_updated": 15, "jobs_rendered": 15, "metrics_events": 2, "table_bytes": 27341, "report_bytes": 49515},
+    {"run": 8, "merge_wall_ms": 7.122, "merge_reported_ms": 5.07, "update_wall_ms": 34.883, "update_reported_ms": 18.88, "render_wall_ms": 21.564, "core_total_wall_ms": 63.569, "jobs_merged": 15, "jobs_updated": 15, "jobs_rendered": 15, "metrics_events": 2, "table_bytes": 27341, "report_bytes": 49517},
+    {"run": 9, "merge_wall_ms": 7.182, "merge_reported_ms": 5.37, "update_wall_ms": 34.197, "update_reported_ms": 21.44, "render_wall_ms": 20.67, "core_total_wall_ms": 62.049, "jobs_merged": 15, "jobs_updated": 15, "jobs_rendered": 15, "metrics_events": 2, "table_bytes": 27341, "report_bytes": 49513},
+    {"run": 10, "merge_wall_ms": 6.432, "merge_reported_ms": 4.98, "update_wall_ms": 37.202, "update_reported_ms": 22.68, "render_wall_ms": 20.473, "core_total_wall_ms": 64.107, "jobs_merged": 15, "jobs_updated": 15, "jobs_rendered": 15, "metrics_events": 2, "table_bytes": 27341, "report_bytes": 49517}
+  ]
+}

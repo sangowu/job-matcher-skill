@@ -1,0 +1,290 @@
+{
+  "schema_version": 1,
+  "benchmark": "job-matcher-small-release",
+  "recorded_at": "2026-08-25T18:40:14.606714+00:00",
+  "skill_version": "2.3.0",
+  "commit": "2fc388958c665c6cb1c97e6f5cc92dcdc463a43d",
+  "working_tree_dirty": true,
+  "environment": {
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.13.5"
+  },
+  "fixture": {
+    "synthetic_jobs": 15,
+    "fake_sessions": 10,
+    "fake_concurrency": 2,
+    "iterations": 10,
+    "warmups": 2,
+    "external_calls": 0,
+    "cache_state": "cold isolated store per iteration"
+  },
+  "core_metrics": {
+    "merge_wall_ms": {
+      "min_ms": 4.91,
+      "p50_ms": 5.615,
+      "p95_ms": 6.911,
+      "max_ms": 6.911
+    },
+    "update_wall_ms": {
+      "min_ms": 30.338,
+      "p50_ms": 32.99,
+      "p95_ms": 35.586,
+      "max_ms": 35.586
+    },
+    "render_wall_ms": {
+      "min_ms": 19.81,
+      "p50_ms": 21.122,
+      "p95_ms": 24.379,
+      "max_ms": 24.379
+    },
+    "core_total_wall_ms": {
+      "min_ms": 56.368,
+      "p50_ms": 60.666,
+      "p95_ms": 64.604,
+      "max_ms": 64.604
+    }
+  },
+  "fake_provider_metrics": {
+    "fake_total_wall_ms": {
+      "min_ms": 53.224,
+      "p50_ms": 56.763,
+      "p95_ms": 73.022,
+      "max_ms": 73.022
+    },
+    "sessions_per_iteration": 10,
+    "actions_per_iteration": 70,
+    "success_rate": 1.0
+  },
+  "core_runs": [
+    {
+      "run": 1,
+      "merge_wall_ms": 5.661,
+      "update_wall_ms": 33.845,
+      "render_wall_ms": 20.47,
+      "core_total_wall_ms": 59.977,
+      "jobs_merged": 15,
+      "jobs_updated": 15,
+      "jobs_rendered": 15
+    },
+    {
+      "run": 2,
+      "merge_wall_ms": 5.871,
+      "update_wall_ms": 33.144,
+      "render_wall_ms": 19.977,
+      "core_total_wall_ms": 58.992,
+      "jobs_merged": 15,
+      "jobs_updated": 15,
+      "jobs_rendered": 15
+    },
+    {
+      "run": 3,
+      "merge_wall_ms": 4.91,
+      "update_wall_ms": 33.172,
+      "render_wall_ms": 24.379,
+      "core_total_wall_ms": 62.461,
+      "jobs_merged": 15,
+      "jobs_updated": 15,
+      "jobs_rendered": 15
+    },
+    {
+      "run": 4,
+      "merge_wall_ms": 5.163,
+      "update_wall_ms": 32.733,
+      "render_wall_ms": 19.986,
+      "core_total_wall_ms": 57.882,
+      "jobs_merged": 15,
+      "jobs_updated": 15,
+      "jobs_rendered": 15
+    },
+    {
+      "run": 5,
+      "merge_wall_ms": 6.911,
+      "update_wall_ms": 32.836,
+      "render_wall_ms": 21.608,
+      "core_total_wall_ms": 61.356,
+      "jobs_merged": 15,
+      "jobs_updated": 15,
+      "jobs_rendered": 15
+    },
+    {
+      "run": 6,
+      "merge_wall_ms": 5.57,
+      "update_wall_ms": 32.55,
+      "render_wall_ms": 20.635,
+      "core_total_wall_ms": 58.756,
+      "jobs_merged": 15,
+      "jobs_updated": 15,
+      "jobs_rendered": 15
+    },
+    {
+      "run": 7,
+      "merge_wall_ms": 6.127,
+      "update_wall_ms": 32.081,
+      "render_wall_ms": 23.233,
+      "core_total_wall_ms": 61.44,
+      "jobs_merged": 15,
+      "jobs_updated": 15,
+      "jobs_rendered": 15
+    },
+    {
+      "run": 8,
+      "merge_wall_ms": 5.415,
+      "update_wall_ms": 34.962,
+      "render_wall_ms": 21.699,
+      "core_total_wall_ms": 62.076,
+      "jobs_merged": 15,
+      "jobs_updated": 15,
+      "jobs_rendered": 15
+    },
+    {
+      "run": 9,
+      "merge_wall_ms": 5.471,
+      "update_wall_ms": 35.586,
+      "render_wall_ms": 23.547,
+      "core_total_wall_ms": 64.604,
+      "jobs_merged": 15,
+      "jobs_updated": 15,
+      "jobs_rendered": 15
+    },
+    {
+      "run": 10,
+      "merge_wall_ms": 6.22,
+      "update_wall_ms": 30.338,
+      "render_wall_ms": 19.81,
+      "core_total_wall_ms": 56.368,
+      "jobs_merged": 15,
+      "jobs_updated": 15,
+      "jobs_rendered": 15
+    }
+  ],
+  "fake_provider_runs": [
+    {
+      "run": 1,
+      "fake_total_wall_ms": 55.714,
+      "sessions": 10,
+      "actions": 70,
+      "success_rate": 1.0
+    },
+    {
+      "run": 2,
+      "fake_total_wall_ms": 53.224,
+      "sessions": 10,
+      "actions": 70,
+      "success_rate": 1.0
+    },
+    {
+      "run": 3,
+      "fake_total_wall_ms": 59.255,
+      "sessions": 10,
+      "actions": 70,
+      "success_rate": 1.0
+    },
+    {
+      "run": 4,
+      "fake_total_wall_ms": 58.404,
+      "sessions": 10,
+      "actions": 70,
+      "success_rate": 1.0
+    },
+    {
+      "run": 5,
+      "fake_total_wall_ms": 54.307,
+      "sessions": 10,
+      "actions": 70,
+      "success_rate": 1.0
+    },
+    {
+      "run": 6,
+      "fake_total_wall_ms": 62.628,
+      "sessions": 10,
+      "actions": 70,
+      "success_rate": 1.0
+    },
+    {
+      "run": 7,
+      "fake_total_wall_ms": 57.812,
+      "sessions": 10,
+      "actions": 70,
+      "success_rate": 1.0
+    },
+    {
+      "run": 8,
+      "fake_total_wall_ms": 53.473,
+      "sessions": 10,
+      "actions": 70,
+      "success_rate": 1.0
+    },
+    {
+      "run": 9,
+      "fake_total_wall_ms": 54.635,
+      "sessions": 10,
+      "actions": 70,
+      "success_rate": 1.0
+    },
+    {
+      "run": 10,
+      "fake_total_wall_ms": 73.022,
+      "sessions": 10,
+      "actions": 70,
+      "success_rate": 1.0
+    }
+  ],
+  "comparison": {
+    "merge_wall_ms": {
+      "p50_ms": {
+        "baseline_ms": 6.282,
+        "current_ms": 5.615,
+        "change_ms": -0.667,
+        "change_pct": -10.6
+      },
+      "p95_ms": {
+        "baseline_ms": 7.269,
+        "current_ms": 6.911,
+        "change_ms": -0.358,
+        "change_pct": -4.9
+      }
+    },
+    "update_wall_ms": {
+      "p50_ms": {
+        "baseline_ms": 31.98,
+        "current_ms": 32.99,
+        "change_ms": 1.01,
+        "change_pct": 3.2
+      },
+      "p95_ms": {
+        "baseline_ms": 37.202,
+        "current_ms": 35.586,
+        "change_ms": -1.616,
+        "change_pct": -4.3
+      }
+    },
+    "render_wall_ms": {
+      "p50_ms": {
+        "baseline_ms": 18.94,
+        "current_ms": 21.122,
+        "change_ms": 2.182,
+        "change_pct": 11.5
+      },
+      "p95_ms": {
+        "baseline_ms": 21.564,
+        "current_ms": 24.379,
+        "change_ms": 2.815,
+        "change_pct": 13.1
+      }
+    },
+    "core_total_wall_ms": {
+      "p50_ms": {
+        "baseline_ms": 55.741,
+        "current_ms": 60.666,
+        "change_ms": 4.925,
+        "change_pct": 8.8
+      },
+      "p95_ms": {
+        "baseline_ms": 64.107,
+        "current_ms": 64.604,
+        "change_ms": 0.497,
+        "change_pct": 0.8
+      }
+    }
+  }
+}

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DEFAULT_THRESHOLDS = {
     "conflict_rate_max": 0.02,
     "rejected_rate_max": 0.01,
@@ -63,11 +64,51 @@ _ROUND_FIELDS = {
     "evaluations",
     "jobs_reported",
 }
+_SUBAGENT_FIELDS = {
+    "role",
+    "model_requested",
+    "model_effective",
+    "reasoning_effort_requested",
+    "reasoning_effort_effective",
+    "fallback_used",
+    "duration_ms",
+    "items_in",
+    "items_out",
+    "valid_items",
+    "rejected_items",
+}
+_BROWSER_FIELDS = {
+    "provider",
+    "action",
+    "duration_ms",
+    "status",
+    "page_number",
+    "links_found",
+    "links_new",
+    "handoff_required",
+    "handoff_wait_ms",
+    "rate_limited",
+    "estimated_cost_usd",
+}
 ORCHESTRATION_MODES = ("serial", "overlapped")
 _FAILURE_FIELDS = {"failure_kind"}
 _SCRIPT_OPERATIONS = ("merge", "update")
-OPERATIONS = (*_SCRIPT_OPERATIONS, "round")
+OPERATIONS = (*_SCRIPT_OPERATIONS, "round", "subagent", "browser")
 _THREAD_APPEND_LOCK = threading.Lock()
+_CATEGORY_FIELDS = {
+    "operation",
+    "failure_kind",
+    "orchestration",
+    "role",
+    "model_requested",
+    "model_effective",
+    "reasoning_effort_requested",
+    "reasoning_effort_effective",
+    "provider",
+    "action",
+    "status",
+}
+_SAFE_CATEGORY = re.compile(r"[A-Za-z0-9_.:-]{1,80}\Z")
 
 
 def utc_now() -> datetime:
@@ -155,6 +196,10 @@ def record_metric(
         return False
     if operation == "round":
         allowed = set(_ROUND_FIELDS)
+    elif operation == "subagent":
+        allowed = set(_SUBAGENT_FIELDS)
+    elif operation == "browser":
+        allowed = set(_BROWSER_FIELDS)
     else:
         allowed = _COMMON_FIELDS | (_MERGE_FIELDS if operation == "merge" else _UPDATE_FIELDS)
     if not ok:
@@ -167,6 +212,8 @@ def record_metric(
     }
     for key in allowed:
         value = values.get(key)
+        if key in _CATEGORY_FIELDS and isinstance(value, str) and not _SAFE_CATEGORY.fullmatch(value):
+            continue
         if isinstance(value, (bool, int, float, str)):
             event[key] = value
 
@@ -291,6 +338,58 @@ def _build_summary_from_events(
     update_events = [event for event in events if event.get("operation") == "update" and event.get("ok") is True]
     failed_events = [event for event in events if event.get("ok") is False]
 
+    subagent_events = [event for event in events if event.get("operation") == "subagent"]
+    successful_subagents = [event for event in subagent_events if event.get("ok") is True]
+    subagent_items_out = sum(_number(event, "items_out") for event in successful_subagents)
+    valid_subagent_items = sum(_number(event, "valid_items") for event in successful_subagents)
+    subagent_durations = [
+        _number(event, "duration_ms")
+        for event in subagent_events
+        if _number(event, "duration_ms") >= 0
+    ]
+    profile_groups: dict[tuple[str, str, str], list[dict]] = {}
+    for event in subagent_events:
+        key = (
+            str(event.get("role", "unknown")),
+            str(event.get("model_effective", "unknown")),
+            str(event.get("reasoning_effort_effective", "unknown")),
+        )
+        profile_groups.setdefault(key, []).append(event)
+    by_profile = []
+    for (role, model, effort), group in sorted(profile_groups.items()):
+        successful = [event for event in group if event.get("ok") is True]
+        items_out = sum(_number(event, "items_out") for event in successful)
+        valid_items = sum(_number(event, "valid_items") for event in successful)
+        group_durations = [
+            _number(event, "duration_ms")
+            for event in group
+            if _number(event, "duration_ms") >= 0
+        ]
+        by_profile.append({
+            "role": role,
+            "model": model,
+            "reasoning_effort": effort,
+            "runs": len(group),
+            "success_rate": _ratio(len(successful), len(group)),
+            "valid_item_rate": _ratio(valid_items, items_out),
+            "fallback_rate": _ratio(
+                sum(1 for event in group if event.get("fallback_used") is True),
+                len(group),
+            ),
+            "duration_ms": {
+                "p50": percentile(group_durations, 0.50),
+                "p95": percentile(group_durations, 0.95),
+            },
+        })
+
+    browser_events = [event for event in events if event.get("operation") == "browser"]
+    successful_browser_events = [event for event in browser_events if event.get("ok") is True]
+    browser_durations = [
+        _number(event, "duration_ms")
+        for event in browser_events
+        if _number(event, "duration_ms") >= 0
+    ]
+
     results_in = sum(_number(event, "results_in") for event in update_events)
     updated = sum(_number(event, "updated") for event in update_events)
     idempotent = sum(_number(event, "idempotent") for event in update_events)
@@ -357,6 +456,40 @@ def _build_summary_from_events(
         },
         "stale_lock_recoveries": int(sum(_number(event, "stale_lock_recoveries") for event in events)),
         "rounds": rounds,
+        "subagents": {
+            "runs": len(subagent_events),
+            "success_rate": _ratio(len(successful_subagents), len(subagent_events)),
+            "valid_item_rate": _ratio(valid_subagent_items, subagent_items_out),
+            "fallback_rate": _ratio(
+                sum(1 for event in subagent_events if event.get("fallback_used") is True),
+                len(subagent_events),
+            ),
+            "duration_ms": {
+                "p50": percentile(subagent_durations, 0.50),
+                "p95": percentile(subagent_durations, 0.95),
+            },
+            "by_profile": by_profile,
+        },
+        "browsers": {
+            "actions": len(browser_events),
+            "success_rate": _ratio(len(successful_browser_events), len(browser_events)),
+            "sessions_created": sum(
+                1 for event in successful_browser_events if event.get("action") == "create"
+            ),
+            "handoffs": sum(
+                1 for event in browser_events if event.get("handoff_required") is True
+            ),
+            "rate_limited": sum(
+                1 for event in browser_events if event.get("rate_limited") is True
+            ),
+            "estimated_cost_usd": round(
+                sum(_number(event, "estimated_cost_usd") for event in browser_events), 4
+            ),
+            "duration_ms": {
+                "p50": percentile(browser_durations, 0.50),
+                "p95": percentile(browser_durations, 0.95),
+            },
+        },
         "queue": queue,
     }
 
@@ -489,6 +622,14 @@ def render_markdown(summary: dict) -> str:
         ("Round p50 serial (ms)", metrics["rounds"]["serial"]["p50_ms"]),
         ("Round p50 overlapped (ms)", metrics["rounds"]["overlapped"]["p50_ms"]),
         ("Overlap saving (%)", metrics["rounds"]["overlap_saving_pct"]),
+        ("Subagent runs", metrics["subagents"]["runs"]),
+        ("Subagent success rate", metrics["subagents"]["success_rate"]),
+        ("Subagent valid item rate", metrics["subagents"]["valid_item_rate"]),
+        ("Subagent fallback rate", metrics["subagents"]["fallback_rate"]),
+        ("Browser actions", metrics["browsers"]["actions"]),
+        ("Browser success rate", metrics["browsers"]["success_rate"]),
+        ("Browser sessions", metrics["browsers"]["sessions_created"]),
+        ("Browser handoffs", metrics["browsers"]["handoffs"]),
         ("Active runs", queue["active_runs"]),
         ("Pending tasks", queue["pending_tasks"]),
         ("Oldest pending (minutes)", queue["oldest_pending_age_minutes"]),
@@ -508,6 +649,21 @@ def render_markdown(summary: dict) -> str:
         "|---|---:|",
     ]
     lines.extend(f"| {name} | {'n/a' if value is None else value} |" for name, value in rows)
+    lines.extend([
+        "",
+        "## Subagent profiles",
+        "",
+        "| Role | Model | Effort | Runs | Success | Valid items | Fallback | p95 ms |",
+        "|---|---|---|---:|---:|---:|---:|---:|",
+    ])
+    for profile in metrics["subagents"]["by_profile"]:
+        lines.append(
+            "| {role} | {model} | {reasoning_effort} | {runs} | {success_rate} | "
+            "{valid_item_rate} | {fallback_rate} | {p95} |".format(
+                **profile,
+                p95=profile["duration_ms"]["p95"],
+            )
+        )
     lines.extend(["", "## Threshold breaches", ""])
     if not summary["breaches"]:
         lines.append("None.")

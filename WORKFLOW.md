@@ -11,7 +11,7 @@
 | 运行 Python 3 + 读写文件 | **必需** | shell / exec | 无法运行（脚本是骨架） |
 | Web 搜索 | **必需** | 你的 web 搜索工具 | 无法做职位检索（核心残缺） |
 | 并行子代理 | 可选 | 你的 sub-agent / 并行机制 | **降级：你自己主线程串行执行各步** |
-| 网页抓取 | 可选 | 你的 fetch / 浏览工具 | **回退脚本**：`fetch_rendered.py` / `verify_jobs.py`（已内置 requests/playwright） |
+| 网页抓取 | 可选 | 你的 fetch / 浏览工具 | **回退脚本**：静态/本机 `fetch_rendered.py`，以及可选的远程 `browser_control.py` |
 
 > 下文用「**子代理**」「**web 搜索**」「**抓取**」指代上述能力。有就用，没有就按"缺失时"列降级——流程不变，只是慢一些、上下文不那么整洁。
 
@@ -29,6 +29,9 @@
 - `max_parallel_subagents` 是**全局**并发预算（搜索+评估 worker 共用）；
   重叠期建议 1 个搜索 worker、其余给评估（默认 3 → 1 搜 + 2 评）。
 - 脚本输出是纯 ASCII JSON，解析后使用。所有路径相对本 skill 目录。
+- 每次子代理调用前先运行 `subagent_metrics.py profile --role <role>`，运行时支持时按返回的
+  `model`、`reasoning_effort`、`fork_turns` 创建隔离 worker；不支持覆盖时允许继承当前模型，
+  但必须在调用后把实际模型/effort 和 `fallback_used` 如实记录，不能把请求值冒充实际值。
 
 ## 脚本契约（你的确定性工具箱）
 
@@ -44,6 +47,10 @@
 | `cp_hash.py` | `python scripts/cp_hash.py`（stdin） | candidate_profile JSON | `{ok, cp_hash}`（规范化后稳定 hash） |
 | `render_html.py` | `… --cv-hash H --cp-hash H [--meta-file F]` | jobs_table + meta + PII-safe metrics | `{ok, report_path, job_count, health_status, health_breaches}` |
 | `round_timer.py` | `… start` / `… finish --round-id R --orchestration serial\|overlapped` | 整轮起止 | `{ok, round_id}` / `{ok, round_duration_ms, metrics_recorded}` |
+| `subagent_metrics.py` | `… profile --role R` / `… record …` | 角色配置 / 实际执行计数 | 请求配置；或写入一次 PII-safe 子代理指标 |
+| `browser_setup.py` | `python scripts/browser_setup.py` | localhost 表单 | 测试连接，密钥进系统密钥库，非敏感设置进 `data/` |
+| `browser_control.py` | `… create/screenshot/click/type/press/scroll/close/test` | session id + 视觉动作 | 小 JSON；`create` 临时返回 Live View URL |
+| `browser_workflow.py` | 由 browser worker 使用 | 逐页观察与下一页动作 | 有上限的串行翻页、链接去重与暂停状态 |
 
 指令文档（按需读）：`references/cv_schema.md`、`references/scoring_rubric.md`、`references/search_playbook.md`。配置：`config.json`。
 
@@ -65,6 +72,7 @@
 - `cache_hit:true` → 读 `cached_profile_path` 载入 CVProfile，**跳过抽取**。
 - 否则（**有子代理就委派，否则你自己做**）：读 `references/cv_schema.md` + `text_path`，产出 CVProfile JSON → 用 `validate_profile.py` 校验补全 → 写 `data/cv/<cv_hash>.json`。
   - 委派时只回传简短摘要（roles/seniority/missing），不回贴全文。
+  - 委派角色为 `cv_extract`；调用前读取 profile，调用后记录耗时、输入/输出/有效条数及实际模型。
   - 若判定输入不是简历 → 提示用户。
 
 ### 3. 构建检索条件（你来做，读 `references/search_playbook.md`）
@@ -73,19 +81,23 @@
 - 算 `candidate_profile_hash`：把 candidate_profile JSON 喂给 `python scripts/cp_hash.py`（它规范化后再 hash，**保证同语义同 hash、不每轮分裂**），取返回的 `cp_hash`。后续 `merge_jobs` / `render_html` 的 `--cp-hash` **全部用它**（不要自己另编 hash）。
 
 ### 4. 检索职位（web 搜索 + 脚本，自适应分批）
-- 按 search_playbook 自适应分批：每批执行若干条 query 的 **web 搜索**（有子代理则并行委派、各 1 次搜索；否则你逐条搜），按 search_playbook「搜索职责」解析+三维初筛，得结构化职位数组。
+- 按 search_playbook 自适应分批：每批执行若干条 query 的 **web 搜索**（有子代理则用 `search` profile 并行委派、各 1 次搜索；否则你逐条搜），按 search_playbook「搜索职责」解析+三维初筛，得结构化职位数组。
+- Web 搜索“结果翻页”视为下一次独立搜索调用；仅在上一页仍有高相关未覆盖结果时继续，且每一页都计入 `max_websearch_calls`。不要假定一次搜索调用会自动替你翻完全部结果页。
+- Web Search 发现公司招聘列表但职位链接不完整时，可把该列表交给 browser worker 做网站内翻页；同一网站第 1→N 页必须串行，不同网站可在 `browser_max_concurrency` 内并行。
 - 汇总 → `merge_jobs.py merge` → `{to_analyze, to_score_only, in_evaluation, cached, eval_run, stats}`。
 - `merge` 同时创建 `data/eval_runs/<run_id>.json` 评估任务快照，并在 `eval_run` 返回路径。`in_evaluation` 中的职位已有未完成任务，不要重复委派。
 - 按 stats 判断是否追加下一批（阈值/上限/连续空批见 playbook）。
 - **重叠执行**：决定追加第 N+1 批时，不必等第 N 批评完——把「第 N 批评估 worker（第 5 步）」
   和「第 N+1 批搜索 worker」放进同一条消息并行发出，评估结果回来就增量 `update`。
 - 一行进度：`第N批 搜X条→候选Y→新Z/缓存W`。
+- 每个搜索 worker 返回后调用 `subagent_metrics.py record`，至少记录请求/实际模型、effort、耗时、候选输出数、通过初筛数、拒绝数和是否回退；不得记录 query 或 URL。
 
 ### 5. 匹配排序（打分 + 脚本，读 `references/scoring_rubric.md`）
 - **粗排**：对 `to_analyze`+`to_score_only` 用 snippet 做 5 维快速估分排序（有子代理则分片并行）。
 - **精排（worker 一条龙）**：取 Top-(top_n+precise_buffer)，每个精排 worker 在**一个子代理内**
   完成「抓 JD 全文（用**抓取**能力或回退脚本）→ 抽 jd_profile → 精确 5 维打分 → 回传结构化结果」，
   JD 全文留在 worker 内不回传；`to_score_only` 复用已有 jd_profile 只打分。
+- 精排使用 `evaluation` profile；需视觉远程浏览时使用 `browser` profile。两种 worker 都要记录实际模型/effort、耗时、成功、有效输出和回退情况。
 - **失效验证**（精排 Top-N）：`verify_jobs.py` 查死链；`possibly_closed` 的走容错阶梯确认；失效则剔除、从次位递补。
 - 每个 worker 必须原样回传任务中的 `dedup_key`、`base_record_version`、`jd_input_hash`，再附加 `jd_profile`、`match_score`、`verified`、`scored_from`。不得回传或覆盖 title/company/url/source 等搜索字段。
 - 写回：`merge_jobs.py update --run-id <eval_run.run_id>`。脚本会校验评分契约，只合并评估字段；搜索期间仅来源等非评估输入变化时安全 rebase，JD 输入变化时报告 conflict 并拒绝旧结果。
@@ -110,8 +122,20 @@
 抓取正文（你的 fetch 工具）→ 失败退避重试1次
   → requests 静态抓（可在子代理内，或脚本）扫关闭关键词
   → fetch_rendered.py <url>（仅当 enable_headless_fallback 为 true；受 headless_budget 约束，缺浏览器自动跳过）
+  → browser_control.py（仅当 remote_browser_enabled 为 true；Kernel BYOK，受并发/页数/会话/估算费用硬上限约束）
   → 全失败：标注「未验证」/「基于摘要评分」，不阻塞
 ```
+
+### 远程视觉浏览器协议
+
+1. 未配置时运行 `browser_setup.py`；密钥缺失或连接测试失败即跳过远程层，不阻塞整轮。
+2. 使用第 0 步的 `round_id` 创建会话：`browser_control.py create --round-id R --url U`。控制脚本在调用 Provider **之前**原子预留并发、单轮会话数和估算费用预算；默认每次预留 `browser_cost_limit_usd / browser_session_budget`。
+3. `screenshot` 保存到 `data/browser_sessions/`，browser worker 读取图片并用 `click/type/press/scroll` 操作。不要引入本机 Playwright 来控制远程会话。
+4. 单个招聘列表最多 `browser_max_pages` 页；用 `browser_workflow.py` 的状态契约逐页观察、去重链接、再点击下一页。单站串行，多站并行。
+5. 识别到验证码、登录、限流或人工确认时，返回 `user_action_required` 或 `rate_limited`，立即暂停该任务；不得自动解验证码、启用 stealth 或轮换代理。
+6. 若 `browser_allow_handoff` 为 true，把本次 `create` 返回的临时 Live View URL 告诉用户。用户处理后在同一 session 继续截图；等待超过 `browser_handoff_timeout_minutes` 就关闭并标记未验证。等待期间其他 worker 继续。
+7. 无论成功或失败都调用 `close --round-id R --session-id S`；关闭会释放并发槽，但已创建会话数和估算费用仍计入本轮硬上限。
+8. 用 `browser_control.py event --status ...` 记录页数/链接计数、接管等待、限流和估算费用；动作本身自动记录 Provider 与耗时。不得记录 session id、Live View URL、页面 URL、输入文本、Cookie 或截图内容。
 
 ## 护栏
 - 抓取**不绕验证码、不模拟登录、不抓需付费/登录内容、尊重 robots/ToS**。

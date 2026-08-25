@@ -7,14 +7,26 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-08-25
+
+Detailed release notes: [docs/releases/v2.3.0.md](docs/releases/v2.3.0.md).
+
 ### Added
 
+- Optional Kernel BYOK remote-browser fallback with visual screenshot/mouse/keyboard controls, bounded listing pagination, Live View handoff, and a deterministic Fake Provider for CI.
+- A one-shot setup page bound to `127.0.0.1`; provider keys are tested before being stored in the OS keychain, with `KERNEL_API_KEY` as the non-UI fallback.
+- Atomic per-round admission limits: at most 2 concurrent browsers, 3 pages per site, 10 sessions, 10 minutes of handoff wait, and USD 1.00 estimated cost by default.
+- Role-specific subagent profiles and PII-safe requested/effective model, reasoning-effort, latency, success, valid-item, and fallback metrics.
+- PII-safe browser action/session/handoff/rate-limit/estimated-cost metrics and runtime schema v2, with v1 event compatibility.
+- `scripts/benchmark_pipeline.py` for repeatable 15-job cold-core and 10-session Fake Provider release measurements, including raw runs and baseline deltas.
 - `[project]` metadata in `pyproject.toml` with `version` as the single source of truth, read at runtime by `_jobutil.skill_version()` and reported by `summarize_metrics.py`.
 - Tests that fail when `pyproject.toml`, the newest `CHANGELOG.md` release heading, and `docs/releases/vX.Y.Z.md` drift apart.
 - Documentation drift tests: every script and every `config.json` knob must appear in both READMEs, every release note must be linked, and no knob may exist that nothing reads.
 
 ### Documentation
 
+- `WORKFLOW.md` now distinguishes web-search result pagination from sequential job-site listing pagination and specifies model selection, metric recording, remote-browser fallback, budget admission, handoff, and cleanup.
+- The confirmed architecture and staged ATS boundary are recorded in `docs/browser-provider-control-panel.md`; ATS integration remains a later independently validated phase.
 - Both READMEs now cover `round_timer.py` and `cp_hash.py`, the `eval_run_stale_hours` and `consecutive_empty_stop` knobs, the multi-market search strategy, batch overlap, abandoned-snapshot recovery, and the untrusted-input boundary.
 - `search_playbook.md` names `stop_threshold`, `max_websearch_calls`, and `consecutive_empty_stop` instead of hardcoding their values in prose.
 - The fallback ladder in `WORKFLOW.md` and `scoring_rubric.md` now honors `enable_headless_fallback`, which previously existed in `config.json` but was referenced nowhere.
@@ -23,6 +35,16 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Removed
 
 - `cv_cache` and `report_keep_history` from `config.json`. Neither was read by any script or referenced by any instruction document — CV profiles are always cached and reports always keep history — so they promised control that did not exist.
+
+### Security
+
+- API keys, cookies, session IDs, Live View URLs, page URLs, typed text, screenshots, CV/JD text, and arbitrary exception strings are excluded from metrics by strict field and category allowlists.
+- Remote stealth is disabled by default; the workflow prohibits automatic CAPTCHA solving, login simulation, proxy rotation, or bypassing site controls.
+
+### Performance
+
+- On the fixed 15-job cold benchmark, core total p50 changed from 55.741 ms to 60.666 ms (+8.8%) and p95 from 64.107 ms to 64.604 ms (+0.8%), with all 15 jobs merged, updated, and rendered in every run. This feature release does not claim a deterministic-core speedup; the small render overhead remains visible and documented.
+- The new Fake Provider path completed 10 sessions / 70 recorded actions per iteration at p50 56.763 ms and p95 73.022 ms with 100% success. No external requests or provider charges were used.
 
 ## [2.2.0] - 2026-08-08
 

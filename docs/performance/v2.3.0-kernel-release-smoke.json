@@ -1,0 +1,46 @@
+{
+  "version": "2.3.0",
+  "run_kind": "post_merge_kernel_release_smoke",
+  "source_commit": "9cddc9795f437a1f9b3dc65d6de25959b3641f05",
+  "environment": {
+    "os": "Windows 11",
+    "python": "3.13.5",
+    "kernel_sdk": "0.94.0"
+  },
+  "scope": {
+    "sessions": 1,
+    "public_listing": true,
+    "login": false,
+    "captcha": false,
+    "rate_limited": false,
+    "handoff": false
+  },
+  "summary": {
+    "actions": 9,
+    "successful_actions": 9,
+    "success_rate": 1.0,
+    "estimated_cost_usd": 0.1,
+    "navigation_verified": true,
+    "scroll_verified": true,
+    "session_closed": true
+  },
+  "actions": [
+    {"action": "create", "duration_ms": 1008.134, "ok": true},
+    {"action": "screenshot", "duration_ms": 811.798, "ok": true},
+    {"action": "press", "duration_ms": 167.903, "ok": true},
+    {"action": "type", "duration_ms": 1355.033, "ok": true},
+    {"action": "press", "duration_ms": 143.288, "ok": true},
+    {"action": "screenshot", "duration_ms": 665.677, "ok": true},
+    {"action": "scroll", "duration_ms": 231.056, "ok": true},
+    {"action": "screenshot", "duration_ms": 444.208, "ok": true},
+    {"action": "close", "duration_ms": 315.188, "ok": true}
+  ],
+  "privacy": {
+    "contains_api_key": false,
+    "contains_url": false,
+    "contains_session_id": false,
+    "contains_live_view_url": false,
+    "contains_input_text": false,
+    "contains_screenshot_content": false
+  }
+}

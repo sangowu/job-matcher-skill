@@ -1,6 +1,6 @@
 # 远程浏览器 Provider 与本地控制面板设计草案
 
-状态：Confirmed / In implementation。2026-08-25 已确认 Kernel、临时 localhost 页面、系统密钥库 + 环境变量备用、3 页/10 会话/10 分钟/1 美元硬上限、Fake Provider CI 与“先远程浏览器、后 ATS”的分阶段范围。
+状态：Implemented in v2.3.0。2026-08-25 已完成 Kernel、临时 localhost 页面、系统密钥库 + 环境变量备用、3 页/10 会话/10 分钟/1 美元硬上限、Fake Provider CI 与“先远程浏览器、后 ATS”的分阶段范围；PR #16 已合并并通过 Ubuntu/Windows CI。
 
 目标版本：基于 Job Matcher v2.2.0。
 

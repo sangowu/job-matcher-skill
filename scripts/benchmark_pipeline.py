@@ -53,9 +53,22 @@ def candidate(index: int) -> dict:
     }
 
 
+def identity_collision_candidate(index: int) -> dict:
+    return {
+        "title": "AI Engineer",
+        "company": "Identity Benchmark Company",
+        "location": "Dublin",
+        "url": f"https://boards.greenhouse.io/identity/jobs/{9_000_000 + index}",
+        "snippet": "Build production AI systems with Python and AWS",
+        "source": "greenhouse",
+        "date_posted": "2026-08-25",
+    }
+
+
 def evaluation(task: dict, index: int) -> dict:
     score = 70 + index % 21
     return {
+        "record_id": task["record_id"],
         "dedup_key": task["dedup_key"],
         "base_record_version": task["base_record_version"],
         "jd_input_hash": task["jd_input_hash"],
@@ -197,6 +210,60 @@ def run_core_once(root: Path, job_count: int, run_index: int, merge_jobs: Any, r
         }
 
 
+def run_identity_once(root: Path, job_count: int, run_index: int, merge_jobs: Any) -> dict:
+    """Measure the worst common ATS case: one weak key, disjoint strong ids."""
+    with tempfile.TemporaryDirectory(prefix=f"identity-{run_index:02d}-", dir=root) as temporary:
+        data_dir = Path(temporary) / "data"
+        merge_jobs.DATA_DIR = data_dir
+        merge_jobs.TABLE_PATH = data_dir / "jobs_table.json"
+        merge_jobs.ARCHIVE_PATH = data_dir / "archive.json"
+        merge_jobs.EVAL_RUNS_DIR = data_dir / "eval_runs"
+        merge_jobs.EVAL_HISTORY_PATH = data_dir / "eval_runs" / "history.jsonl"
+        merge_jobs.LOCK_PATH = data_dir / "jobs_table.lock"
+        merge_jobs.METRICS_PATH = data_dir / "metrics.jsonl"
+        merge_jobs.load_config = lambda: {
+            "jd_ttl_days": 30,
+            "table_lock_timeout_seconds": 2,
+            "stale_lock_seconds": 10,
+            "eval_run_stale_hours": 2,
+        }
+
+        started = time.perf_counter_ns()
+        merged = invoke(
+            merge_jobs.cmd_merge,
+            [identity_collision_candidate(index) for index in range(1, job_count + 1)],
+            "benchmark-cv",
+            "benchmark-profile",
+        )
+        after_merge = time.perf_counter_ns()
+        manifest = json.loads(Path(merged["eval_run"]["path"]).read_text(encoding="utf-8"))
+        updated = invoke(
+            merge_jobs.cmd_update,
+            [evaluation(task, index) for index, task in enumerate(manifest["tasks"], 1)],
+            "benchmark-cv",
+            "benchmark-profile",
+            merged["eval_run"]["run_id"],
+        )
+        finished = time.perf_counter_ns()
+
+        table = json.loads((data_dir / "jobs_table.json").read_text(encoding="utf-8"))
+        record_ids = {job["record_id"] for job in table["jobs"]}
+        assert merged["stats"]["new"] == job_count
+        assert merged["stats"]["strong_identity_conflicts_prevented"] == job_count - 1
+        assert len(record_ids) == job_count
+        assert updated["updated"] == job_count
+        return {
+            "run": run_index,
+            "merge_wall_ms": round((after_merge - started) / 1_000_000, 3),
+            "update_wall_ms": round((finished - after_merge) / 1_000_000, 3),
+            "identity_total_wall_ms": round((finished - started) / 1_000_000, 3),
+            "jobs_preserved": len(record_ids),
+            "strong_identity_conflicts_prevented": merged["stats"][
+                "strong_identity_conflicts_prevented"
+            ],
+        }
+
+
 def run_fake_once(root: Path, session_count: int, run_index: int) -> dict:
     with tempfile.TemporaryDirectory(prefix=f"fake-{run_index:02d}-", dir=root) as temporary:
         directory = Path(temporary)
@@ -264,8 +331,9 @@ def main() -> int:
     parser.add_argument("--iterations", type=int, default=10)
     parser.add_argument("--warmups", type=int, default=2)
     parser.add_argument("--fake-sessions", type=int, default=10)
+    parser.add_argument("--identity-jobs", type=int, default=100)
     args = parser.parse_args()
-    if min(args.jobs, args.iterations, args.fake_sessions) <= 0 or args.warmups < 0:
+    if min(args.jobs, args.iterations, args.fake_sessions, args.identity_jobs) <= 0 or args.warmups < 0:
         parser.error("counts must be positive and warmups non-negative")
 
     import merge_jobs
@@ -275,9 +343,14 @@ def main() -> int:
     scratch.mkdir(parents=True, exist_ok=True)
     for index in range(args.warmups):
         run_core_once(scratch, args.jobs, -(index + 1), merge_jobs, render_html)
+        run_identity_once(scratch, args.identity_jobs, -(index + 1), merge_jobs)
         run_fake_once(scratch, args.fake_sessions, -(index + 1))
     core_runs = [
         run_core_once(scratch, args.jobs, index, merge_jobs, render_html)
+        for index in range(1, args.iterations + 1)
+    ]
+    identity_runs = [
+        run_identity_once(scratch, args.identity_jobs, index, merge_jobs)
         for index in range(1, args.iterations + 1)
     ]
     fake_runs = [
@@ -304,6 +377,7 @@ def main() -> int:
         "fixture": {
             "synthetic_jobs": args.jobs,
             "fake_sessions": args.fake_sessions,
+            "identity_collision_jobs": args.identity_jobs,
             "fake_concurrency": 2,
             "iterations": args.iterations,
             "warmups": args.warmups,
@@ -311,6 +385,10 @@ def main() -> int:
             "cache_state": "cold isolated store per iteration",
         },
         "core_metrics": core_metrics,
+        "identity_metrics": {
+            key: summarize([float(run[key]) for run in identity_runs])
+            for key in ("merge_wall_ms", "update_wall_ms", "identity_total_wall_ms")
+        },
         "fake_provider_metrics": {
             "fake_total_wall_ms": summarize(
                 [float(run["fake_total_wall_ms"]) for run in fake_runs]
@@ -320,6 +398,7 @@ def main() -> int:
             "success_rate": min(run["success_rate"] for run in fake_runs),
         },
         "core_runs": core_runs,
+        "identity_runs": identity_runs,
         "fake_provider_runs": fake_runs,
     }
     if args.baseline:

@@ -4,13 +4,14 @@
 两个模式（并行计算、串行提交）：
 
   merge  —— 输入本批候选职位，做：本批内聚合 → 与 jobs_table 比对
-            （url_key 强命中 / dedup_key 弱命中聚合）→ TTL 判定 → 写表骨架
+            （record_id / identity_keys 强命中，dedup_key + location 弱匹配）
+            → TTL 判定 → 写表骨架
             → 创建 run-scoped 评估快照并输出 {eval_run, ...}
   update —— 按 eval_run 条件化回写评估字段；完成后释放快照
 
 缓存键：
-  jd_profile  按 dedup_key（跨 CV 复用，TTL jd_ttl_days）
-  match_score 按 dedup_key + cv_hash + candidate_profile_hash
+  jd_profile  按 record_id（跨 CV 复用，TTL jd_ttl_days）
+  match_score 按 record_id + cv_hash + candidate_profile_hash
 
 用法:
   python merge_jobs.py merge  --cv-hash H --cp-hash H   < candidates.json
@@ -35,10 +36,13 @@ from pathlib import Path
 
 from analysis_contract import AnalysisContractError, validate_evaluation_result
 from _jobutil import (
+    all_identity_keys,
     all_url_keys,
     is_closed_posting,
     load_config,
+    locations_compatible,
     make_dedup_key,
+    make_record_id,
 )
 from runtime_metrics import record_metric
 
@@ -178,6 +182,7 @@ def _brief(
 ) -> dict:
     """给下游 subagent 的精简视图。"""
     b = {
+        "record_id": job["record_id"],
         "dedup_key": job["dedup_key"],
         "title": job.get("title", ""),
         "company": job.get("company", ""),
@@ -301,9 +306,86 @@ def _active_eval_keys() -> set[str]:
         except DataStoreReadError:
             continue  # 损坏 manifest 由 _expire_stale_runs 回收，不阻塞 merge
         for task in manifest.get("tasks") or []:
-            if isinstance(task, dict) and task.get("status") == "pending" and task.get("dedup_key"):
-                active.add(str(task["dedup_key"]))
+            if not isinstance(task, dict) or task.get("status") != "pending":
+                continue
+            if task.get("record_id"):
+                active.add(f"record:{task['record_id']}")
+            elif task.get("dedup_key"):
+                active.add(f"weak:{task['dedup_key']}")
     return active
+
+
+def _is_active(job: dict, active_keys: set[str]) -> bool:
+    return (
+        f"record:{job['record_id']}" in active_keys
+        or f"weak:{job['dedup_key']}" in active_keys
+    )
+
+
+def _ensure_job_identity(job: dict, used_record_ids: set[str]) -> bool:
+    """Migrate one persisted record in place; return whether it changed."""
+    before = json.dumps(
+        {
+            "dedup_key": job.get("dedup_key"),
+            "url_keys": job.get("url_keys"),
+            "identity_keys": job.get("identity_keys"),
+            "record_id": job.get("record_id"),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    job["dedup_key"] = str(job.get("dedup_key") or make_dedup_key(
+        job.get("company", ""), job.get("title", "")
+    ))
+    url_keys = []
+    for key in list(job.get("url_keys") or []) + all_url_keys(job):
+        normalized = str(key or "").strip()
+        if normalized and normalized not in url_keys:
+            url_keys.append(normalized)
+    job["url_keys"] = url_keys
+    job["identity_keys"] = all_identity_keys(job)
+
+    record_id = str(job.get("record_id") or "").strip()
+    collision = 0
+    if not record_id:
+        record_id = make_record_id(job)
+    while record_id in used_record_ids:
+        collision += 1
+        record_id = make_record_id(job, collision=collision)
+    job["record_id"] = record_id
+    used_record_ids.add(record_id)
+    after = json.dumps(
+        {
+            "dedup_key": job.get("dedup_key"),
+            "url_keys": job.get("url_keys"),
+            "identity_keys": job.get("identity_keys"),
+            "record_id": job.get("record_id"),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return before != after
+
+
+def _weak_match(candidates: list[dict], incoming: dict) -> tuple[dict | None, str]:
+    """Resolve a weak match only when it is compatible and unambiguous."""
+    incoming_ids = set(all_identity_keys(incoming))
+    compatible: list[dict] = []
+    strong_conflict = False
+    for existing in candidates:
+        existing_ids = set(existing.get("identity_keys") or all_identity_keys(existing))
+        if incoming_ids and existing_ids and incoming_ids.isdisjoint(existing_ids):
+            strong_conflict = True
+            continue
+        if locations_compatible(existing.get("location", ""), incoming.get("location", "")):
+            compatible.append(existing)
+    if len(compatible) == 1:
+        return compatible[0], "matched"
+    if len(compatible) > 1:
+        return None, "ambiguous"
+    if strong_conflict:
+        return None, "strong_conflict"
+    return None, "none"
 
 
 def _absorb(agg: dict, candidate: dict, src: dict) -> None:
@@ -321,18 +403,19 @@ def _absorb(agg: dict, candidate: dict, src: dict) -> None:
     for field in ("location", "snippet", "salary", "date_posted", "url"):
         if not agg.get(field) and candidate.get(field):
             agg[field] = candidate[field]
+    for key in all_url_keys(candidate):
+        if key not in agg.setdefault("url_keys", []):
+            agg["url_keys"].append(key)
+    agg["identity_keys"] = all_identity_keys(agg)
 
 
-def _aggregate_batch(candidates: list) -> dict:
-    """本批内聚合：先按 dedup_key，再按 url_key 兜底。
-
-    只按 dedup_key 聚合会漏掉「同一职位、URL 里 job-id 相同、但招聘站改写了
-    标题」的情况（AI Engineer → Senior AI Engineer）。这类条目要等到表级
-    url_key 比对才合并，那时评估已经按两条派发出去、白白多花一次 LLM 调用。
-    这里补一层批内 url_key 索引，把它们在派发前就并成一条。
-    """
+def _aggregate_batch(candidates: list, identity_stats: dict | None = None) -> dict:
+    """Aggregate exact URLs first, then only safe and unambiguous weak matches."""
     batch: dict[str, dict] = {}
     by_url_key: dict[str, str] = {}
+    by_identity_key: dict[str, str] = {}
+    by_dedup: dict[str, list[dict]] = {}
+    stats = identity_stats if identity_stats is not None else {}
     for c in candidates:
         if not isinstance(c, dict):
             continue
@@ -344,21 +427,49 @@ def _aggregate_batch(candidates: list) -> dict:
             "url": c.get("url", ""),
             "date_posted": c.get("date_posted", ""),
         }
-        candidate_keys = all_url_keys({"url": c.get("url", "")})
+        candidate_keys = all_url_keys(c)
+        candidate_view = {
+            **c,
+            "dedup_key": dk,
+            "url_keys": candidate_keys,
+            "identity_keys": all_identity_keys({**c, "url_keys": candidate_keys}),
+        }
 
-        # dedup_key 命中优先（公司+职位名一致即同一职位）；否则看 url_key。
-        target = dk if dk in batch else None
+        target = None
+        for key in candidate_view["identity_keys"]:
+            if key in by_identity_key:
+                target = by_identity_key[key]
+                break
+        for key in candidate_keys:
+            if target is not None:
+                break
+            if key in by_url_key:
+                target = by_url_key[key]
+                break
         if target is None:
-            for key in candidate_keys:
-                if key in by_url_key:
-                    target = by_url_key[key]
-                    break
+            weak_hit, reason = _weak_match(by_dedup.get(dk, []), candidate_view)
+            if weak_hit is not None:
+                target = weak_hit["record_id"]
+            elif reason == "strong_conflict":
+                stats["strong_identity_conflicts_prevented"] = (
+                    stats.get("strong_identity_conflicts_prevented", 0) + 1
+                )
+            elif reason == "ambiguous":
+                stats["ambiguous_weak_matches_prevented"] = (
+                    stats.get("ambiguous_weak_matches_prevented", 0) + 1
+                )
 
         if target is not None:
-            _absorb(batch[target], c, src)
+            _absorb(batch[target], candidate_view, src)
         else:
-            target = dk
-            batch[dk] = {
+            record_id = make_record_id(candidate_view)
+            collision = 0
+            while record_id in batch:
+                collision += 1
+                record_id = make_record_id(candidate_view, collision=collision)
+            target = record_id
+            batch[target] = {
+                "record_id": record_id,
                 "dedup_key": dk,
                 "title": c.get("title", ""),
                 "company": c.get("company", ""),
@@ -368,9 +479,14 @@ def _aggregate_batch(candidates: list) -> dict:
                 "salary": c.get("salary", ""),
                 "date_posted": c.get("date_posted", ""),
                 "raw_sources": [src],
+                "url_keys": candidate_keys,
+                "identity_keys": candidate_view["identity_keys"],
             }
+            by_dedup.setdefault(dk, []).append(batch[target])
         for key in candidate_keys:
             by_url_key.setdefault(key, target)
+        for key in candidate_view["identity_keys"]:
+            by_identity_key.setdefault(key, target)
     return batch
 
 
@@ -380,6 +496,7 @@ def _merge_into(hit: dict, cand: dict) -> bool:
         {
             "raw_sources": hit.get("raw_sources", []),
             "url_keys": hit.get("url_keys", []),
+            "identity_keys": hit.get("identity_keys", []),
             "location": hit.get("location", ""),
             "snippet": hit.get("snippet", ""),
             "salary": hit.get("salary", ""),
@@ -398,6 +515,7 @@ def _merge_into(hit: dict, cand: dict) -> bool:
         if uk not in existing:
             hit.setdefault("url_keys", []).append(uk)
             existing.add(uk)
+    hit["identity_keys"] = all_identity_keys(hit)
     # 补字段
     for f in ("location", "snippet", "salary"):
         if not hit.get(f) and cand.get(f):
@@ -406,6 +524,7 @@ def _merge_into(hit: dict, cand: dict) -> bool:
         {
             "raw_sources": hit.get("raw_sources", []),
             "url_keys": hit.get("url_keys", []),
+            "identity_keys": hit.get("identity_keys", []),
             "location": hit.get("location", ""),
             "snippet": hit.get("snippet", ""),
             "salary": hit.get("salary", ""),
@@ -453,30 +572,58 @@ def cmd_merge(cv_hash: str, cp_hash: str) -> None:
             raise DataStoreError(f"jobs must be a list in {TABLE_PATH}")
 
         by_urlkey: dict[str, dict] = {}
-        by_dedup: dict[str, dict] = {}
+        by_identity: dict[str, dict] = {}
+        by_dedup: dict[str, list[dict]] = {}
+        used_record_ids: set[str] = set()
+        identity_records_migrated = 0
         for job in jobs:
+            if _ensure_job_identity(job, used_record_ids):
+                identity_records_migrated += 1
             job["record_version"] = int(job.get("record_version") or 1)
             job["status"] = "existing"
             for uk in job.get("url_keys", []):
                 by_urlkey[uk] = job
-            by_dedup[job["dedup_key"]] = job
+            for identity_key in job.get("identity_keys", []):
+                by_identity[identity_key] = job
+            by_dedup.setdefault(job["dedup_key"], []).append(job)
 
-        batch = _aggregate_batch(candidates)
+        identity_stats: dict[str, int] = {}
+        batch = _aggregate_batch(candidates, identity_stats)
+        preexisting_record_ids = set(used_record_ids)
         abandoned_runs = _expire_stale_runs(float(cfg.get("eval_run_stale_hours", 2)))
         active_eval_keys = _active_eval_keys()
         today = date.today().isoformat()
         to_analyze, to_score_only, cached, in_evaluation = [], [], [], []
         newly_added = 0
 
-        for dk, cand in batch.items():
-            cand_keys = all_url_keys(cand)
+        for _, cand in batch.items():
+            dk = cand["dedup_key"]
+            cand_keys = list(cand.get("url_keys") or all_url_keys(cand))
             hit = None
+            for identity_key in cand.get("identity_keys", []):
+                if identity_key in by_identity:
+                    hit = by_identity[identity_key]
+                    break
             for uk in cand_keys:
+                if hit is not None:
+                    break
                 if uk in by_urlkey:
                     hit = by_urlkey[uk]
                     break
-            if hit is None and dk in by_dedup:
-                hit = by_dedup[dk]
+            if hit is None:
+                hit, reason = _weak_match(by_dedup.get(dk, []), cand)
+                has_preexisting_weak_candidate = any(
+                    job.get("record_id") in preexisting_record_ids
+                    for job in by_dedup.get(dk, [])
+                )
+                if reason == "strong_conflict" and has_preexisting_weak_candidate:
+                    identity_stats["strong_identity_conflicts_prevented"] = (
+                        identity_stats.get("strong_identity_conflicts_prevented", 0) + 1
+                    )
+                elif reason == "ambiguous" and has_preexisting_weak_candidate:
+                    identity_stats["ambiguous_weak_matches_prevented"] = (
+                        identity_stats.get("ambiguous_weak_matches_prevented", 0) + 1
+                    )
 
             if hit is not None:
                 if _merge_into(hit, cand):
@@ -491,21 +638,28 @@ def cmd_merge(cv_hash: str, cp_hash: str) -> None:
                         cached.append(_brief(hit, task_type="cached", with_score=True, mk=mk))
                     else:
                         task = _brief(hit, task_type="score_only", with_jd=True)
-                        (in_evaluation if dk in active_eval_keys else to_score_only).append(task)
+                        (in_evaluation if _is_active(hit, active_eval_keys) else to_score_only).append(task)
                 else:
                     if expired and hit.get("jd_profile") is not None:
                         hit["jd_profile"] = None
                         hit["record_version"] += 1
                     task = _brief(hit)
-                    (in_evaluation if dk in active_eval_keys else to_analyze).append(task)
+                    (in_evaluation if _is_active(hit, active_eval_keys) else to_analyze).append(task)
             else:
+                record_id = cand["record_id"]
+                collision = 0
+                while record_id in used_record_ids:
+                    collision += 1
+                    record_id = make_record_id(cand, collision=collision)
                 newjob = {
+                    "record_id": record_id,
                     "dedup_key": dk,
                     "title": cand["title"], "company": cand["company"],
                     "location": cand.get("location", ""), "url": cand.get("url", ""),
                     "snippet": cand.get("snippet", ""), "salary": cand.get("salary", ""),
                     "date_posted": cand.get("date_posted", ""),
                     "raw_sources": cand["raw_sources"], "url_keys": cand_keys,
+                    "identity_keys": all_identity_keys(cand),
                     "first_seen": today, "last_seen": today, "seen_count": 1,
                     "fetched_at": None, "jd_profile": None, "match_scores": {},
                     "status": "new", "record_version": 1,
@@ -513,10 +667,13 @@ def cmd_merge(cv_hash: str, cp_hash: str) -> None:
                     "verified": None, "scored_from": None,
                 }
                 jobs.append(newjob)
+                used_record_ids.add(record_id)
                 newly_added += 1
-                by_dedup[dk] = newjob
+                by_dedup.setdefault(dk, []).append(newjob)
                 for uk in cand_keys:
                     by_urlkey[uk] = newjob
+                for identity_key in newjob["identity_keys"]:
+                    by_identity[identity_key] = newjob
                 to_analyze.append(_brief(newjob))
 
         archived = _archive_stale(table, ttl_days)
@@ -529,6 +686,14 @@ def cmd_merge(cv_hash: str, cp_hash: str) -> None:
             "to_analyze": len(to_analyze), "to_score_only": len(to_score_only),
             "cached": len(cached), "in_evaluation": len(in_evaluation), "archived": archived,
             "abandoned_runs": abandoned_runs,
+            "identity_records_migrated": identity_records_migrated,
+            "strong_identity_records": sum(bool(job.get("identity_keys")) for job in jobs),
+            "strong_identity_conflicts_prevented": identity_stats.get(
+                "strong_identity_conflicts_prevented", 0
+            ),
+            "ambiguous_weak_matches_prevented": identity_stats.get(
+                "ambiguous_weak_matches_prevented", 0
+            ),
             "table_size": len(jobs), **lock_metrics,
         }
 
@@ -566,11 +731,24 @@ def cmd_update(cv_hash: str, cp_hash: str, run_id: str) -> None:
         jobs = table.get("jobs")
         if not isinstance(jobs, list):
             raise DataStoreError(f"jobs must be a list in {TABLE_PATH}")
-        by_dedup = {j["dedup_key"]: j for j in jobs}
+        used_record_ids: set[str] = set()
+        identity_records_migrated = 0
+        for job in jobs:
+            if _ensure_job_identity(job, used_record_ids):
+                identity_records_migrated += 1
+        by_record = {j["record_id"]: j for j in jobs}
+        by_dedup: dict[str, list[dict]] = {}
+        for job in jobs:
+            by_dedup.setdefault(job["dedup_key"], []).append(job)
         tasks = manifest.get("tasks")
         if not isinstance(tasks, list):
             raise DataStoreError(f"tasks must be a list in {run_path}")
-        tasks_by_dedup = {task["dedup_key"]: task for task in tasks}
+        tasks_by_record = {
+            str(task["record_id"]): task for task in tasks if task.get("record_id")
+        }
+        tasks_by_dedup: dict[str, list[dict]] = {}
+        for task in tasks:
+            tasks_by_dedup.setdefault(str(task.get("dedup_key") or ""), []).append(task)
 
         updated = 0
         rebased = 0
@@ -583,13 +761,41 @@ def cmd_update(cv_hash: str, cp_hash: str, run_id: str) -> None:
                 result = validate_evaluation_result(raw_result)
             except AnalysisContractError as error:
                 raw_key = raw_result.get("dedup_key", "") if isinstance(raw_result, dict) else ""
-                rejected.append({"dedup_key": str(raw_key), "reason": str(error)})
+                raw_record_id = raw_result.get("record_id", "") if isinstance(raw_result, dict) else ""
+                rejected.append({
+                    "record_id": str(raw_record_id),
+                    "dedup_key": str(raw_key),
+                    "reason": str(error),
+                })
                 continue
 
+            record_id = result["record_id"]
             dedup_key = result["dedup_key"]
-            task = tasks_by_dedup.get(dedup_key)
+            task = tasks_by_record.get(record_id) if record_id else None
+            if task is None and not record_id:
+                legacy_tasks = tasks_by_dedup.get(dedup_key, [])
+                if len(legacy_tasks) == 1:
+                    task = legacy_tasks[0]
+                elif len(legacy_tasks) > 1:
+                    rejected.append({
+                        "record_id": "",
+                        "dedup_key": dedup_key,
+                        "reason": "record_id is required when dedup_key is ambiguous",
+                    })
+                    continue
             if task is None:
-                rejected.append({"dedup_key": dedup_key, "reason": "result does not belong to this evaluation run"})
+                rejected.append({
+                    "record_id": record_id,
+                    "dedup_key": dedup_key,
+                    "reason": "result does not belong to this evaluation run",
+                })
+                continue
+            if dedup_key != task.get("dedup_key"):
+                rejected.append({
+                    "record_id": record_id,
+                    "dedup_key": dedup_key,
+                    "reason": "result identity does not match the task",
+                })
                 continue
             result_hash = hashlib.sha256(
                 json.dumps(result, ensure_ascii=False, sort_keys=True).encode("utf-8")
@@ -598,23 +804,44 @@ def cmd_update(cv_hash: str, cp_hash: str, run_id: str) -> None:
                 if task.get("result_hash") == result_hash:
                     idempotent += 1
                 else:
-                    rejected.append({"dedup_key": dedup_key, "reason": "task already completed with a different result"})
+                    rejected.append({
+                        "record_id": record_id,
+                        "dedup_key": dedup_key,
+                        "reason": "task already completed with a different result",
+                    })
                 continue
             if result["base_record_version"] != task.get("base_record_version") or result["jd_input_hash"] != task.get("jd_input_hash"):
-                rejected.append({"dedup_key": dedup_key, "reason": "result snapshot metadata does not match the task"})
+                rejected.append({
+                    "record_id": record_id,
+                    "dedup_key": dedup_key,
+                    "reason": "result snapshot metadata does not match the task",
+                })
                 continue
 
-            job = by_dedup.get(dedup_key)
+            task_record_id = str(task.get("record_id") or "")
+            job = by_record.get(task_record_id) if task_record_id else None
+            if job is None and not task_record_id:
+                legacy_jobs = by_dedup.get(dedup_key, [])
+                if len(legacy_jobs) == 1:
+                    job = legacy_jobs[0]
             if job is None:
-                conflicts.append({"dedup_key": dedup_key, "reason": "job no longer exists"})
+                conflicts.append({
+                    "record_id": task_record_id or record_id,
+                    "dedup_key": dedup_key,
+                    "reason": "job no longer exists or identity is ambiguous",
+                })
                 task["status"] = "conflict"
-                task["conflict_reason"] = "job no longer exists"
+                task["conflict_reason"] = "job no longer exists or identity is ambiguous"
                 continue
 
             current_hash = make_jd_input_hash(job)
             if current_hash != task["jd_input_hash"]:
                 reason = "evaluation input changed after the snapshot"
-                conflicts.append({"dedup_key": dedup_key, "reason": reason})
+                conflicts.append({
+                    "record_id": job["record_id"],
+                    "dedup_key": dedup_key,
+                    "reason": reason,
+                })
                 task["status"] = "conflict"
                 task["conflict_reason"] = reason
                 task["current_jd_input_hash"] = current_hash
@@ -646,7 +873,7 @@ def cmd_update(cv_hash: str, cp_hash: str, run_id: str) -> None:
         manifest["completed_tasks"] = completed_tasks
         manifest["conflict_tasks"] = conflict_tasks
 
-        if updated:
+        if updated or identity_records_migrated:
             _save(TABLE_PATH, table)
         _save(run_path, manifest)
         if released:
@@ -680,6 +907,7 @@ def cmd_update(cv_hash: str, cp_hash: str, run_id: str) -> None:
         completed_tasks=completed_tasks,
         conflict_tasks=conflict_tasks,
         pending_tasks=pending_tasks,
+        identity_records_migrated=identity_records_migrated,
         duration_ms=duration_ms,
         **lock_metrics,
     )

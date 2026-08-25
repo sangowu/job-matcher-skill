@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 DEFAULT_THRESHOLDS = {
     "conflict_rate_max": 0.02,
     "rejected_rate_max": 0.01,
@@ -41,6 +41,10 @@ _MERGE_FIELDS = {
     "table_size",
     "eval_tasks_created",
     "abandoned_runs",
+    "identity_records_migrated",
+    "strong_identity_records",
+    "strong_identity_conflicts_prevented",
+    "ambiguous_weak_matches_prevented",
 }
 _UPDATE_FIELDS = {
     "results_in",
@@ -54,6 +58,7 @@ _UPDATE_FIELDS = {
     "completed_tasks",
     "conflict_tasks",
     "pending_tasks",
+    "identity_records_migrated",
 }
 # One full user-facing round: first search through report. Kept separate from
 # per-script duration_ms so round wall clock never skews merge/update percentiles.

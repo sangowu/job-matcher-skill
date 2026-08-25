@@ -9,7 +9,13 @@ import pytest
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from _jobutil import all_url_keys, canonicalize_url  # noqa: E402
+from _jobutil import (  # noqa: E402
+    all_identity_keys,
+    all_url_keys,
+    canonicalize_url,
+    locations_compatible,
+    make_record_id,
+)
 
 
 @pytest.mark.parametrize(
@@ -45,3 +51,30 @@ def test_all_url_keys_includes_alt_urls():
     keys = all_url_keys(job)
     assert "seek:81234567" in keys
     assert "example.com/jobs/1" in keys
+
+
+def test_identity_keys_exclude_generic_urls_and_keep_provider_ids():
+    job = {
+        "url_keys": ["example.com/jobs/1", "greenhouse:4567890"],
+        "identity_keys": ["ASHBY:11111111-1111-1111-1111-111111111111", "unsafe:value"],
+    }
+
+    assert all_identity_keys(job) == [
+        "ashby:11111111-1111-1111-1111-111111111111",
+        "greenhouse:4567890",
+    ]
+
+
+def test_record_ids_are_stable_and_strong_ids_are_distinct():
+    common = {"company": "Acme", "title": "AI Engineer", "location": "Dublin"}
+    first = {**common, "identity_keys": ["greenhouse:111"]}
+    second = {**common, "identity_keys": ["greenhouse:222"]}
+
+    assert make_record_id(first) == make_record_id(first)
+    assert make_record_id(first) != make_record_id(second)
+
+
+def test_location_compatibility_allows_enrichment_but_not_conflicts():
+    assert locations_compatible("", "Dublin") is True
+    assert locations_compatible(" Dublin ", "dublin") is True
+    assert locations_compatible("Dublin", "London") is False

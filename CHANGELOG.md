@@ -7,6 +7,15 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- ATS Phase 1 architecture, official public-API contract notes, a bounded six-board benchmark, and PII-safe raw/summary evidence for Ashby, Greenhouse, and Lever.
+- Regression tests for provider normalization, Ashby unlisted filtering, Lever sequential pagination/caps, failure metrics, output privacy, and weak identity collision reporting.
+
+### Security
+
+- The ATS benchmark only performs allowlisted public GET requests and never persists job descriptions, titles, URLs, candidate data, API keys, or arbitrary exception text.
+
 ## [2.3.0] - 2026-08-25
 
 Detailed release notes: [docs/releases/v2.3.0.md](docs/releases/v2.3.0.md).

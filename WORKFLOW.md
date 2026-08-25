@@ -137,6 +137,10 @@
 7. 无论成功或失败都调用 `close --round-id R --session-id S`；关闭会释放并发槽，但已创建会话数和估算费用仍计入本轮硬上限。
 8. 用 `browser_control.py event --status ...` 记录页数/链接计数、接管等待、限流和估算费用；动作本身自动记录 Provider 与耗时。不得记录 session id、Live View URL、页面 URL、输入文本、Cookie 或截图内容。
 
+### ATS Phase 1 边界
+
+`scripts/benchmark_ats.py` 当前只是公开 API 的开发基线，**不得在正常求职流程中调用，也不得把输出直接 merge 到职位主表**。真实样本发现现有公司 + 标题弱键存在明显潜在碰撞，生产 ATS 路由必须先完成稳定 `record_id` / 强身份迁移并通过 `docs/ats-provider-phase1.md` 的验收门槛。ATS 尚不消耗 `max_websearch_calls`，因为它还没有进入正式运行管道。
+
 ## 护栏
 - 抓取**不绕验证码、不模拟登录、不抓需付费/登录内容、尊重 robots/ToS**。
 - 失败一律**降级不阻塞**；搜 0 结果/全失效时如实告知并建议放宽条件。

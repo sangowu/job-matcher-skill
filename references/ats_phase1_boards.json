@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "boards": [
+    {
+      "provider": "ashby",
+      "company": "Cohere",
+      "board_token": "cohere",
+      "region_focus": ["united_states", "europe"]
+    },
+    {
+      "provider": "ashby",
+      "company": "Zapier",
+      "board_token": "zapier",
+      "region_focus": ["united_states", "europe"]
+    },
+    {
+      "provider": "greenhouse",
+      "company": "Doctolib",
+      "board_token": "doctolib",
+      "region_focus": ["europe"]
+    },
+    {
+      "provider": "greenhouse",
+      "company": "XPENG",
+      "board_token": "xpengmotors",
+      "region_focus": ["china", "united_states"]
+    },
+    {
+      "provider": "lever",
+      "company": "ShopBack",
+      "board_token": "shopback-2",
+      "instance": "global",
+      "region_focus": ["china", "united_states"]
+    },
+    {
+      "provider": "lever",
+      "company": "Sword Health",
+      "board_token": "swordhealth",
+      "instance": "global",
+      "region_focus": ["united_states", "europe"]
+    }
+  ]
+}

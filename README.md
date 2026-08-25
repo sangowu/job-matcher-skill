@@ -54,7 +54,8 @@ job-matcher/
 ├── references/           # subagent 按需读取的指令
 │   ├── cv_schema.md          # CV 抽取规则
 │   ├── scoring_rubric.md     # 5 维打分 + 五档阈值
-│   └── search_playbook.md    # fan-out / 分市场 / 自适应分批
+│   ├── search_playbook.md    # fan-out / 分市场 / 自适应分批
+│   └── ats_phase1_boards.json # ATS 小基线公开公司样本
 ├── scripts/              # 确定性 Python 脚本
 │   ├── extract_cv.py         # 解析 CV → 文本 + hash
 │   ├── validate_profile.py   # 校验 + seniority→levels 映射
@@ -69,6 +70,7 @@ job-matcher/
 │   ├── browser_setup.py      # 一次性 localhost 配置页面
 │   ├── browser_workflow.py   # 列表翻页/暂停状态机
 │   ├── benchmark_pipeline.py # 固定小数据集核心/Fake Provider 基准
+│   ├── benchmark_ats.py      # 公开 ATS API 的有界脱敏基线（非生产适配器）
 │   ├── cp_hash.py            # 稳定的 candidate_profile hash
 │   ├── verify_jobs.py        # 失效职位状态码检测
 │   ├── fetch_rendered.py     # headless 渲染兜底（复用系统浏览器）
@@ -161,6 +163,8 @@ python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|s
 汇总按编排模式给出 p50/p95 与 `overlap_saving_pct`；两种模式都有样本前显示 `n/a`。
 
 版本性能回归使用固定 15 职位冷数据集和 10 个 Fake 会话：`python scripts/benchmark_pipeline.py --output <json> --baseline docs/performance/v2.2.0-small-baseline.json`。输出同时包含原始迭代、p50/p95、绝对变化和相对变化；不会调用真实 Web Search 或云 Provider。
+
+ATS Phase 1 只提供开发基线，不会进入正常求职管道：`python scripts/benchmark_ats.py --output <json> --page-size 50 --max-pages 10`。它只调用样本配置中的官方公开 GET endpoint，职位正文/标题/URL 不落盘；设计结论与接入门槛见 [`docs/ats-provider-phase1.md`](docs/ats-provider-phase1.md)。
 
 ## 🔧 依赖
 

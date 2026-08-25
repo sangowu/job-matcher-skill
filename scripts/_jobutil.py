@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -58,6 +59,18 @@ def make_dedup_key(company: str, title: str) -> str:
     return f"{normalize_company(company)}|{normalize_title(title)}"
 
 
+def normalize_location(location: str) -> str:
+    """Normalize a location only enough for conservative weak-key matching."""
+    return re.sub(r"\s+", " ", location or "").strip().lower()
+
+
+def locations_compatible(left: str, right: str) -> bool:
+    """Blank locations may be enriched; conflicting known locations may not merge."""
+    left_key = normalize_location(left)
+    right_key = normalize_location(right)
+    return not left_key or not right_key or left_key == right_key
+
+
 # ── 失效职位关键词（移植自 schemas._CLOSED_PATTERN，按语言分组便于扩展）─────────────
 # 关键词只覆盖已收录语言的确定性信号；其他语言/模糊表述由精排 LLM 兜底判断
 # （见 references/scoring_rubric.md「失效判断」）。新增语言时追加一个分组即可。
@@ -107,6 +120,7 @@ _PLATFORM_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("seek", re.compile(r"seek\.(?:com\.au|co\.nz)/job/(\d+)", re.I)),
     ("reed", re.compile(r"reed\.co\.uk/jobs/[^/]+/(\d+)", re.I)),
 ]
+_STRONG_ID_PREFIXES = frozenset(platform for platform, _ in _PLATFORM_PATTERNS) | {"indeed"}
 
 # job-id 类参数：规范化时保留（小写比较）
 _KEEP_PARAMS = {"jk", "jobid", "gh_jid", "currentjobid", "vjk"}
@@ -167,8 +181,56 @@ def all_url_keys(job: dict) -> list[str]:
         if isinstance(alt, str) and alt:
             urls.append(alt)
     keys = []
+    for existing in job.get("url_keys") or []:
+        key = str(existing or "").strip()
+        if key and key not in keys:
+            keys.append(key)
     for u in urls:
         k = canonicalize_url(u)
         if k and k not in keys:
             keys.append(k)
     return keys
+
+
+def is_strong_identity_key(key: str) -> bool:
+    """Return whether a canonical URL key contains a platform-owned job id."""
+    prefix, separator, value = str(key or "").partition(":")
+    return bool(separator and value and prefix.lower() in _STRONG_ID_PREFIXES)
+
+
+def all_identity_keys(job: dict) -> list[str]:
+    """Collect stable provider/job ids without treating generic URLs as identity."""
+    keys: list[str] = []
+    supplied = job.get("identity_keys") or []
+    if isinstance(supplied, list):
+        for value in supplied:
+            key = str(value or "").strip().lower()
+            if is_strong_identity_key(key) and key not in keys:
+                keys.append(key)
+    url_keys = list(job.get("url_keys") or []) + all_url_keys(job)
+    for value in url_keys:
+        key = str(value or "").strip().lower()
+        if is_strong_identity_key(key) and key not in keys:
+            keys.append(key)
+    return keys
+
+
+def make_record_id(job: dict, *, collision: int = 0) -> str:
+    """Build a deterministic primary id for a new or legacy job record.
+
+    Strong provider ids win. Weak-only records include location so two known,
+    conflicting locations do not receive the same id. Once persisted, callers
+    keep the existing record_id even if richer identity arrives later.
+    """
+    identity_keys = all_identity_keys(job)
+    if identity_keys:
+        seed = f"strong|{sorted(identity_keys)[0]}"
+    else:
+        dedup_key = str(job.get("dedup_key") or make_dedup_key(
+            job.get("company", ""), job.get("title", "")
+        ))
+        seed = f"weak|{dedup_key}|{normalize_location(job.get('location', ''))}"
+    if collision:
+        seed += f"|collision:{collision}"
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:24]
+    return f"job_{digest}"

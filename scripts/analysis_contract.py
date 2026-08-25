@@ -45,6 +45,7 @@ def score_band(overall_score: float) -> str:
 SCORED_FROM = {"jd", "snippet"}
 VERIFIED_VALUES = {"alive", "closed", "unverified", "unknown"}
 ALLOWED_RESULT_FIELDS = {
+    "record_id",
     "dedup_key",
     "base_record_version",
     "jd_input_hash",
@@ -69,6 +70,7 @@ def validate_evaluation_result(payload: object) -> dict:
     if unexpected:
         raise AnalysisContractError(f"unexpected evaluation fields: {', '.join(unexpected)}")
 
+    record_id = str(payload.get("record_id") or "").strip()
     dedup_key = str(payload.get("dedup_key") or "").strip()
     if not dedup_key:
         raise AnalysisContractError("dedup_key is required")
@@ -105,6 +107,7 @@ def validate_evaluation_result(payload: object) -> dict:
         )
 
     return {
+        "record_id": record_id,
         "dedup_key": dedup_key,
         "base_record_version": base_version,
         "jd_input_hash": jd_input_hash,

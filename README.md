@@ -131,7 +131,7 @@ agent 会自动识别。然后在对话里：
 | `monitoring_default_window_days` | 7 | 默认健康报告窗口 |
 | `monitoring_thresholds` | 见配置 | 冲突、拒绝、成功率、锁等待和积压阈值 |
 
-运行时只保留一个职位主表 `data/jobs_table.json`。每轮待评估职位写入最小化快照 `data/eval_runs/<run_id>.json`；worker 完成后由主 agent 串行回写评估字段，成功完成的快照会释放，仅在 `history.jsonl` 留下不含 CV/JD 正文的摘要。每次 merge/update 另写一条 PII-safe `data/metrics.jsonl` 事件。
+运行时只保留一个职位主表 `data/jobs_table.json`。`record_id` 是稳定记录/评估主键，`identity_keys` 保存平台职位 ID；公司 + 标题 `dedup_key` 仅作兼容弱匹配。两个不相交的强 ID 不会因同公司同标题而误合并，弱键匹配还要求地点兼容且结果唯一。旧表会在下一次 merge/update 时原位补齐身份字段。每轮待评估职位写入最小化快照 `data/eval_runs/<run_id>.json`；worker 完成后由主 agent 串行回写评估字段，成功完成的快照会释放，仅在 `history.jsonl` 留下不含 CV/JD 正文的摘要。每次 merge/update 另写一条 PII-safe `data/metrics.jsonl` 事件。
 
 远程浏览器为可选功能。安装依赖后运行一次性本地设置页；页面只绑定 `127.0.0.1`，连接测试成功后把 API Key 保存到系统密钥库，非敏感设置保存到已忽略的 `data/browser_provider.json`：
 
@@ -162,7 +162,7 @@ python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|s
 
 汇总按编排模式给出 p50/p95 与 `overlap_saving_pct`；两种模式都有样本前显示 `n/a`。
 
-版本性能回归使用固定 15 职位冷数据集和 10 个 Fake 会话：`python scripts/benchmark_pipeline.py --output <json> --baseline docs/performance/v2.2.0-small-baseline.json`。输出同时包含原始迭代、p50/p95、绝对变化和相对变化；不会调用真实 Web Search 或云 Provider。
+版本性能回归使用固定 15 职位冷数据集和 10 个 Fake 会话：`python scripts/benchmark_pipeline.py --output <json> --baseline docs/performance/v2.2.0-small-baseline.json`。输出同时包含原始迭代、p50/p95、绝对变化和相对变化；不会调用真实 Web Search 或云 Provider。强身份迁移的本地基准见 [`docs/performance/strong-job-identity-baseline.md`](docs/performance/strong-job-identity-baseline.md)。
 
 ATS Phase 1 只提供开发基线，不会进入正常求职管道：`python scripts/benchmark_ats.py --output <json> --page-size 50 --max-pages 10`。它只调用样本配置中的官方公开 GET endpoint，职位正文/标题/URL 不落盘；设计结论与接入门槛见 [`docs/ats-provider-phase1.md`](docs/ats-provider-phase1.md)。
 

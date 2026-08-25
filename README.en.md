@@ -131,7 +131,7 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `monitoring_default_window_days` | 7 | default health-report window |
 | `monitoring_thresholds` | see config | conflict, rejection, success, lock-wait, and backlog limits |
 
-Runtime state has one canonical table, `data/jobs_table.json`. Each evaluation batch gets a minimal `data/eval_runs/<run_id>.json` snapshot. Workers return results, the orchestrator conditionally commits evaluation-owned fields, and a completed snapshot is released after a PII-free summary is appended to `history.jsonl`. Every merge/update also appends a PII-safe event to `data/metrics.jsonl`.
+Runtime state has one canonical table, `data/jobs_table.json`. `record_id` is the stable record/evaluation primary key and `identity_keys` retain platform job ids; company + title `dedup_key` is only a compatibility weak key. Disjoint strong ids never merge solely because company and title match, while weak matching also requires compatible locations and a unique target. Legacy tables gain the identity fields in place on the next merge/update. Each evaluation batch gets a minimal `data/eval_runs/<run_id>.json` snapshot. Workers return results, the orchestrator conditionally commits evaluation-owned fields, and a completed snapshot is released after a PII-free summary is appended to `history.jsonl`. Every merge/update also appends a PII-safe event to `data/metrics.jsonl`.
 
 The remote browser is optional. After installing the extra, launch the one-shot setup page. It binds only to `127.0.0.1`; after a successful connection test the key goes to the OS keychain, while non-secret settings go to ignored `data/browser_provider.json`:
 
@@ -162,7 +162,7 @@ python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|s
 
 The summary reports p50/p95 per mode plus `overlap_saving_pct`, which stays `n/a` until both modes have samples.
 
-Release regressions use a fixed 15-job cold dataset and 10 Fake sessions: `python scripts/benchmark_pipeline.py --output <json> --baseline docs/performance/v2.2.0-small-baseline.json`. The artifact contains raw iterations, p50/p95, absolute and relative changes, with no real web search or cloud-provider calls.
+Release regressions use a fixed 15-job cold dataset and 10 Fake sessions: `python scripts/benchmark_pipeline.py --output <json> --baseline docs/performance/v2.2.0-small-baseline.json`. The artifact contains raw iterations, p50/p95, absolute and relative changes, with no real web search or cloud-provider calls. See [`docs/performance/strong-job-identity-baseline.md`](docs/performance/strong-job-identity-baseline.md) for the identity-migration run.
 
 ATS Phase 1 is a development benchmark only and is not part of the normal job-search pipeline: `python scripts/benchmark_ats.py --output <json> --page-size 50 --max-pages 10`. It calls only the official public GET endpoints listed in the sample configuration and does not persist job descriptions, titles, or URLs. See [`docs/ats-provider-phase1.md`](docs/ats-provider-phase1.md) for the design and production-entry gates.
 

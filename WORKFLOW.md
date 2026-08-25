@@ -99,7 +99,7 @@
   JD 全文留在 worker 内不回传；`to_score_only` 复用已有 jd_profile 只打分。
 - 精排使用 `evaluation` profile；需视觉远程浏览时使用 `browser` profile。两种 worker 都要记录实际模型/effort、耗时、成功、有效输出和回退情况。
 - **失效验证**（精排 Top-N）：`verify_jobs.py` 查死链；`possibly_closed` 的走容错阶梯确认；失效则剔除、从次位递补。
-- 每个 worker 必须原样回传任务中的 `dedup_key`、`base_record_version`、`jd_input_hash`，再附加 `jd_profile`、`match_score`、`verified`、`scored_from`。不得回传或覆盖 title/company/url/source 等搜索字段。
+- 每个 worker 必须原样回传任务中的 `record_id`、`dedup_key`、`base_record_version`、`jd_input_hash`，再附加 `jd_profile`、`match_score`、`verified`、`scored_from`。`record_id` 是主键；`dedup_key` 仅是兼容弱键。不得回传或覆盖 title/company/url/source 等搜索字段。
 - 写回：`merge_jobs.py update --run-id <eval_run.run_id>`。脚本会校验评分契约，只合并评估字段；搜索期间仅来源等非评估输入变化时安全 rebase，JD 输入变化时报告 conflict 并拒绝旧结果。
 - 同一 run 可增量提交多个 worker 结果；全部任务完成或被判定为冲突后 `released:true`，任务快照自动释放并在 `data/eval_runs/history.jsonl` 留一条不含 CV/JD 正文的运行摘要。冲突职位由后续 `merge` 重新建立新快照。
 
@@ -139,7 +139,7 @@
 
 ### ATS Phase 1 边界
 
-`scripts/benchmark_ats.py` 当前只是公开 API 的开发基线，**不得在正常求职流程中调用，也不得把输出直接 merge 到职位主表**。真实样本发现现有公司 + 标题弱键存在明显潜在碰撞，生产 ATS 路由必须先完成稳定 `record_id` / 强身份迁移并通过 `docs/ats-provider-phase1.md` 的验收门槛。ATS 尚不消耗 `max_websearch_calls`，因为它还没有进入正式运行管道。
+`scripts/benchmark_ats.py` 当前只是公开 API 的开发基线，**不得在正常求职流程中调用，也不得把输出直接 merge 到职位主表**。主表已经完成稳定 `record_id` / `identity_keys` 迁移，但 ATS Fake Provider、PII-safe `ats` 指标和小样本回归门槛仍未完成，因此生产 ATS 路由仍保持关闭。ATS 尚不消耗 `max_websearch_calls`，因为它还没有进入正式运行管道。
 
 ## 护栏
 - 抓取**不绕验证码、不模拟登录、不抓需付费/登录内容、尊重 robots/ToS**。

@@ -38,7 +38,7 @@ python scripts/subagent_metrics.py record --role search --ok \
 
 | 字段 | 说明 |
 |---|---|
-| `schema_version` | 指标事件 schema 版本，当前为 2；汇总仍兼容已有 v1 事件 |
+| `schema_version` | 指标事件 schema 版本，当前为 3；汇总仍兼容已有 v1/v2 事件 |
 | `timestamp` | UTC ISO-8601 时间 |
 | `operation` | `merge`、`update`、`round`、`subagent` 或 `browser` |
 | `ok` | 操作是否成功 |
@@ -46,9 +46,9 @@ python scripts/subagent_metrics.py record --role search --ok \
 | `lock_wait_ms` | 等待职位主表锁的时间 |
 | `stale_lock_recoveries` | 本次回收异常遗留主表锁次数 |
 
-`merge` 事件还记录候选输入、批内去重、本轮新增、缓存命中、待评估、评估中、归档、主表大小和新建评估任务数。
+`merge` 事件还记录候选输入、批内去重、本轮新增、缓存命中、待评估、评估中、归档、主表大小、新建评估任务数，以及旧记录身份迁移数、强身份记录数、阻止的强身份冲突/歧义弱匹配数。
 
-`update` 事件还记录输入结果、成功更新、安全 rebase、幂等重试、拒绝、冲突、run 释放和任务状态数量。
+`update` 事件还记录输入结果、成功更新、安全 rebase、幂等重试、拒绝、冲突、run 释放、任务状态数量和旧记录身份迁移数。
 
 `subagent` 事件记录角色、请求/实际模型、请求/实际 reasoning effort、是否发生继承回退、耗时及输入/输出/有效/拒绝条数。汇总按实际生效 profile 分组，避免把模型切换失败算成目标模型成绩。
 

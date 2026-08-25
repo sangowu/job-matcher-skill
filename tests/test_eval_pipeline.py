@@ -92,6 +92,7 @@ def valid_jd_profile():
 
 def evaluation_result(task, **overrides):
     result = {
+        "record_id": task["record_id"],
         "dedup_key": task["dedup_key"],
         "base_record_version": task["base_record_version"],
         "jd_input_hash": task["jd_input_hash"],
@@ -127,6 +128,8 @@ def test_merge_creates_minimal_versioned_eval_snapshot(isolated_store, monkeypat
     metric = json.loads((isolated_store / "metrics.jsonl").read_text(encoding="utf-8").splitlines()[0])
     assert metric["operation"] == "merge"
     assert metric["newly_added"] == 1
+    assert metric["identity_records_migrated"] == 0
+    assert metric["strong_identity_records"] == 0
     assert "cv_hash" not in metric and "run_id" not in metric and "dedup_key" not in metric
 
 
@@ -310,6 +313,206 @@ def test_dedup_key_match_still_wins_over_url_key(isolated_store, monkeypatch, ca
     assert output["stats"]["deduped"] == 1
     job = load_table(isolated_store)["jobs"][0]
     assert {row["source"] for row in job["raw_sources"]} == {"company", "linkedin"}
+
+
+def test_disjoint_ats_ids_with_same_weak_key_stay_separate(
+    isolated_store, monkeypatch, capsys
+):
+    first = candidate(
+        title="AI Engineer",
+        company="Acme",
+        url="https://jobs.ashbyhq.com/acme/11111111-1111-1111-1111-111111111111",
+        source="ashby",
+    )
+    second = candidate(
+        title="AI Engineer",
+        company="Acme",
+        url="https://jobs.ashbyhq.com/acme/22222222-2222-2222-2222-222222222222",
+        source="ashby",
+    )
+
+    output = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [first, second], "cv", "cp")
+    jobs = load_table(isolated_store)["jobs"]
+    tasks = load_run(output["eval_run"]["path"])["tasks"]
+
+    assert output["stats"]["new"] == 2
+    assert output["stats"]["strong_identity_conflicts_prevented"] == 1
+    assert len({job["record_id"] for job in jobs}) == 2
+    assert len({task["record_id"] for task in tasks}) == 2
+    assert len({job["dedup_key"] for job in jobs}) == 1
+    metric = json.loads((isolated_store / "metrics.jsonl").read_text(encoding="utf-8"))
+    assert metric["schema_version"] == 3
+    assert metric["strong_identity_conflicts_prevented"] == 1
+    assert metric["strong_identity_records"] == 2
+
+
+def test_same_strong_id_merges_even_when_title_changes(isolated_store, monkeypatch, capsys):
+    first = candidate(
+        title="AI Engineer",
+        company="Acme",
+        url="https://boards.greenhouse.io/acme/jobs/4567890",
+        source="greenhouse",
+    )
+    second = candidate(
+        title="Senior AI Engineer",
+        company="Acme",
+        url="https://boards.greenhouse.io/acme/jobs/4567890?gh_src=feed",
+        source="web",
+    )
+
+    output = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [first, second], "cv", "cp")
+    job = load_table(isolated_store)["jobs"][0]
+
+    assert output["stats"]["new"] == 1
+    assert output["stats"]["deduped"] == 1
+    assert job["identity_keys"] == ["greenhouse:4567890"]
+
+
+def test_generic_web_result_can_absorb_one_ats_identity(isolated_store, monkeypatch, capsys):
+    generic = candidate(title="AI Engineer", company="Acme", url="https://acme.test/careers/ai")
+    ats = candidate(
+        title="AI Engineer",
+        company="Acme",
+        url="https://jobs.lever.co/acme/11111111-1111-1111-1111-111111111111",
+        source="lever",
+    )
+
+    output = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [generic, ats], "cv", "cp")
+    job = load_table(isolated_store)["jobs"][0]
+
+    assert output["stats"]["new"] == 1
+    assert job["identity_keys"] == ["lever:11111111-1111-1111-1111-111111111111"]
+
+
+def test_conflicting_known_locations_do_not_weak_merge(isolated_store, monkeypatch, capsys):
+    dublin = candidate(title="AI Engineer", company="Acme", location="Dublin", url="https://acme.test/jobs/1")
+    london = candidate(title="AI Engineer", company="Acme", location="London", url="https://acme.test/jobs/2")
+
+    output = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [dublin, london], "cv", "cp")
+
+    assert output["stats"]["new"] == 2
+    assert len(load_table(isolated_store)["jobs"]) == 2
+
+
+def test_record_id_routes_results_when_weak_key_is_duplicated(
+    isolated_store, monkeypatch, capsys
+):
+    first = candidate(
+        title="AI Engineer",
+        company="Acme",
+        url="https://jobs.ashbyhq.com/acme/11111111-1111-1111-1111-111111111111",
+    )
+    second = candidate(
+        title="AI Engineer",
+        company="Acme",
+        url="https://jobs.ashbyhq.com/acme/22222222-2222-2222-2222-222222222222",
+    )
+    merged = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [first, second], "cv", "cp")
+    tasks = load_run(merged["eval_run"]["path"])["tasks"]
+
+    updated = invoke(
+        monkeypatch,
+        capsys,
+        merge_jobs.cmd_update,
+        [evaluation_result(tasks[0], match_score=valid_score(70)),
+         evaluation_result(tasks[1], match_score=valid_score(90))],
+        "cv",
+        "cp",
+        merged["eval_run"]["run_id"],
+    )
+    scores = {
+        job["record_id"]: job["match_scores"]["cv:cp"]["overall_score"]
+        for job in load_table(isolated_store)["jobs"]
+    }
+
+    assert updated["updated"] == 2
+    assert scores[tasks[0]["record_id"]] == 70
+    assert scores[tasks[1]["record_id"]] == 90
+
+
+def test_legacy_result_without_record_id_requires_unique_weak_key(
+    isolated_store, monkeypatch, capsys
+):
+    merged = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
+    task = load_run(merged["eval_run"]["path"])["tasks"][0]
+    legacy_result = evaluation_result(task)
+    legacy_result.pop("record_id")
+
+    updated = invoke(
+        monkeypatch,
+        capsys,
+        merge_jobs.cmd_update,
+        [legacy_result],
+        "cv",
+        "cp",
+        merged["eval_run"]["run_id"],
+    )
+
+    assert updated["updated"] == 1
+
+
+def test_legacy_result_without_record_id_is_rejected_for_duplicate_weak_key(
+    isolated_store, monkeypatch, capsys
+):
+    first = candidate(
+        title="AI Engineer",
+        company="Acme",
+        url="https://jobs.ashbyhq.com/acme/11111111-1111-1111-1111-111111111111",
+    )
+    second = candidate(
+        title="AI Engineer",
+        company="Acme",
+        url="https://jobs.ashbyhq.com/acme/22222222-2222-2222-2222-222222222222",
+    )
+    merged = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [first, second], "cv", "cp")
+    task = load_run(merged["eval_run"]["path"])["tasks"][0]
+    legacy_result = evaluation_result(task)
+    legacy_result.pop("record_id")
+
+    updated = invoke(
+        monkeypatch,
+        capsys,
+        merge_jobs.cmd_update,
+        [legacy_result],
+        "cv",
+        "cp",
+        merged["eval_run"]["run_id"],
+    )
+
+    assert updated["updated"] == 0
+    assert updated["rejected"][0]["reason"] == (
+        "record_id is required when dedup_key is ambiguous"
+    )
+
+
+def test_legacy_table_is_migrated_in_place(isolated_store, monkeypatch, capsys):
+    isolated_store.mkdir(parents=True, exist_ok=True)
+    legacy_job = {
+        "dedup_key": "acme|ai engineer",
+        "title": "AI Engineer",
+        "company": "Acme",
+        "location": "Dublin",
+        "url": "https://boards.greenhouse.io/acme/jobs/4567890",
+        "raw_sources": [],
+        "url_keys": ["greenhouse:4567890"],
+        "first_seen": "2026-08-01",
+        "last_seen": "2026-08-01",
+        "seen_count": 1,
+        "fetched_at": None,
+        "jd_profile": None,
+        "match_scores": {},
+        "record_version": 1,
+    }
+    (isolated_store / "jobs_table.json").write_text(
+        json.dumps({"jobs": [legacy_job]}), encoding="utf-8"
+    )
+
+    output = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [], "cv", "cp")
+    migrated = load_table(isolated_store)["jobs"][0]
+
+    assert output["stats"]["identity_records_migrated"] == 1
+    assert migrated["record_id"].startswith("job_")
+    assert migrated["identity_keys"] == ["greenhouse:4567890"]
 
 
 def test_distinct_jobs_are_not_merged_by_aggregation(isolated_store, monkeypatch, capsys):

@@ -11,6 +11,13 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - ATS Phase 1 architecture, official public-API contract notes, a bounded six-board benchmark, and PII-safe raw/summary evidence for Ashby, Greenhouse, and Lever.
 - Regression tests for provider normalization, Ashby unlisted filtering, Lever sequential pagination/caps, failure metrics, output privacy, and weak identity collision reporting.
+- Stable `record_id` and Provider-owned `identity_keys` for the canonical job table and evaluation snapshots, with lazy in-place migration for legacy tables.
+- PII-safe identity migration/conflict metrics in runtime schema v3 and a fixed cold-core performance comparison.
+
+### Changed
+
+- Exact Provider IDs and canonical URLs now match before weak company/title matching. Disjoint strong IDs never merge by weak key alone; weak-only matches require compatible locations and exactly one target.
+- Evaluation workers now echo `record_id`; legacy results without it remain accepted only when their `dedup_key` identifies exactly one task and job.
 
 ### Security
 

@@ -1,6 +1,6 @@
 # ATS Provider Phase 1：架构与接入门槛
 
-状态：Phase 1 measured / production integration blocked。基于 Job Matcher v2.3.0，日期 2026-08-25。
+状态：Phase 1 measured / identity gate implemented / production adapters pending。基于 Job Matcher v2.3.0，日期 2026-08-25。
 
 ## 决策摘要
 
@@ -18,9 +18,9 @@ ATS 仍然是 Web Search 发现后的增强来源，但已有已验证公司标�
 
 因此不能直接把全量 ATS 候选喂给当前 `merge_jobs.py`。生产接入前必须先把“记录身份”和“弱相似匹配”分开：
 
-1. `record_id` 成为职位记录与评估任务的稳定主键。
-2. `identity_keys` 保存 Provider job ID 与规范化职位 URL 等强键。
-3. `weak_dedup_key` 保留当前公司 + 标题归一化结果，只用于缺少强键时的候选匹配。
+1. `record_id` 已成为职位记录与评估任务的稳定主键。
+2. `identity_keys` 已保存 Provider job ID 等强键；通用规范化 URL 仍保留在 `url_keys`，但不冒充 Provider 强身份。
+3. 现有 `dedup_key` 保留公司 + 标题归一化结果，只作为向后兼容弱键。
 4. 两条记录都拥有强键且强键不相交时，不得仅凭弱键合并。
 5. 一条记录缺少强键时，弱键命中还要校验兼容地点；之后把新发现的强键吸收到同一记录。
 
@@ -90,7 +90,7 @@ API 返回的是整板职位，不能把所有职位直接送给 LLM。必须先
 
 进入生产适配器实现前必须同时满足：
 
-1. 完成 `record_id` / 强身份迁移，并证明不同 ATS job ID 的同名职位不会被弱键误合并。
+1. **已完成**：`record_id` / 强身份迁移；本地回归证明不同 ATS job ID 的同名职位保持独立，并按各自 `record_id` 回写评估。
 2. Fake Provider 测试覆盖三种分页、404/429/超时、EU Lever、unlisted Ashby 和部分成功。
 3. 指标 schema 增加 PII-safe `ats` operation，至少记录 provider、请求/页数、收到/规范化/初筛/去重数量、耗时、截断与失败类别。
 4. 小样本回归保持 6/6 board 成功或对失败给出可复现分类，不保存职位正文、标题和 URL。

@@ -2,6 +2,28 @@
   "top_n": 15,
   "precise_buffer": 5,
   "max_parallel_subagents": 3,
+  "subagent_profiles": {
+    "cv_extract": {
+      "model": "gpt-5.6-terra",
+      "reasoning_effort": "medium",
+      "fork_turns": "none"
+    },
+    "search": {
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "low",
+      "fork_turns": "none"
+    },
+    "evaluation": {
+      "model": "gpt-5.6-terra",
+      "reasoning_effort": "high",
+      "fork_turns": "none"
+    },
+    "browser": {
+      "model": "gpt-5.6-terra",
+      "reasoning_effort": "high",
+      "fork_turns": "none"
+    }
+  },
   "max_websearch_calls": 6,
   "stop_threshold": 12,
   "consecutive_empty_stop": 2,
@@ -9,6 +31,17 @@
   "seniority_mode": "balanced",
   "enable_headless_fallback": true,
   "headless_budget": 3,
+  "remote_browser_enabled": false,
+  "browser_provider": "kernel",
+  "browser_max_concurrency": 2,
+  "browser_max_pages": 3,
+  "browser_session_budget": 10,
+  "browser_cost_limit_usd": 1.0,
+  "browser_handoff_timeout_minutes": 10,
+  "browser_allow_handoff": true,
+  "browser_timeout_seconds": 600,
+  "browser_headless": false,
+  "browser_stealth": false,
   "table_lock_timeout_seconds": 10,
   "stale_lock_seconds": 120,
   "eval_run_stale_hours": 2,

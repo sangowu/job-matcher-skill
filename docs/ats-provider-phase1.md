@@ -1,6 +1,6 @@
-# ATS Provider Phase 1：架构与接入门槛
+# ATS Provider Phase 1/2：架构、实现与接入门槛
 
-状态：Phase 1 measured / identity gate implemented / production adapters pending。基于 Job Matcher v2.3.0，日期 2026-08-25。
+状态：Phase 1 measured / Phase 2 implemented / local and public regression verified / CI pending。基于 Job Matcher v2.3.0，更新日期 2026-08-26。
 
 ## 决策摘要
 
@@ -12,11 +12,11 @@
 
 ATS 仍然是 Web Search 发现后的增强来源，但已有已验证公司标识时，ATS 拉取可以与下一批 Web Search 并发，不需要每轮重新等待 Web Search 才开始。
 
-## 当前接入阻塞
+## Phase 1 发现与已解除阻塞
 
 小样本中 412 条职位的 Provider ID 与规范化 URL 全部唯一，即强身份重复为 0；但现有 `company|normalized_title` 弱键会把其中 108 条归入已有标题组，潜在碰撞率 26.21%。这些记录可能是同公司同名但不同地点、团队或 requisition 的独立职位。
 
-因此不能直接把全量 ATS 候选喂给当前 `merge_jobs.py`。生产接入前必须先把“记录身份”和“弱相似匹配”分开：
+因此不能直接把全量 ATS 候选喂给 `merge_jobs.py`。Phase 2 已先把“记录身份”和“弱相似匹配”分开：
 
 1. `record_id` 已成为职位记录与评估任务的稳定主键。
 2. `identity_keys` 已保存 Provider job ID 等强键；通用规范化 URL 仍保留在 `url_keys`，但不冒充 Provider 强身份。
@@ -30,7 +30,7 @@ ATS 仍然是 Web Search 发现后的增强来源，但已有已验证公司标�
 
 继续保留一个下游职位主表 `data/jobs_table.json`，避免 Web、ATS 和浏览器结果被重复评估；但 ATS 公司标识属于控制面，不写进职位表。
 
-建议下一阶段增加两个本地运行时文件：
+Phase 2 已增加两个本地运行时文件：
 
 - `data/ats_companies.json`：`company_key`、显示名、provider、board token、global/EU instance、状态、首次/最近验证时间、发现来源类别。
 - `data/ats_sync_state.json`：每个 board 的最近成功时间、失败类别、页数、请求数和是否截断；不保存 JD、Cookie 或任意异常全文。
@@ -44,7 +44,7 @@ ATS 仍然是 Web Search 发现后的增强来源，但已有已验证公司标�
 
 Phase 1 的 `references/ats_phase1_boards.json` 只是可复现样本，不是生产公司标识库。
 
-## 推荐数据流
+## 已实现数据流
 
 ```text
 CV + 求职条件
@@ -63,9 +63,9 @@ CV + 求职条件
 
 跨公司 ATS 拉取、Web Search 和已派发的 JD 评估可以并发；同一 Lever board 的分页必须串行；最终主表写入仍必须串行。
 
-## 建议的独立预算
+## 独立预算
 
-ATS 调用不计入 `max_websearch_calls`，也不复用浏览器的 3 页上限。下一阶段建议先用以下硬上限进入测试，而不是立即作为稳定默认值发布：
+ATS 调用不计入 `max_websearch_calls`，也不复用浏览器的 3 页上限。生产路由由 `ats_enabled: false` 默认关闭；显式启用后仍受以下硬上限约束：
 
 | 预算 | Phase 2 初值 |
 |---|---:|
@@ -86,12 +86,22 @@ API 返回的是整板职位，不能把所有职位直接送给 LLM。必须先
 - ATS 失败时保留 Web Search 结果；只有已通过相关性筛选且确需 JD 的少量职位才进入浏览器兜底。
 - 公开 GET 降低了相对抓取风险，但不等于零法律风险；开源使用者仍需遵守目标公司、ATS、地区和数据用途相关条款。
 
-## Phase 2 验收门槛
+## Phase 2 验收状态
 
-进入生产适配器实现前必须同时满足：
+生产适配器的发布条件与当前状态：
 
 1. **已完成**：`record_id` / 强身份迁移；本地回归证明不同 ATS job ID 的同名职位保持独立，并按各自 `record_id` 回写评估。
-2. Fake Provider 测试覆盖三种分页、404/429/超时、EU Lever、unlisted Ashby 和部分成功。
-3. 指标 schema 增加 PII-safe `ats` operation，至少记录 provider、请求/页数、收到/规范化/初筛/去重数量、耗时、截断与失败类别。
-4. 小样本回归保持 6/6 board 成功或对失败给出可复现分类，不保存职位正文、标题和 URL。
-5. 远端 Ubuntu/Windows CI 通过后，才允许把 ATS 路由写进 `WORKFLOW.md` 的正式运行步骤。
+2. **已完成**：Fake Provider 覆盖 Ashby/Greenhouse 单响应、Lever 顺序分页与 EU host、unlisted Ashby、404/429/超时、全局请求预算、关闭开关和部分成功。
+3. **已完成**：指标 schema v4 增加 PII-safe `ats` operation，记录 provider、请求/页数、收到/规范化/初筛/输出数量、耗时、截断与分类状态。
+4. **已完成**：2026-08-26 公开小样本回归 6/6 board 成功，7 个请求接收并规范化 414 条职位，强身份重复率 0%，无截断/限流；脱敏证据不保存职位正文、标题和 URL。见 `docs/performance/ats-phase2-public-api-regression.*`。
+5. **待本分支验证**：远端 Ubuntu/Windows CI 通过。正式路由已经写入 `WORKFLOW.md`，但默认开关保持关闭，只有使用者显式启用后才会发出 ATS 请求。
+
+## 实现入口
+
+- `scripts/ats_provider.py`：统一 Provider 协议、公开 HTTPS GET、三家 payload 规范化、Lever 顺序分页、线程安全请求预算和 Fake Provider。
+- `scripts/ats_pipeline.py discover`：从 Web 候选识别 allowlist 官方 board，并更新 `candidate -> verified -> unavailable` 标识库。
+- `scripts/ats_pipeline.py sync --profile <path>`：同步已到期 board，跨 board 有界并发，按 CV 做确定性初筛并输出 merge-ready 候选。
+- `scripts/ats_pipeline.py run --profile <path>`：从 stdin 接收一批 Web 候选，串联 discover + sync。
+- `scripts/benchmark_ats.py`：复用生产适配器的公开脱敏回归；`scripts/benchmark_pipeline.py` 另含完全离线的三 Provider Fake 基准。
+
+标识库和同步状态由编排者每轮最多调用一次，文件写入不是给多个独立编排者同时竞争的分布式协调机制；职位主表仍只允许 `merge_jobs.py` 串行写入。

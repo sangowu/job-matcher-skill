@@ -2,7 +2,7 @@
 
 Job Matcher 是本地 CLI skill，不需要常驻 Prometheus 服务。运行监控采用两个低依赖组件：
 
-- `data/metrics.jsonl`：每次 `merge` / `update` / `round` / `subagent` / `browser` 的结构化事件。
+- `data/metrics.jsonl`：每次 `merge` / `update` / `round` / `subagent` / `browser` / `ats` 的结构化事件。
 - `scripts/summarize_metrics.py`：按时间窗口汇总健康状态、比率、分位数和队列积压。
 - `scripts/render_html.py`：每次生成职位报告时自动计算 7/30 天快照并嵌入 HTML。
 
@@ -38,9 +38,9 @@ python scripts/subagent_metrics.py record --role search --ok \
 
 | 字段 | 说明 |
 |---|---|
-| `schema_version` | 指标事件 schema 版本，当前为 3；汇总仍兼容已有 v1/v2 事件 |
+| `schema_version` | 指标事件 schema 版本，当前为 4；汇总仍兼容已有 v1/v2/v3 事件 |
 | `timestamp` | UTC ISO-8601 时间 |
-| `operation` | `merge`、`update`、`round`、`subagent` 或 `browser` |
+| `operation` | `merge`、`update`、`round`、`subagent`、`browser` 或 `ats` |
 | `ok` | 操作是否成功 |
 | `duration_ms` | 命令端到端耗时 |
 | `lock_wait_ms` | 等待职位主表锁的时间 |
@@ -53,6 +53,8 @@ python scripts/subagent_metrics.py record --role search --ok \
 `subagent` 事件记录角色、请求/实际模型、请求/实际 reasoning effort、是否发生继承回退、耗时及输入/输出/有效/拒绝条数。汇总按实际生效 profile 分组，避免把模型切换失败算成目标模型成绩。
 
 `browser` 事件记录 Provider、动作、耗时、页码/链接计数、接管、限流和估算费用。session id、Live View URL、页面 URL、键盘输入和截图不允许进入事件。
+
+`ats` 事件按 board 同步记录 Provider、动作、成功/分类状态、请求/页数/字节数、收到/规范化/初筛/输出职位数、截断、限流和 HTTP 状态。board id、company/token、职位名、URL、JD 和异常全文不允许进入指标事件。
 
 失败事件只记录低基数 `failure_kind`：`input_validation`、`input_json`、`data_store_read`、`data_store_write`、`lock_timeout`、`data_store` 或 `unexpected`。不记录原始异常消息，避免路径或输入内容进入指标日志。
 
@@ -79,6 +81,10 @@ python scripts/subagent_metrics.py record --role search --ok \
 | `browsers.sessions_created` | 成功创建的远程浏览器会话数 |
 | `browsers.handoffs` / `rate_limited` | 人工接管和限流事件计数 |
 | `browsers.estimated_cost_usd` | 本窗口记录的估算费用合计；不是供应商账单 |
+| `ats.board_runs` / `success_rate` | ATS board 同步运行数与成功比例 |
+| `ats.requests` / `pages` | ATS 公开 GET 请求和已处理页数合计 |
+| `ats.jobs_received` / `jobs_emitted` | API 接收职位数与确定性初筛后输出数 |
+| `ats.by_provider` | 按 Provider 汇总运行数、成功率、请求、页数与职位计数 |
 
 分位数采用观测窗口内样本排序后的最近秩值。这里的延迟用于本机回归和异常发现，不是生产 SLA。
 

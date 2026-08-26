@@ -341,7 +341,7 @@ def test_disjoint_ats_ids_with_same_weak_key_stay_separate(
     assert len({task["record_id"] for task in tasks}) == 2
     assert len({job["dedup_key"] for job in jobs}) == 1
     metric = json.loads((isolated_store / "metrics.jsonl").read_text(encoding="utf-8"))
-    assert metric["schema_version"] == 3
+    assert metric["schema_version"] == 4
     assert metric["strong_identity_conflicts_prevented"] == 1
     assert metric["strong_identity_records"] == 2
 

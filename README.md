@@ -69,8 +69,10 @@ job-matcher/
 │   ├── browser_control.py    # 远程视觉浏览器控制命令
 │   ├── browser_setup.py      # 一次性 localhost 配置页面
 │   ├── browser_workflow.py   # 列表翻页/暂停状态机
+│   ├── ats_provider.py       # Ashby/Greenhouse/Lever 公开 GET 适配器与 Fake
+│   ├── ats_pipeline.py       # ATS 标识库、初筛、同步与候选归一化
 │   ├── benchmark_pipeline.py # 固定小数据集核心/Fake Provider 基准
-│   ├── benchmark_ats.py      # 公开 ATS API 的有界脱敏基线（非生产适配器）
+│   ├── benchmark_ats.py      # 复用生产适配器的公开 ATS 有界回归
 │   ├── cp_hash.py            # 稳定的 candidate_profile hash
 │   ├── verify_jobs.py        # 失效职位状态码检测
 │   ├── fetch_rendered.py     # headless 渲染兜底（复用系统浏览器）
@@ -110,6 +112,14 @@ agent 会自动识别。然后在对话里：
 | `max_websearch_calls` | 6 | WebSearch 总次数上限 |
 | `stop_threshold` | 12 | 净有效职位达标停止 |
 | `consecutive_empty_stop` | 2 | 连续 N 批 0 结果则停止 |
+| `ats_enabled` | false | 是否启用公开 ATS 增强管道；默认显式关闭 |
+| `ats_max_concurrency` | 3 | 跨 ATS board 并发硬上限 |
+| `ats_boards_per_round` | 10 | 单轮同步 board 数硬上限 |
+| `ats_requests_per_round` | 30 | 单轮 ATS HTTP 请求硬上限 |
+| `ats_page_size` | 50 | Lever 每页请求数量 |
+| `ats_max_pages` | 10 | 单个 Lever board 顺序翻页硬上限 |
+| `ats_timeout_seconds` | 30 | 单次公开 ATS GET 超时秒数 |
+| `ats_registry_ttl_days` | 30 | 已验证 board 再同步间隔 |
 | `jd_ttl_days` | 30 | JD 缓存有效期 |
 | `seniority_mode` | balanced | strict / balanced / stretch |
 | `enable_headless_fallback` | true | headless 兜底开关 |
@@ -162,9 +172,9 @@ python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|s
 
 汇总按编排模式给出 p50/p95 与 `overlap_saving_pct`；两种模式都有样本前显示 `n/a`。
 
-版本性能回归使用固定 15 职位冷数据集和 10 个 Fake 会话：`python scripts/benchmark_pipeline.py --output <json> --baseline docs/performance/v2.2.0-small-baseline.json`。输出同时包含原始迭代、p50/p95、绝对变化和相对变化；不会调用真实 Web Search 或云 Provider。强身份迁移的本地基准见 [`docs/performance/strong-job-identity-baseline.md`](docs/performance/strong-job-identity-baseline.md)。
+版本性能回归使用固定 15 职位冷数据集和 10 个 Fake 会话：`python scripts/benchmark_pipeline.py --output <json> --baseline docs/performance/v2.2.0-small-baseline.json`。输出同时包含原始迭代、p50/p95、绝对变化和相对变化；不会调用真实 Web Search 或云 Provider。强身份迁移基准见 [`docs/performance/strong-job-identity-baseline.md`](docs/performance/strong-job-identity-baseline.md)，三家 ATS 离线管道基准见 [`docs/performance/ats-phase2-fake-baseline.md`](docs/performance/ats-phase2-fake-baseline.md)。
 
-ATS Phase 1 只提供开发基线，不会进入正常求职管道：`python scripts/benchmark_ats.py --output <json> --page-size 50 --max-pages 10`。它只调用样本配置中的官方公开 GET endpoint，职位正文/标题/URL 不落盘；设计结论与接入门槛见 [`docs/ats-provider-phase1.md`](docs/ats-provider-phase1.md)。
+ATS Phase 2 已提供可选的生产增强管道，默认仍由 `ats_enabled: false` 关闭。Web Search 结果中的官方 Ashby/Greenhouse/Lever URL 可经 `python scripts/ats_pipeline.py discover` 写入本地标识库；启用后用 `sync --profile <cv-profile.json>` 同步已到期 board，或用 `run --profile ...` 一次完成发现与同步。管道只做公开 GET，按标题/地点/资历确定性初筛，输出候选数组交给同一个 `merge_jobs.py`，因此 Web 与 ATS 共用职位主表和分析缓存，但 ATS 控制状态独立保存在 `data/ats_companies.json` 与 `data/ats_sync_state.json`。ATS 预算独立于 Web Search；跨 board 可并发，Lever 单 board 内顺序翻页。公开 API 回归仍使用 `python scripts/benchmark_ats.py --output <json> --page-size 50 --max-pages 10`，且脱敏证据不保存职位正文、标题或 URL。详见 [`docs/ats-provider-phase1.md`](docs/ats-provider-phase1.md)。
 
 ## 🔧 依赖
 

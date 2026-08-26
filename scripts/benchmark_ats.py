@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Run a bounded, PII-safe benchmark against public ATS job-board APIs.
 
-This is a Phase 1 measurement tool, not a production search adapter. It only
-performs GET requests, keeps job content in memory, and persists aggregate
-operational evidence without titles, URLs, or descriptions.
+This remains a measurement tool. Production normalization and pagination live
+in ats_provider.py so benchmark and runtime cannot silently drift apart.
 """
 from __future__ import annotations
 
@@ -11,33 +10,26 @@ import argparse
 import json
 import os
 import platform
-import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
 
 from _jobutil import canonicalize_url, make_dedup_key, skill_version
+from ats_provider import (
+    MAX_RESPONSE_BYTES,
+    PROVIDERS as PROVIDERS,
+    AtsProviderError,
+    HttpAtsProvider,
+    fetch_board as _provider_fetch_board,
+)
 
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BOARDS_PATH = SKILL_ROOT / "references" / "ats_phase1_boards.json"
-MAX_RESPONSE_BYTES = 25 * 1024 * 1024
-PROVIDERS = ("ashby", "greenhouse", "lever")
-_BOARD_TOKEN = re.compile(r"[A-Za-z0-9_-]{1,100}\Z")
-_SAFE_FAILURES = {
-    "http_error",
-    "network_error",
-    "invalid_json",
-    "invalid_payload",
-    "response_too_large",
-    "unsupported_provider",
-    "invalid_board_token",
-}
+AtsBenchmarkError = AtsProviderError
+FetchJson = Callable[[str, float], tuple[Any, int, float]]
 _REGION_TERMS = {
     "china": (
         "china", "beijing", "shanghai", "shenzhen", "guangzhou", "hong kong",
@@ -55,138 +47,16 @@ _REGION_TERMS = {
 }
 
 
-class AtsBenchmarkError(RuntimeError):
-    def __init__(self, kind: str, http_status: int | None = None) -> None:
-        super().__init__(kind)
-        self.kind = kind if kind in _SAFE_FAILURES else "network_error"
-        self.http_status = http_status
+class _CallableProvider:
+    def __init__(self, callback: FetchJson) -> None:
+        self.callback = callback
 
-
-FetchJson = Callable[[str, float], tuple[Any, int, float]]
+    def fetch_json(self, url: str, timeout_seconds: float) -> tuple[Any, int, float]:
+        return self.callback(url, timeout_seconds)
 
 
 def _fetch_json(url: str, timeout_seconds: float) -> tuple[Any, int, float]:
-    request = Request(
-        url,
-        headers={
-            "Accept": "application/json",
-            "User-Agent": "JobMatcher-ATS-Phase1/1.0 (+https://github.com/sangowu/job-matcher-skill)",
-        },
-        method="GET",
-    )
-    started = time.perf_counter()
-    try:
-        with urlopen(request, timeout=timeout_seconds) as response:
-            payload = response.read(MAX_RESPONSE_BYTES + 1)
-    except HTTPError as error:
-        raise AtsBenchmarkError("http_error", error.code) from error
-    except (URLError, TimeoutError, OSError) as error:
-        raise AtsBenchmarkError("network_error") from error
-    duration_ms = (time.perf_counter() - started) * 1000
-    if len(payload) > MAX_RESPONSE_BYTES:
-        raise AtsBenchmarkError("response_too_large")
-    try:
-        return json.loads(payload), len(payload), duration_ms
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise AtsBenchmarkError("invalid_json") from error
-
-
-def _validate_board(board: dict[str, Any]) -> tuple[str, str, str]:
-    provider = str(board.get("provider", "")).lower()
-    company = str(board.get("company", "")).strip()
-    token = str(board.get("board_token", "")).strip()
-    if provider not in PROVIDERS:
-        raise AtsBenchmarkError("unsupported_provider")
-    if not company or not _BOARD_TOKEN.fullmatch(token):
-        raise AtsBenchmarkError("invalid_board_token")
-    return provider, company, token
-
-
-def _greenhouse_url(token: str) -> str:
-    return f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true"
-
-
-def _ashby_url(token: str) -> str:
-    return f"https://api.ashbyhq.com/posting-api/job-board/{token}?includeCompensation=true"
-
-
-def _lever_url(token: str, instance: str, *, skip: int, limit: int) -> str:
-    host = "api.eu.lever.co" if instance == "eu" else "api.lever.co"
-    query = urlencode({"mode": "json", "skip": skip, "limit": limit})
-    return f"https://{host}/v0/postings/{token}?{query}"
-
-
-def _greenhouse_job(company: str, job: dict[str, Any]) -> dict[str, Any] | None:
-    title = str(job.get("title") or "").strip()
-    url = str(job.get("absolute_url") or "").strip()
-    provider_id = str(job.get("id") or "").strip()
-    location_value = job.get("location")
-    location = str(location_value.get("name") or "") if isinstance(location_value, dict) else ""
-    if not title or not url or not provider_id:
-        return None
-    return {
-        "provider": "greenhouse",
-        "provider_job_id": provider_id,
-        "company": company,
-        "title": title,
-        "location": location,
-        "url": url,
-        "description_present": bool(job.get("content")),
-    }
-
-
-def _ashby_job(company: str, job: dict[str, Any]) -> dict[str, Any] | None:
-    if job.get("isListed") is False:
-        return None
-    title = str(job.get("title") or "").strip()
-    url = str(job.get("jobUrl") or "").strip()
-    provider_key = canonicalize_url(url)
-    provider_id = provider_key.split(":", 1)[1] if provider_key.startswith("ashby:") else ""
-    if not title or not url or not provider_id:
-        return None
-    secondary = job.get("secondaryLocations")
-    secondary_names = [
-        str(item.get("location") or "").strip()
-        for item in secondary or []
-        if isinstance(item, dict) and item.get("location")
-    ]
-    locations = [str(job.get("location") or "").strip(), *secondary_names]
-    return {
-        "provider": "ashby",
-        "provider_job_id": provider_id,
-        "company": company,
-        "title": title,
-        "location": "; ".join(value for value in locations if value),
-        "url": url,
-        "description_present": bool(job.get("descriptionPlain") or job.get("descriptionHtml")),
-    }
-
-
-def _lever_job(company: str, job: dict[str, Any]) -> dict[str, Any] | None:
-    title = str(job.get("text") or "").strip()
-    url = str(job.get("hostedUrl") or "").strip()
-    provider_id = str(job.get("id") or "").strip()
-    categories = job.get("categories")
-    locations: list[str] = []
-    if isinstance(categories, dict):
-        primary = str(categories.get("location") or "").strip()
-        if primary:
-            locations.append(primary)
-        for value in categories.get("allLocations") or []:
-            text = str(value or "").strip()
-            if text and text not in locations:
-                locations.append(text)
-    if not title or not url or not provider_id:
-        return None
-    return {
-        "provider": "lever",
-        "provider_job_id": provider_id,
-        "company": company,
-        "title": title,
-        "location": "; ".join(locations),
-        "url": url,
-        "description_present": bool(job.get("descriptionPlain") or job.get("description")),
-    }
+    return HttpAtsProvider().fetch_json(url, timeout_seconds)
 
 
 def fetch_board(
@@ -197,83 +67,13 @@ def fetch_board(
     max_pages: int = 3,
     timeout_seconds: float = 20,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    started = time.perf_counter()
-    provider = str(board.get("provider", "")).lower() or "unknown"
-    company = str(board.get("company", "")).strip() or "unknown"
-    token = str(board.get("board_token", "")).strip()
-    metrics: dict[str, Any] = {
-        "provider": provider,
-        "company": company,
-        "board_token": token,
-        "ok": False,
-        "pagination": "unknown",
-        "requests": 0,
-        "pages_requested": 0,
-        "response_bytes": 0,
-        "jobs_received": 0,
-        "jobs_normalized": 0,
-        "invalid_or_unlisted_jobs": 0,
-        "truncated": False,
-    }
-    normalized: list[dict[str, Any]] = []
-    try:
-        provider, company, token = _validate_board(board)
-        metrics.update(provider=provider, company=company, board_token=token)
-        raw_jobs: list[Any] = []
-        if provider == "greenhouse":
-            metrics["pagination"] = "single_response"
-            metrics.update(requests=1, pages_requested=1)
-            payload, size, _ = fetch_json(_greenhouse_url(token), timeout_seconds)
-            metrics["response_bytes"] = size
-            if not isinstance(payload, dict) or not isinstance(payload.get("jobs"), list):
-                raise AtsBenchmarkError("invalid_payload")
-            raw_jobs = payload["jobs"]
-            converter = _greenhouse_job
-        elif provider == "ashby":
-            metrics["pagination"] = "single_response"
-            metrics.update(requests=1, pages_requested=1)
-            payload, size, _ = fetch_json(_ashby_url(token), timeout_seconds)
-            metrics["response_bytes"] = size
-            if not isinstance(payload, dict) or not isinstance(payload.get("jobs"), list):
-                raise AtsBenchmarkError("invalid_payload")
-            raw_jobs = payload["jobs"]
-            converter = _ashby_job
-        else:
-            metrics["pagination"] = "offset_limit"
-            instance = str(board.get("instance", "global")).lower()
-            if instance not in {"global", "eu"}:
-                raise AtsBenchmarkError("invalid_board_token")
-            exhausted = False
-            for page in range(max_pages):
-                url = _lever_url(token, instance, skip=page * page_size, limit=page_size)
-                metrics["requests"] += 1
-                metrics["pages_requested"] += 1
-                payload, size, _ = fetch_json(url, timeout_seconds)
-                metrics["response_bytes"] += size
-                if not isinstance(payload, list):
-                    raise AtsBenchmarkError("invalid_payload")
-                raw_jobs.extend(payload)
-                if len(payload) < page_size:
-                    exhausted = True
-                    break
-            metrics["truncated"] = not exhausted
-            converter = _lever_job
-
-        metrics["jobs_received"] = len(raw_jobs)
-        for raw in raw_jobs:
-            converted = converter(company, raw) if isinstance(raw, dict) else None
-            if converted is None:
-                metrics["invalid_or_unlisted_jobs"] += 1
-            else:
-                normalized.append(converted)
-        metrics["jobs_normalized"] = len(normalized)
-        metrics["ok"] = True
-    except AtsBenchmarkError as error:
-        metrics["failure_kind"] = error.kind
-        if error.http_status is not None:
-            metrics["http_status"] = error.http_status
-    metrics["duration_ms"] = round((time.perf_counter() - started) * 1000, 3)
-    return metrics, normalized
+    return _provider_fetch_board(
+        board,
+        provider_client=_CallableProvider(fetch_json),
+        page_size=page_size,
+        max_pages=max_pages,
+        timeout_seconds=timeout_seconds,
+    )
 
 
 def _percentile(values: list[float], quantile: float) -> float | None:
@@ -286,9 +86,7 @@ def _percentile(values: list[float], quantile: float) -> float | None:
 
 def _aggregate(board_metrics: list[dict[str, Any]], jobs: list[dict[str, Any]]) -> dict[str, Any]:
     url_keys = [canonicalize_url(job["url"]) for job in jobs]
-    provider_refs = [
-        f"{job['provider']}:{job['provider_job_id']}" for job in jobs
-    ]
+    provider_refs = [f"{job['provider']}:{job['provider_job_id']}" for job in jobs]
     dedup_groups: dict[str, set[str]] = {}
     region_counts = {region: 0 for region in _REGION_TERMS}
     description_present = 0
@@ -369,10 +167,7 @@ def run_benchmark(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "skill_version": skill_version(),
         "run_kind": "ats_phase1_public_api_baseline",
-        "environment": {
-            "python": platform.python_version(),
-            "os": platform.system(),
-        },
+        "environment": {"python": platform.python_version(), "os": platform.system()},
         "limits": {
             "max_workers": max_workers,
             "lever_page_size": page_size,

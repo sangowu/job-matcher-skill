@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from _jobutil import SKILL_ROOT, skill_version
+from ats_provider import FakeAtsProvider
 from browser_control import BrowserController
 from browser_provider import FakeBrowserProvider
 from runtime_metrics import build_summary
@@ -295,6 +296,103 @@ def run_fake_once(root: Path, session_count: int, run_index: int) -> dict:
         }
 
 
+def run_fake_ats_once(root: Path, run_index: int, ats_pipeline: Any) -> dict:
+    with tempfile.TemporaryDirectory(prefix=f"ats-{run_index:02d}-", dir=root) as temporary:
+        data_dir = Path(temporary) / "data"
+        ats_pipeline.DATA_DIR = data_dir
+        ats_pipeline.REGISTRY_PATH = data_dir / "ats_companies.json"
+        ats_pipeline.SYNC_STATE_PATH = data_dir / "ats_sync_state.json"
+        ats_pipeline.METRICS_PATH = data_dir / "metrics.jsonl"
+        candidates = [
+            {
+                "company": "Greenhouse Benchmark",
+                "url": "https://job-boards.greenhouse.io/greenbench/jobs/101",
+            },
+            {
+                "company": "Ashby Benchmark",
+                "url": (
+                    "https://jobs.ashbyhq.com/ashbybench/"
+                    "11111111-1111-4111-8111-111111111111"
+                ),
+            },
+            {
+                "company": "Lever Benchmark",
+                "url": (
+                    "https://jobs.eu.lever.co/leverbench/"
+                    "22222222-2222-4222-8222-222222222222"
+                ),
+            },
+        ]
+        registry = {"schema_version": 1, "boards": []}
+        ats_pipeline.discover_candidates(candidates, registry)
+        provider = FakeAtsProvider({
+            "boards/greenbench/jobs": [{
+                "jobs": [{
+                    "id": 101,
+                    "title": "AI Engineer",
+                    "location": {"name": "Dublin"},
+                    "absolute_url": "https://job-boards.greenhouse.io/greenbench/jobs/101",
+                    "content": "benchmark",
+                }]
+            }],
+            "job-board/ashbybench": [{
+                "jobs": [{
+                    "title": "Machine Learning Engineer",
+                    "location": "Dublin",
+                    "isListed": True,
+                    "jobUrl": (
+                        "https://jobs.ashbyhq.com/ashbybench/"
+                        "11111111-1111-4111-8111-111111111111"
+                    ),
+                    "descriptionPlain": "benchmark",
+                }]
+            }],
+            "api.eu.lever.co": [[{
+                "id": "22222222-2222-4222-8222-222222222222",
+                "text": "AI Engineer",
+                "hostedUrl": (
+                    "https://jobs.eu.lever.co/leverbench/"
+                    "22222222-2222-4222-8222-222222222222"
+                ),
+                "categories": {"location": "Dublin"},
+                "descriptionPlain": "benchmark",
+            }]],
+        })
+        config = {
+            "ats_enabled": True,
+            "ats_max_concurrency": 3,
+            "ats_boards_per_round": 10,
+            "ats_requests_per_round": 30,
+            "ats_page_size": 50,
+            "ats_max_pages": 10,
+            "ats_timeout_seconds": 30,
+            "ats_registry_ttl_days": 30,
+            "top_n": 15,
+            "precise_buffer": 5,
+        }
+        profile = {
+            "preferred_roles": ["AI Engineer"],
+            "preferred_locations": ["Dublin"],
+            "open_to_remote": True,
+            "blocked_levels": ["intern", "lead"],
+        }
+        started = time.perf_counter_ns()
+        result = ats_pipeline.sync_registry(
+            registry, profile, config=config, provider_client=provider
+        )
+        finished = time.perf_counter_ns()
+        assert result["summary"]["boards_succeeded"] == 3
+        assert result["summary"]["requests"] == 3
+        assert result["summary"]["jobs_emitted"] == 3
+        return {
+            "run": run_index,
+            "ats_fake_wall_ms": round((finished - started) / 1_000_000, 3),
+            "boards_succeeded": 3,
+            "requests": 3,
+            "jobs_emitted": 3,
+        }
+
+
 def git_revision() -> str:
     try:
         result = subprocess.run(
@@ -338,12 +436,14 @@ def main() -> int:
 
     import merge_jobs
     import render_html
+    import ats_pipeline
 
     scratch = args.output.parent / "scratch"
     scratch.mkdir(parents=True, exist_ok=True)
     for index in range(args.warmups):
         run_core_once(scratch, args.jobs, -(index + 1), merge_jobs, render_html)
         run_identity_once(scratch, args.identity_jobs, -(index + 1), merge_jobs)
+        run_fake_ats_once(scratch, -(index + 1), ats_pipeline)
         run_fake_once(scratch, args.fake_sessions, -(index + 1))
     core_runs = [
         run_core_once(scratch, args.jobs, index, merge_jobs, render_html)
@@ -351,6 +451,10 @@ def main() -> int:
     ]
     identity_runs = [
         run_identity_once(scratch, args.identity_jobs, index, merge_jobs)
+        for index in range(1, args.iterations + 1)
+    ]
+    ats_fake_runs = [
+        run_fake_ats_once(scratch, index, ats_pipeline)
         for index in range(1, args.iterations + 1)
     ]
     fake_runs = [
@@ -389,6 +493,15 @@ def main() -> int:
             key: summarize([float(run[key]) for run in identity_runs])
             for key in ("merge_wall_ms", "update_wall_ms", "identity_total_wall_ms")
         },
+        "ats_fake_metrics": {
+            "ats_fake_wall_ms": summarize(
+                [float(run["ats_fake_wall_ms"]) for run in ats_fake_runs]
+            ),
+            "boards_per_iteration": 3,
+            "requests_per_iteration": 3,
+            "jobs_emitted_per_iteration": 3,
+            "external_calls": 0,
+        },
         "fake_provider_metrics": {
             "fake_total_wall_ms": summarize(
                 [float(run["fake_total_wall_ms"]) for run in fake_runs]
@@ -399,6 +512,7 @@ def main() -> int:
         },
         "core_runs": core_runs,
         "identity_runs": identity_runs,
+        "ats_fake_runs": ats_fake_runs,
         "fake_provider_runs": fake_runs,
     }
     if args.baseline:

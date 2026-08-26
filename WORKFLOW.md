@@ -84,6 +84,10 @@
 - 按 search_playbook 自适应分批：每批执行若干条 query 的 **web 搜索**（有子代理则用 `search` profile 并行委派、各 1 次搜索；否则你逐条搜），按 search_playbook「搜索职责」解析+三维初筛，得结构化职位数组。
 - Web 搜索“结果翻页”视为下一次独立搜索调用；仅在上一页仍有高相关未覆盖结果时继续，且每一页都计入 `max_websearch_calls`。不要假定一次搜索调用会自动替你翻完全部结果页。
 - Web Search 发现公司招聘列表但职位链接不完整时，可把该列表交给 browser worker 做网站内翻页；同一网站第 1→N 页必须串行，不同网站可在 `browser_max_concurrency` 内并行。
+- 每批结构化 Web 候选先送入 `python scripts/ats_pipeline.py discover`，只识别 allowlist 中的官方 Ashby/Greenhouse/Lever board。已登记的 verified board 只抑制重复的招聘列表抓取，不跳过该公司的普通 Web 职位、新闻或未知来源。
+- `ats_enabled` 为 true 时，每轮最多调用一次 `python scripts/ats_pipeline.py sync --profile <cv-profile.json>`；也可对首批候选使用 `run --profile ...` 合并发现与同步。脚本返回 merge-ready 候选数组，必须由主 agent 与 Web 候选一起串行交给同一个 `merge_jobs.py merge`。不要把 ATS 标识库当作第二张职位表。
+- 已到期的 known verified board 可在首批开始时同步；跨 board ATS 同步可与下一批 Web Search/既有 JD 评估并发。同一 Lever board 的 `skip/limit` 翻页必须串行。ATS 失败只降级该 board，不能阻塞或丢弃 Web 结果。
+- ATS 的 board/request/page/concurrency 预算独立于 `max_websearch_calls` 和浏览器预算；不得因为 Web 预算尚有余额而突破 ATS 硬上限。
 - 汇总 → `merge_jobs.py merge` → `{to_analyze, to_score_only, in_evaluation, cached, eval_run, stats}`。
 - `merge` 同时创建 `data/eval_runs/<run_id>.json` 评估任务快照，并在 `eval_run` 返回路径。`in_evaluation` 中的职位已有未完成任务，不要重复委派。
 - 按 stats 判断是否追加下一批（阈值/上限/连续空批见 playbook）。
@@ -137,9 +141,9 @@
 7. 无论成功或失败都调用 `close --round-id R --session-id S`；关闭会释放并发槽，但已创建会话数和估算费用仍计入本轮硬上限。
 8. 用 `browser_control.py event --status ...` 记录页数/链接计数、接管等待、限流和估算费用；动作本身自动记录 Provider 与耗时。不得记录 session id、Live View URL、页面 URL、输入文本、Cookie 或截图内容。
 
-### ATS Phase 1 边界
+### ATS 增强协议
 
-`scripts/benchmark_ats.py` 当前只是公开 API 的开发基线，**不得在正常求职流程中调用，也不得把输出直接 merge 到职位主表**。主表已经完成稳定 `record_id` / `identity_keys` 迁移，但 ATS Fake Provider、PII-safe `ats` 指标和小样本回归门槛仍未完成，因此生产 ATS 路由仍保持关闭。ATS 尚不消耗 `max_websearch_calls`，因为它还没有进入正式运行管道。
+生产路由默认由 `ats_enabled: false` 显式关闭；启用是用户/本地配置选择。`ats_pipeline.py` 只允许官方公开 HTTPS GET，不需要 API key，不调用申请、Harvest、Hire 或 Partner API。它在内存中规范化并按 CV 的 title/location/remote/seniority 做确定性初筛，最多输出 `top_n + precise_buffer` 个候选，再进入统一强身份 merge。`data/ats_companies.json` 保存 board 控制标识，`data/ats_sync_state.json` 和 `ats` 指标只保存低基数状态/计数，不保存职位名、URL、JD、CV、token 或异常全文。连续三次 404/410 才标记 unavailable；429、超时和网络失败保留可重试状态。`benchmark_ats.py` 复用同一生产解析器做公开小样本回归，但其脱敏报告不进入职位主表。
 
 ## 护栏
 - 抓取**不绕验证码、不模拟登录、不抓需付费/登录内容、尊重 robots/ToS**。

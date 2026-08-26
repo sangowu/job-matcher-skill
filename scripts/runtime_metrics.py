@@ -109,6 +109,7 @@ _ATS_FIELDS = {
     "jobs_emitted",
     "truncated",
     "rate_limited",
+    "content_fallback",
     "http_status",
 }
 ORCHESTRATION_MODES = ("serial", "overlapped")
@@ -430,6 +431,9 @@ def _build_summary_from_events(
             "success_rate": _ratio(len(successful), len(group)),
             "requests": int(sum(_number(event, "requests") for event in group)),
             "pages": int(sum(_number(event, "pages_requested") for event in group)),
+            "response_bytes": int(
+                sum(_number(event, "response_bytes") for event in group)
+            ),
             "jobs_received": int(sum(_number(event, "jobs_received") for event in group)),
             "jobs_emitted": int(sum(_number(event, "jobs_emitted") for event in group)),
         })
@@ -539,12 +543,18 @@ def _build_summary_from_events(
             "success_rate": _ratio(len(successful_ats_events), len(ats_events)),
             "requests": int(sum(_number(event, "requests") for event in ats_events)),
             "pages": int(sum(_number(event, "pages_requested") for event in ats_events)),
+            "response_bytes": int(
+                sum(_number(event, "response_bytes") for event in ats_events)
+            ),
             "jobs_received": int(sum(_number(event, "jobs_received") for event in ats_events)),
             "jobs_normalized": int(sum(_number(event, "jobs_normalized") for event in ats_events)),
             "jobs_prefiltered": int(sum(_number(event, "jobs_prefiltered") for event in ats_events)),
             "jobs_emitted": int(sum(_number(event, "jobs_emitted") for event in ats_events)),
             "truncated": sum(1 for event in ats_events if event.get("truncated") is True),
             "rate_limited": sum(1 for event in ats_events if event.get("rate_limited") is True),
+            "content_fallback": sum(
+                1 for event in ats_events if event.get("content_fallback") is True
+            ),
             "duration_ms": {
                 "p50": percentile(ats_durations, 0.50),
                 "p95": percentile(ats_durations, 0.95),
@@ -695,6 +705,8 @@ def render_markdown(summary: dict) -> str:
         ("ATS success rate", metrics["ats"]["success_rate"]),
         ("ATS requests", metrics["ats"]["requests"]),
         ("ATS pages", metrics["ats"]["pages"]),
+        ("ATS response bytes", metrics["ats"]["response_bytes"]),
+        ("ATS content fallbacks", metrics["ats"]["content_fallback"]),
         ("ATS jobs emitted", metrics["ats"]["jobs_emitted"]),
         ("Active runs", queue["active_runs"]),
         ("Pending tasks", queue["pending_tasks"]),

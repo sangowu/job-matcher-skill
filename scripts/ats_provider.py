@@ -32,10 +32,16 @@ _SAFE_FAILURES = {
 
 
 class AtsProviderError(RuntimeError):
-    def __init__(self, kind: str, http_status: int | None = None) -> None:
+    def __init__(
+        self,
+        kind: str,
+        http_status: int | None = None,
+        response_bytes: int = 0,
+    ) -> None:
         super().__init__(kind)
         self.kind = kind if kind in _SAFE_FAILURES else "network_error"
         self.http_status = http_status
+        self.response_bytes = max(0, int(response_bytes))
 
 
 class AtsProvider(Protocol):
@@ -68,7 +74,7 @@ class HttpAtsProvider:
             raise AtsProviderError("network_error") from error
         duration_ms = (time.perf_counter() - started) * 1000
         if len(payload) > MAX_RESPONSE_BYTES:
-            raise AtsProviderError("response_too_large")
+            raise AtsProviderError("response_too_large", response_bytes=len(payload))
         try:
             return json.loads(payload), len(payload), duration_ms
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -135,8 +141,9 @@ def validate_board(board: dict[str, Any]) -> tuple[str, str, str]:
     return provider, company, token
 
 
-def greenhouse_url(token: str) -> str:
-    return f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true"
+def greenhouse_url(token: str, *, include_content: bool = True) -> str:
+    suffix = "?content=true" if include_content else ""
+    return f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs{suffix}"
 
 
 def ashby_url(token: str) -> str:
@@ -277,6 +284,7 @@ def fetch_board(
         "invalid_or_unlisted_jobs": 0,
         "truncated": False,
         "rate_limited": False,
+        "content_fallback": False,
     }
     normalized: list[dict[str, Any]] = []
 
@@ -285,7 +293,11 @@ def fetch_board(
             request_budget.reserve()
         metrics["requests"] += 1
         metrics["pages_requested"] += 1
-        payload, size, _ = client.fetch_json(url, timeout_seconds)
+        try:
+            payload, size, _ = client.fetch_json(url, timeout_seconds)
+        except AtsProviderError as error:
+            metrics["response_bytes"] += error.response_bytes
+            raise
         metrics["response_bytes"] += size
         return payload
 
@@ -295,7 +307,13 @@ def fetch_board(
         raw_jobs: list[Any] = []
         if provider == "greenhouse":
             metrics["pagination"] = "single_response"
-            payload = fetch(greenhouse_url(token))
+            try:
+                payload = fetch(greenhouse_url(token))
+            except AtsProviderError as error:
+                if error.kind != "response_too_large":
+                    raise
+                metrics["content_fallback"] = True
+                payload = fetch(greenhouse_url(token, include_content=False))
             if not isinstance(payload, dict) or not isinstance(payload.get("jobs"), list):
                 raise AtsProviderError("invalid_payload")
             raw_jobs = payload["jobs"]

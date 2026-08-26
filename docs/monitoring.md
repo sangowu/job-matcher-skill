@@ -83,6 +83,7 @@ python scripts/subagent_metrics.py record --role search --ok \
 | `browsers.estimated_cost_usd` | 本窗口记录的估算费用合计；不是供应商账单 |
 | `ats.board_runs` / `success_rate` | ATS board 同步运行数与成功比例 |
 | `ats.requests` / `pages` | ATS 公开 GET 请求和已处理页数合计 |
+| `ats.response_bytes` / `content_fallback` | 已读取公开响应字节数与 Greenhouse 超大正文响应降级次数 |
 | `ats.jobs_received` / `jobs_emitted` | API 接收职位数与确定性初筛后输出数 |
 | `ats.by_provider` | 按 Provider 汇总运行数、成功率、请求、页数与职位计数 |
 

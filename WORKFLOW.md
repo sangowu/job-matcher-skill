@@ -143,7 +143,7 @@
 
 ### ATS 增强协议
 
-生产路由默认由 `ats_enabled: false` 显式关闭；启用是用户/本地配置选择。`ats_pipeline.py` 只允许官方公开 HTTPS GET，不需要 API key，不调用申请、Harvest、Hire 或 Partner API。它在内存中规范化并按 CV 的 title/location/remote/seniority 做确定性初筛，最多输出 `top_n + precise_buffer` 个候选，再进入统一强身份 merge。`data/ats_companies.json` 保存 board 控制标识，`data/ats_sync_state.json` 和 `ats` 指标只保存低基数状态/计数，不保存职位名、URL、JD、CV、token 或异常全文。连续三次 404/410 才标记 unavailable；429、超时和网络失败保留可重试状态。`benchmark_ats.py` 复用同一生产解析器做公开小样本回归，但其脱敏报告不进入职位主表。
+生产路由默认由 `ats_enabled: false` 显式关闭；启用是用户/本地配置选择。`ats_pipeline.py` 只允许官方公开 HTTPS GET，不需要 API key，不调用申请、Harvest、Hire 或 Partner API。Greenhouse 标识发现同时接受 `job-boards.greenhouse.io` 与 `job-boards.eu.greenhouse.io` 的公开职位页，但两者都调用官方 `boards-api.greenhouse.io` 公共 Job Board API；不要虚构 EU API host。它在内存中规范化并按 CV 的 title/location/remote/seniority 做确定性初筛，最多输出 `top_n + precise_buffer` 个候选，再进入统一强身份 merge。若 Greenhouse `content=true` 响应超过 25 MB，可在同一全局请求预算内额外重试一次不含正文的列表；记录 `response_bytes` 与 `content_fallback`，预算不足则按失败降级。`data/ats_companies.json` 保存 board 控制标识，`data/ats_sync_state.json` 和 `ats` 指标只保存低基数状态/计数，不保存职位名、URL、JD、CV、token 或异常全文。连续三次 404/410 才标记 unavailable；429、超时和网络失败保留可重试状态。`benchmark_ats.py` 复用同一生产解析器做公开小样本回归，但其脱敏报告不进入职位主表；`benchmark_ats_e2e.py` 只在显式提供固定 Web 候选与本地 profile 时做受限 discovery-to-merge A/B，仍不得突破生产硬上限。
 
 ## 护栏
 - 抓取**不绕验证码、不模拟登录、不抓需付费/登录内容、尊重 robots/ToS**。

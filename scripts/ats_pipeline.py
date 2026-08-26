@@ -107,7 +107,11 @@ def extract_board_marker(url: str, company: str) -> dict[str, Any] | None:
     instance = "global"
     if host == "jobs.ashbyhq.com":
         provider = "ashby"
-    elif host in {"boards.greenhouse.io", "job-boards.greenhouse.io"}:
+    elif host in {
+        "boards.greenhouse.io",
+        "job-boards.greenhouse.io",
+        "job-boards.eu.greenhouse.io",
+    }:
         provider = "greenhouse"
     elif host == "jobs.lever.co":
         provider = "lever"
@@ -282,11 +286,13 @@ def _safe_state_row(board: dict[str, Any], metrics: dict[str, Any], filtered: in
         "ok": bool(metrics.get("ok")),
         "requests": int(metrics.get("requests", 0)),
         "pages_requested": int(metrics.get("pages_requested", 0)),
+        "response_bytes": int(metrics.get("response_bytes", 0)),
         "jobs_received": int(metrics.get("jobs_received", 0)),
         "jobs_normalized": int(metrics.get("jobs_normalized", 0)),
         "jobs_prefiltered": filtered,
         "truncated": bool(metrics.get("truncated")),
         "rate_limited": bool(metrics.get("rate_limited")),
+        "content_fallback": bool(metrics.get("content_fallback")),
         "failure_kind": str(metrics.get("failure_kind") or ""),
         "http_status": metrics.get("http_status"),
         "duration_ms": float(metrics.get("duration_ms", 0)),
@@ -398,10 +404,14 @@ def sync_registry(
             "boards_succeeded": sum(row["ok"] for row in state_rows),
             "boards_failed": sum(not row["ok"] for row in state_rows),
             "requests": budget.used,
+            "response_bytes": sum(row["response_bytes"] for row in state_rows),
             "jobs_received": sum(row["jobs_received"] for row in state_rows),
             "jobs_normalized": sum(row["jobs_normalized"] for row in state_rows),
             "jobs_prefiltered": sum(row["jobs_prefiltered"] for row in state_rows),
             "jobs_emitted": len(emitted),
+            "content_fallback_boards": sum(
+                row["content_fallback"] for row in state_rows
+            ),
             "duration_ms": round((time.monotonic() - started) * 1000, 3),
         },
     }

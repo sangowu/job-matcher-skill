@@ -1,6 +1,6 @@
 # ATS Provider Phase 1/2：架构、实现与接入门槛
 
-状态：Phase 1 measured / Phase 2 implemented / local and public regression verified / CI pending。基于 Job Matcher v2.3.0，更新日期 2026-08-26。
+状态：Phase 1 measured / Phase 2 implemented / local, public regression, and CI verified。基于 Job Matcher v2.3.0，更新日期 2026-08-26。
 
 ## 决策摘要
 
@@ -94,7 +94,7 @@ API 返回的是整板职位，不能把所有职位直接送给 LLM。必须先
 2. **已完成**：Fake Provider 覆盖 Ashby/Greenhouse 单响应、Lever 顺序分页与 EU host、unlisted Ashby、404/429/超时、全局请求预算、关闭开关和部分成功。
 3. **已完成**：指标 schema v4 增加 PII-safe `ats` operation，记录 provider、请求/页数、收到/规范化/初筛/输出数量、耗时、截断与分类状态。
 4. **已完成**：2026-08-26 公开小样本回归 6/6 board 成功，7 个请求接收并规范化 414 条职位，强身份重复率 0%，无截断/限流；脱敏证据不保存职位正文、标题和 URL。见 `docs/performance/ats-phase2-public-api-regression.*`。
-5. **待本分支验证**：远端 Ubuntu/Windows CI 通过。正式路由已经写入 `WORKFLOW.md`，但默认开关保持关闭，只有使用者显式启用后才会发出 ATS 请求。
+5. **已完成**：PR #20 首轮 [GitHub Actions 32962486697](https://github.com/sangowu/job-matcher-skill/actions/runs/32962486697) 的 Ubuntu/Windows Python 3.10 均通过。正式路由已经写入 `WORKFLOW.md`，但默认开关保持关闭，只有使用者显式启用后才会发出 ATS 请求。
 
 ## 实现入口
 

@@ -1,0 +1,58 @@
+{
+  "generated_at": "2026-08-26T14:34:47.6798144Z",
+  "method": {
+    "ats_review": "independent manual title-level review of the locally captured emitted set",
+    "link_check": "verify_jobs.py public HTTP and closed-keyword check",
+    "web_review": "manual title and snippet review of the fixed control set"
+  },
+  "privacy": {
+    "contains_board_tokens": false,
+    "contains_company_names": false,
+    "contains_cv_text": false,
+    "contains_job_titles": false,
+    "contains_job_urls": false,
+    "contains_profile_fields": false,
+    "contains_raw_exceptions": false
+  },
+  "quality_gate": {
+    "passed": false,
+    "reasons": [
+      "ats_strict_precision_below_0_50",
+      "ats_false_positive_rate_above_0_50",
+      "single_company_concentration"
+    ]
+  },
+  "run_kind": "ats_phase3_manual_quality_audit",
+  "sample": {
+    "ats_candidates": 20,
+    "web_candidates": 5
+  },
+  "schema_version": 1,
+  "ats": {
+    "adjacent_or_stretch": 3,
+    "all_have_description_metadata": 20,
+    "all_have_recent_date_within_45_days": 20,
+    "alive": 20,
+    "dominant_company_share": 1.0,
+    "exact_title_duplicate_excess": 5,
+    "false_positive": 12,
+    "false_positive_rate": 0.6,
+    "inclusive_precision": 0.4,
+    "providers_emitting_candidates": 1,
+    "strict_precision": 0.25,
+    "target_relevant": 5,
+    "unique_exact_titles": 15
+  },
+  "web": {
+    "alive": 5,
+    "false_positive": 1,
+    "false_positive_rate": 0.2,
+    "strict_precision": 0.8,
+    "target_relevant": 4
+  },
+  "limitations": {
+    "full_jd_scoring_performed": false,
+    "description_metadata_is_not_content_validation": true,
+    "manual_labels_are_title_and_snippet_level": true
+  }
+}

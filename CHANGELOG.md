@@ -35,6 +35,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The three-provider offline ATS fixture completed 3 boards / 3 requests / 3 emitted jobs per iteration at p50 6.654 ms and p95 7.867 ms across 30 measured runs, with no external calls. The same machine run showed core total +22.6% p50 / +32.9% p95 versus the earlier checkpoint alongside similar slowdowns in unrelated harness sections; the observation is retained, causation is not claimed, and no core speedup is claimed.
 - The production-adapter public regression completed 6/6 boards with 7 requests, 414 normalized jobs, no truncation/rate limiting, and zero strong-identity duplicates; its artifact is count-only and PII-safe.
 - The controlled Phase 3 run preserved all 5 fixed Web records and produced 24 combined unique records: 19 incremental identities and 1 avoided duplicate evaluation. Three boards succeeded with 5 requests and 48,955,686 response bytes in 12,653.682 ms end-to-end. No candidate-quality or browser-fallback improvement is claimed because JD evaluation handoff was not measured.
+- The follow-up title-level quality audit failed the gate: the fixed Web control was 4/5 target-relevant, while ATS output was 5/20 target-relevant, 3/20 adjacent/stretch, and 12/20 false positives. All reviewed links were alive, but ATS strict precision was only 25% and all emitted candidates came from one company; PR #21 remains unmerged pending filter correction and rerun.
 
 ## [2.3.0] - 2026-08-25
 

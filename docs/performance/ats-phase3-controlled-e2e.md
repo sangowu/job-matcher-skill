@@ -55,6 +55,8 @@ ATS-specific observations:
 
 The run validates the mechanical path: public Web URLs can discover boards, bounded ATS sync can return merge-ready candidates, the shared strong-identity table can suppress a duplicate, and an ATS failure policy does not remove the Web arm.
 
-It does **not** show that all 19 incremental records are useful recommendations. The 20 ATS-emitted records were not sent through JD scoring or manually relevance-audited in this experiment. It also does **not** measure fewer browser fallbacks: `ats_candidates_with_jd_handoff` is 0 because ATS JD content is not yet handed directly to evaluation workers.
+This run by itself does **not** show that all 19 incremental records are useful recommendations. A follow-up independent title-level audit has now confirmed that concern: only 5/20 ATS outputs were directly target-relevant, 3/20 were adjacent/stretch, and 12/20 were false positives. The quality gate therefore failed; see [`ats-phase3-quality-audit.md`](ats-phase3-quality-audit.md).
+
+The run also does **not** measure fewer browser fallbacks: `ats_candidates_with_jd_handoff` is 0 because ATS JD content is not yet handed directly to evaluation workers.
 
 The run was request-bounded but not small in transferred data. About 49 MB was read from only five requests, so response bytes and Greenhouse content fallback remain first-class monitoring signals. No further live calls are required to reproduce unit and CI verification; tests use Fake providers.

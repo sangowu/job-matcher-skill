@@ -37,7 +37,8 @@ _LEVEL_TERMS = {
 }
 _ROLE_FAMILIES = {
     "applied_ai": (
-        "ai engineer", "artificial intelligence", "machine learning", "ml engineer",
+        "ai engineer", "ai developer", "artificial intelligence", "machine learning",
+        "ml engineer", "ai evaluation", "ai systems", "agent systems", "agentic ai",
         "llm", "nlp", "data scientist", "算法工程师", "人工智能", "机器学习",
     ),
     "backend": ("backend", "back-end", "server-side", "后端"),
@@ -48,8 +49,9 @@ _ROLE_FAMILIES = {
     "product": ("product manager", "产品经理"),
 }
 _GENERIC_TITLE_TOKENS = {
-    "engineer", "engineering", "developer", "specialist", "manager", "lead",
-    "senior", "junior", "staff", "principal", "工程师", "开发", "经理", "高级", "初级",
+    "ai", "artificial", "intelligence", "engineer", "engineering", "developer",
+    "specialist", "manager", "lead", "senior", "junior", "staff", "principal",
+    "工程师", "开发", "经理", "高级", "初级",
 }
 
 

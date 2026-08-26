@@ -55,7 +55,7 @@ ATS-specific observations:
 
 The run validates the mechanical path: public Web URLs can discover boards, bounded ATS sync can return merge-ready candidates, the shared strong-identity table can suppress a duplicate, and an ATS failure policy does not remove the Web arm.
 
-This run by itself does **not** show that all 19 incremental records are useful recommendations. A follow-up independent title-level audit has now confirmed that concern: only 5/20 ATS outputs were directly target-relevant, 3/20 were adjacent/stretch, and 12/20 were false positives. The quality gate therefore failed; see [`ats-phase3-quality-audit.md`](ats-phase3-quality-audit.md).
+This run by itself does **not** show that all 19 incremental records are useful recommendations. The first independent title-level audit confirmed that concern: only 5/20 ATS outputs were directly target-relevant, 3/20 were adjacent/stretch, and 12/20 were false positives. After the standalone-`ai` token fix, the final bounded replay emitted 8 candidates: 6 directly relevant, 2 adjacent/stretch, and 0 false positives. The corrected title-level gate passed at 75% strict precision; see [`ats-phase3-quality-audit.md`](ats-phase3-quality-audit.md).
 
 The run also does **not** measure fewer browser fallbacks: `ats_candidates_with_jd_handoff` is 0 because ATS JD content is not yet handed directly to evaluation workers.
 

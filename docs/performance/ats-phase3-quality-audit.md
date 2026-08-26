@@ -6,44 +6,42 @@ Count-only artifact: [`ats-phase3-quality-audit.json`](ats-phase3-quality-audit.
 
 ## Outcome
 
-The Phase 3 quality gate **failed**. The controlled ATS arm was mechanically correct but its emitted candidate set was not precise enough to merge as a completed optimization.
+The first Phase 3 quality gate failed, the title filter was corrected, and the final bounded replay **passed** the defined title-level gate.
 
-The same three-board, five-request setup was replayed without additional Web Search. It again emitted 20 candidates. An independent manual title-level review used these labels:
+The initial three-board run emitted 20 candidates. A manual review found that mobile, Android, iOS, and UI roles were passing only because their product suffix contained `AI`. The filter now treats standalone `ai` as a low-information overlap token while explicitly recognizing meaningful phrases such as `AI evaluation`, `AI systems`, and `agent systems`.
 
-- `target_relevant`: the title directly names Applied AI, ML, LLM, AI evaluation, or agent-systems engineering.
-- `adjacent_or_stretch`: software/backend/full-stack work with credible AI-system scope but not a direct target-role title.
-- `false_positive`: the title is primarily mobile, Android, iOS, UI, or another non-target discipline and only mentions an AI product suffix.
+## Before and after
 
-## Results
-
-| Metric | Fixed Web control | ATS emitted set |
+| Metric | Before fix | Final live replay |
 |---|---:|---:|
-| Candidates reviewed | 5 | 20 |
-| Target-relevant | 4 | 5 |
-| Adjacent/stretch | — | 3 |
-| False positive | 1 | 12 |
-| Strict precision | 80% | 25% |
-| Precision including adjacent/stretch | — | 40% |
-| Alive links | 5/5 | 20/20 |
+| Candidates emitted | 20 | 8 |
+| Target-relevant | 5 | 6 |
+| Adjacent/stretch | 3 | 2 |
+| False positive | 12 | 0 |
+| Strict precision | 25% | 75% |
+| Precision including adjacent/stretch | 40% | 100% |
+| Alive links | 20/20 | 8/8 |
+| Exact-title duplicate excess | 5 | 1 |
 
-Other ATS quality signals:
+The fixed Web control remained 4/5 target-relevant and 5/5 alive. In an isolated merge of the final replay, all five Web records were preserved, seven ATS identities were incremental, and one cross-source duplicate evaluation was avoided. The combined table contained 12 unique records.
 
-- All 20 records exposed description-available metadata and a posting date within 45 days, but description metadata is not equivalent to validating the JD content.
-- All 20 emitted candidates came from one company and one Provider despite three successful boards.
-- The set contained 15 exact titles; five records were excess exact-title repetitions with distinct Provider IDs.
+## Final bounded replay
 
-## Root cause
-
-The current title filter allows any non-generic token overlap. For a preferred role such as `Applied AI Engineer`, the remaining token `ai` is enough to accept titles whose actual discipline is mobile, Android, iOS, or UI when the suffix names an “AI Finance Agent” or “AI Neobank” product. The candidate cap is then filled without an independent relevance rank or company/title diversity guard.
-
-The ATS candidates also do not hand JD content to evaluation workers, so the pipeline cannot use required skills or must-have requirements to correct these title-level false positives before emission.
+- Three of three boards succeeded using five public GET requests.
+- 5,493 jobs were received and normalized; eight passed the corrected deterministic filter and all eight were emitted.
+- The run read 48,964,089 bytes and took 8,044.627 ms for ATS sync.
+- One Greenhouse board used the bounded content-free fallback.
+- All eight records exposed description-available metadata and a posting date within 45 days. This metadata does not prove JD content quality.
 
 ## Gate decision
 
-PR #21 should remain unmerged until the title matcher is tightened and the same frozen review is rerun. A reasonable next acceptance condition is:
+The title-level gate passes because:
 
-- ATS strict precision at least 70% on this fixed 20-item audit, with no regression to Web-record preservation or strong-identity deduplication.
-- No title passes solely because `ai` appears in a product/team suffix.
-- Link-alive rate remains 100% for the reviewed set.
+- ATS strict precision is 75%, above the 70% threshold.
+- No reviewed false positive passed solely because `ai` appeared in a product suffix.
+- Link-alive rate and Web-record preservation are both 100%.
+- Strong-identity deduplication still avoids the known cross-source duplicate.
 
-This audit does not claim full CV-to-JD match quality. That requires a later JD handoff and five-dimension scoring experiment.
+One coverage warning remains: all eight ATS candidates came from one company and one Provider because the other two successful boards produced no roles matching this profile. An arbitrary company cap was not added because it would discard relevant roles without supplying alternatives; downstream JD scoring/ranking should decide which enter the final report.
+
+This audit is title-level, not full CV-to-JD quality. ATS JD content is still not handed directly to evaluation workers, so five-dimension JD scoring and browser-fallback reduction remain unmeasured.

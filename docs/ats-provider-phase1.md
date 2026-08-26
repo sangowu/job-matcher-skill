@@ -107,7 +107,7 @@ Greenhouse 的 `content=true` 整板响应可能超过 25 MB。实现会记录�
 - 统一强身份 merge 后，Web-only 为 5 条唯一记录，Web+ATS 为 24 条；新增 19 条，避免 1 次重复评估，原 5 条 Web 记录全部保留。
 - ATS 同步耗时 12,568.189 ms；Web-only merge 为 27.636 ms，Web+ATS merge 为 85.493 ms，ATS arm discovery-to-merge 总计 12,653.682 ms。
 
-这只证明候选发现、身份去重与 Web 结果保留的机械链路。后续独立标题级质量审计判定：固定 Web 对照组 4/5 直接相关，而 ATS 输出只有 5/20 直接相关、3/20 边缘/延伸、12/20 误报；ATS 严格 precision 为 25%，质量门禁失败。误报主要来自移动端、Android、iOS、UI 职位仅因产品后缀含 `AI` 而通过。ATS 候选的 JD 正文也尚未直接交给评估 worker，因此没有测得浏览器兜底减少。低请求数也不等于低数据量，本次约 49 MB 的响应说明后续仍需关注整板体积。脱敏结果见 `docs/performance/ats-phase3-controlled-e2e.*` 与 `docs/performance/ats-phase3-quality-audit.*`。
+这只证明候选发现、身份去重与 Web 结果保留的机械链路。首次独立标题级质量审计判定：固定 Web 对照组 4/5 直接相关，而 ATS 输出只有 5/20 直接相关、3/20 边缘/延伸、12/20 误报；误报主要来自移动端、Android、iOS、UI 职位仅因产品后缀含 `AI` 而通过。修复把单独的 `ai` 作为低信息量 token，并保留 `AI evaluation`、`AI systems`、`agent systems` 等明确岗位短语。最终真实复核输出 8 条：6 条直接相关、2 条边缘/延伸、0 条误报，严格 precision 75%；8/8 链接存活、Web 结果保留 5/5，并继续避免 1 次跨来源重复评估，标题级质量门禁通过。ATS 候选的 JD 正文仍未直接交给评估 worker，因此没有测得浏览器兜底减少或完整 CV-to-JD 质量。低请求数也不等于低数据量，最终复核仍读取约 49 MB。脱敏结果见 `docs/performance/ats-phase3-controlled-e2e.*` 与 `docs/performance/ats-phase3-quality-audit.*`。
 
 ## 实现入口
 

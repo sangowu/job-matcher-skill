@@ -25,6 +25,10 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Exact Provider IDs and canonical URLs now match before weak company/title matching. Disjoint strong IDs never merge by weak key alone; weak-only matches require compatible locations and exactly one target.
 - Evaluation workers now echo `record_id`; legacy results without it remain accepted only when their `dedup_key` identifies exactly one task and job.
 
+### Fixed
+
+- ATS title prefiltering no longer accepts mobile, Android, iOS, or UI roles solely because an `AI` product suffix overlaps a preferred AI role. Standalone `ai` is low-information while explicit `AI evaluation`, `AI systems`, and `agent systems` phrases remain eligible.
+
 ### Security
 
 - The ATS benchmark only performs allowlisted public GET requests and never persists job descriptions, titles, URLs, candidate data, API keys, or arbitrary exception text.
@@ -35,7 +39,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The three-provider offline ATS fixture completed 3 boards / 3 requests / 3 emitted jobs per iteration at p50 6.654 ms and p95 7.867 ms across 30 measured runs, with no external calls. The same machine run showed core total +22.6% p50 / +32.9% p95 versus the earlier checkpoint alongside similar slowdowns in unrelated harness sections; the observation is retained, causation is not claimed, and no core speedup is claimed.
 - The production-adapter public regression completed 6/6 boards with 7 requests, 414 normalized jobs, no truncation/rate limiting, and zero strong-identity duplicates; its artifact is count-only and PII-safe.
 - The controlled Phase 3 run preserved all 5 fixed Web records and produced 24 combined unique records: 19 incremental identities and 1 avoided duplicate evaluation. Three boards succeeded with 5 requests and 48,955,686 response bytes in 12,653.682 ms end-to-end. No candidate-quality or browser-fallback improvement is claimed because JD evaluation handoff was not measured.
-- The follow-up title-level quality audit failed the gate: the fixed Web control was 4/5 target-relevant, while ATS output was 5/20 target-relevant, 3/20 adjacent/stretch, and 12/20 false positives. All reviewed links were alive, but ATS strict precision was only 25% and all emitted candidates came from one company; PR #21 remains unmerged pending filter correction and rerun.
+- The initial title-level quality audit failed: the fixed Web control was 4/5 target-relevant, while ATS output was 5/20 target-relevant, 3/20 adjacent/stretch, and 12/20 false positives. After the filter fix, the final bounded replay emitted 8 candidates: 6 target-relevant, 2 adjacent/stretch, and no false positives (75% strict precision). All 8 links were alive, all 5 Web records were preserved, and 1 duplicate evaluation was still avoided; single-company concentration remains a coverage warning.
 
 ## [2.3.0] - 2026-08-25
 

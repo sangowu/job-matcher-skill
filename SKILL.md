@@ -21,6 +21,7 @@ description: 根据用户简历(CV)和求职意向，抽取CV结构化字段、�
 
 - CV 抽取 / 搜索 / 打分这类重活交给子代理（若有）；委派时只回传「**摘要 + 文件路径**」，CV 全文 / 搜索原始结果 / JD 全文 **留在子代理或文件**，保持主上下文整洁。无子代理则你自己串行做，但仍坚持"大文本写文件、上下文只留摘要"。
 - 搜索每条 query 恰好 1 次 web 搜索，计入 `config.json` 的 `max_websearch_calls`；并行度受 `max_parallel_subagents` 约束。
+- 每批 Web 候选交给 `ats_pipeline.py discover` 识别官方 ATS board；仅当 `ats_enabled` 为 true 时同步已验证/到期 board。ATS 使用独立请求预算，返回候选仍由主 agent 串行交给同一个 `merge_jobs.py`。
 - 搜索与职位评估可以并行执行，但 worker 只返回结果；`jobs_table.json` 的 `merge/update` 必须由主 agent 串行提交。按 `WORKFLOW.md` 使用 `eval_run` 快照和 `run_id`，不要让 worker 直接写共享主表。
 - **批间重叠**：第 N 批 `merge` 拿到 `eval_run` 后，在同一条消息里并行 spawn「第 N 批评估 worker + 第 N+1 批搜索 worker」（Claude 的 Task/Agent 支持单消息并行）；`max_parallel_subagents` 是搜索+评估共用的全局预算，重叠期建议 1 搜 + 2 评。
 - `merge/update` 会写入 PII-safe 运行指标；若返回 `metrics_recorded:false`，应告知用户。健康汇总使用 `scripts/summarize_metrics.py`。

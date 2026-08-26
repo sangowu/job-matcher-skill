@@ -125,6 +125,48 @@ def test_summary_reports_malformed_events_and_failed_writes(tmp_path):
     }
 
 
+def test_ats_metrics_are_sanitized_and_summarized_by_provider(tmp_path):
+    now = datetime(2026, 8, 26, 12, tzinfo=timezone.utc)
+    path = tmp_path / "metrics.jsonl"
+    record_metric(
+        path,
+        "ats",
+        True,
+        now=now,
+        provider="greenhouse",
+        action="sync",
+        status="verified",
+        requests=1,
+        pages_requested=1,
+        jobs_received=40,
+        jobs_normalized=40,
+        jobs_prefiltered=5,
+        jobs_emitted=5,
+        duration_ms=12,
+        company="Secret Company",
+        board_token="secret-board",
+        url="https://example.com/jobs",
+    )
+
+    summary = build_summary(path, tmp_path / "eval_runs", now=now)
+    text = path.read_text(encoding="utf-8")
+
+    assert "Secret Company" not in text and "secret-board" not in text
+    assert "example.com" not in text
+    assert summary["metrics"]["ats"]["requests"] == 1
+    assert summary["metrics"]["ats"]["pages"] == 1
+    assert summary["metrics"]["ats"]["jobs_emitted"] == 5
+    assert summary["metrics"]["ats"]["by_provider"] == [{
+        "provider": "greenhouse",
+        "runs": 1,
+        "success_rate": 1.0,
+        "requests": 1,
+        "pages": 1,
+        "jobs_received": 40,
+        "jobs_emitted": 5,
+    }]
+
+
 def test_summary_distinguishes_no_data_and_ignores_partial_last_line(tmp_path):
     now = datetime(2026, 7, 31, 12, tzinfo=timezone.utc)
     metrics_path = tmp_path / "metrics.jsonl"

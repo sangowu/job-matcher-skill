@@ -69,8 +69,10 @@ job-matcher/
 │   ├── browser_control.py    # remote visual-browser control CLI
 │   ├── browser_setup.py      # one-shot localhost setup page
 │   ├── browser_workflow.py   # listing pagination/pause state machine
+│   ├── ats_provider.py       # public Ashby/Greenhouse/Lever GET adapters and Fake
+│   ├── ats_pipeline.py       # ATS registry, prefilter, sync, and normalization
 │   ├── benchmark_pipeline.py # fixed small core/Fake Provider benchmark
-│   ├── benchmark_ats.py      # bounded PII-safe public ATS API baseline (not production)
+│   ├── benchmark_ats.py      # bounded public ATS regression using production adapters
 │   ├── cp_hash.py            # stable candidate_profile hash
 │   ├── verify_jobs.py        # dead-link / closed-posting detection
 │   ├── fetch_rendered.py     # headless render fallback (reuses system browser)
@@ -110,6 +112,14 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `max_websearch_calls` | 6 | total web-search call cap |
 | `stop_threshold` | 12 | stop once enough net-valid jobs found |
 | `consecutive_empty_stop` | 2 | stop after N consecutive empty batches |
+| `ats_enabled` | false | enable the public ATS enhancement pipeline; explicitly off by default |
+| `ats_max_concurrency` | 3 | hard cap for concurrent ATS boards |
+| `ats_boards_per_round` | 10 | hard cap for boards synced per round |
+| `ats_requests_per_round` | 30 | hard cap for ATS HTTP requests per round |
+| `ats_page_size` | 50 | Lever page size |
+| `ats_max_pages` | 10 | hard cap for sequential pages per Lever board |
+| `ats_timeout_seconds` | 30 | timeout in seconds for one public ATS GET |
+| `ats_registry_ttl_days` | 30 | interval before a verified board is due again |
 | `jd_ttl_days` | 30 | JD cache validity |
 | `seniority_mode` | balanced | strict / balanced / stretch |
 | `enable_headless_fallback` | true | headless fallback switch |
@@ -162,9 +172,9 @@ python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|s
 
 The summary reports p50/p95 per mode plus `overlap_saving_pct`, which stays `n/a` until both modes have samples.
 
-Release regressions use a fixed 15-job cold dataset and 10 Fake sessions: `python scripts/benchmark_pipeline.py --output <json> --baseline docs/performance/v2.2.0-small-baseline.json`. The artifact contains raw iterations, p50/p95, absolute and relative changes, with no real web search or cloud-provider calls. See [`docs/performance/strong-job-identity-baseline.md`](docs/performance/strong-job-identity-baseline.md) for the identity-migration run.
+Release regressions use a fixed 15-job cold dataset and 10 Fake sessions: `python scripts/benchmark_pipeline.py --output <json> --baseline docs/performance/v2.2.0-small-baseline.json`. The artifact contains raw iterations, p50/p95, absolute and relative changes, with no real web search or cloud-provider calls. See [`docs/performance/strong-job-identity-baseline.md`](docs/performance/strong-job-identity-baseline.md) for the identity-migration run and [`docs/performance/ats-phase2-fake-baseline.md`](docs/performance/ats-phase2-fake-baseline.md) for the three-provider offline ATS run.
 
-ATS Phase 1 is a development benchmark only and is not part of the normal job-search pipeline: `python scripts/benchmark_ats.py --output <json> --page-size 50 --max-pages 10`. It calls only the official public GET endpoints listed in the sample configuration and does not persist job descriptions, titles, or URLs. See [`docs/ats-provider-phase1.md`](docs/ats-provider-phase1.md) for the design and production-entry gates.
+ATS Phase 2 provides an optional production enhancement pipeline and remains off by default through `ats_enabled: false`. Official Ashby/Greenhouse/Lever URLs found by Web Search can be added to the local registry with `python scripts/ats_pipeline.py discover`; once enabled, `sync --profile <cv-profile.json>` syncs due boards, while `run --profile ...` combines discovery and sync. The pipeline uses public GET only, performs deterministic title/location/seniority prefiltering, and returns candidates to the same `merge_jobs.py`. Web and ATS therefore share the canonical job table and analysis cache, while ATS control state stays separate in `data/ats_companies.json` and `data/ats_sync_state.json`. ATS budgets are independent from Web Search; boards may run concurrently, while one Lever board paginates sequentially. The PII-safe public regression remains `python scripts/benchmark_ats.py --output <json> --page-size 50 --max-pages 10` and stores no job descriptions, titles, or URLs. See [`docs/ats-provider-phase1.md`](docs/ats-provider-phase1.md).
 
 ## 🔧 Dependencies
 

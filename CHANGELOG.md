@@ -9,6 +9,9 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Opt-in production ATS enhancement pipeline for public Ashby, Greenhouse, and global/EU Lever boards, with a persistent board registry, deterministic CV-aware prefilter, independent request/page/concurrency budgets, partial-success handling, and merge-ready strong identities.
+- Shared production/Fake ATS Provider contract and offline regressions covering single-response boards, sequential Lever pagination, EU routing, unlisted Ashby jobs, global request exhaustion, 404/429/timeouts, disabled routing, and unavailable-board transitions.
+- PII-safe ATS sync state and runtime schema v4 metrics, plus a fixed three-provider Fake benchmark integrated into the release performance harness.
 - ATS Phase 1 architecture, official public-API contract notes, a bounded six-board benchmark, and PII-safe raw/summary evidence for Ashby, Greenhouse, and Lever.
 - Regression tests for provider normalization, Ashby unlisted filtering, Lever sequential pagination/caps, failure metrics, output privacy, and weak identity collision reporting.
 - Stable `record_id` and Provider-owned `identity_keys` for the canonical job table and evaluation snapshots, with lazy in-place migration for legacy tables.
@@ -16,12 +19,18 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The public ATS benchmark now reuses the production parser and pagination implementation so benchmark contracts cannot drift from runtime behavior; ATS remains explicitly disabled by default.
 - Exact Provider IDs and canonical URLs now match before weak company/title matching. Disjoint strong IDs never merge by weak key alone; weak-only matches require compatible locations and exactly one target.
 - Evaluation workers now echo `record_id`; legacy results without it remain accepted only when their `dedup_key` identifies exactly one task and job.
 
 ### Security
 
 - The ATS benchmark only performs allowlisted public GET requests and never persists job descriptions, titles, URLs, candidate data, API keys, or arbitrary exception text.
+
+### Performance
+
+- The three-provider offline ATS fixture completed 3 boards / 3 requests / 3 emitted jobs per iteration at p50 6.654 ms and p95 7.867 ms across 30 measured runs, with no external calls. The same machine run showed core total +22.6% p50 / +32.9% p95 versus the earlier checkpoint alongside similar slowdowns in unrelated harness sections; the observation is retained, causation is not claimed, and no core speedup is claimed.
+- The production-adapter public regression completed 6/6 boards with 7 requests, 414 normalized jobs, no truncation/rate limiting, and zero strong-identity duplicates; its artifact is count-only and PII-safe.
 
 ## [2.3.0] - 2026-08-25
 

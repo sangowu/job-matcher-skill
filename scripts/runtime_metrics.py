@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 DEFAULT_THRESHOLDS = {
     "conflict_rate_max": 0.02,
     "rejected_rate_max": 0.01,
@@ -95,10 +95,26 @@ _BROWSER_FIELDS = {
     "rate_limited",
     "estimated_cost_usd",
 }
+_ATS_FIELDS = {
+    "provider",
+    "action",
+    "status",
+    "duration_ms",
+    "requests",
+    "pages_requested",
+    "response_bytes",
+    "jobs_received",
+    "jobs_normalized",
+    "jobs_prefiltered",
+    "jobs_emitted",
+    "truncated",
+    "rate_limited",
+    "http_status",
+}
 ORCHESTRATION_MODES = ("serial", "overlapped")
 _FAILURE_FIELDS = {"failure_kind"}
 _SCRIPT_OPERATIONS = ("merge", "update")
-OPERATIONS = (*_SCRIPT_OPERATIONS, "round", "subagent", "browser")
+OPERATIONS = (*_SCRIPT_OPERATIONS, "round", "subagent", "browser", "ats")
 _THREAD_APPEND_LOCK = threading.Lock()
 _CATEGORY_FIELDS = {
     "operation",
@@ -205,6 +221,8 @@ def record_metric(
         allowed = set(_SUBAGENT_FIELDS)
     elif operation == "browser":
         allowed = set(_BROWSER_FIELDS)
+    elif operation == "ats":
+        allowed = set(_ATS_FIELDS)
     else:
         allowed = _COMMON_FIELDS | (_MERGE_FIELDS if operation == "merge" else _UPDATE_FIELDS)
     if not ok:
@@ -395,6 +413,27 @@ def _build_summary_from_events(
         if _number(event, "duration_ms") >= 0
     ]
 
+    ats_events = [event for event in events if event.get("operation") == "ats"]
+    successful_ats_events = [event for event in ats_events if event.get("ok") is True]
+    ats_durations = [
+        _number(event, "duration_ms")
+        for event in ats_events
+        if _number(event, "duration_ms") >= 0
+    ]
+    ats_by_provider = []
+    for provider in sorted({str(event.get("provider", "unknown")) for event in ats_events}):
+        group = [event for event in ats_events if str(event.get("provider", "unknown")) == provider]
+        successful = [event for event in group if event.get("ok") is True]
+        ats_by_provider.append({
+            "provider": provider,
+            "runs": len(group),
+            "success_rate": _ratio(len(successful), len(group)),
+            "requests": int(sum(_number(event, "requests") for event in group)),
+            "pages": int(sum(_number(event, "pages_requested") for event in group)),
+            "jobs_received": int(sum(_number(event, "jobs_received") for event in group)),
+            "jobs_emitted": int(sum(_number(event, "jobs_emitted") for event in group)),
+        })
+
     results_in = sum(_number(event, "results_in") for event in update_events)
     updated = sum(_number(event, "updated") for event in update_events)
     idempotent = sum(_number(event, "idempotent") for event in update_events)
@@ -494,6 +533,23 @@ def _build_summary_from_events(
                 "p50": percentile(browser_durations, 0.50),
                 "p95": percentile(browser_durations, 0.95),
             },
+        },
+        "ats": {
+            "runs": len(ats_events),
+            "success_rate": _ratio(len(successful_ats_events), len(ats_events)),
+            "requests": int(sum(_number(event, "requests") for event in ats_events)),
+            "pages": int(sum(_number(event, "pages_requested") for event in ats_events)),
+            "jobs_received": int(sum(_number(event, "jobs_received") for event in ats_events)),
+            "jobs_normalized": int(sum(_number(event, "jobs_normalized") for event in ats_events)),
+            "jobs_prefiltered": int(sum(_number(event, "jobs_prefiltered") for event in ats_events)),
+            "jobs_emitted": int(sum(_number(event, "jobs_emitted") for event in ats_events)),
+            "truncated": sum(1 for event in ats_events if event.get("truncated") is True),
+            "rate_limited": sum(1 for event in ats_events if event.get("rate_limited") is True),
+            "duration_ms": {
+                "p50": percentile(ats_durations, 0.50),
+                "p95": percentile(ats_durations, 0.95),
+            },
+            "by_provider": ats_by_provider,
         },
         "queue": queue,
     }
@@ -635,6 +691,11 @@ def render_markdown(summary: dict) -> str:
         ("Browser success rate", metrics["browsers"]["success_rate"]),
         ("Browser sessions", metrics["browsers"]["sessions_created"]),
         ("Browser handoffs", metrics["browsers"]["handoffs"]),
+        ("ATS board runs", metrics["ats"]["runs"]),
+        ("ATS success rate", metrics["ats"]["success_rate"]),
+        ("ATS requests", metrics["ats"]["requests"]),
+        ("ATS pages", metrics["ats"]["pages"]),
+        ("ATS jobs emitted", metrics["ats"]["jobs_emitted"]),
         ("Active runs", queue["active_runs"]),
         ("Pending tasks", queue["pending_tasks"]),
         ("Oldest pending (minutes)", queue["oldest_pending_age_minutes"]),

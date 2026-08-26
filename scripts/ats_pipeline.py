@@ -248,9 +248,15 @@ def prefilter_jobs(jobs: list[dict[str, Any]], profile: dict[str, Any]) -> list[
 def _clean_candidate(job: dict[str, Any]) -> dict[str, Any]:
     fields = (
         "title", "company", "location", "url", "snippet", "salary",
-        "date_posted", "source", "identity_keys",
+        "date_posted", "source", "identity_keys", "jd_text", "jd_text_truncated",
     )
-    return {field: job.get(field, [] if field == "identity_keys" else "") for field in fields}
+    return {
+        field: job.get(
+            field,
+            [] if field == "identity_keys" else False if field == "jd_text_truncated" else "",
+        )
+        for field in fields
+    }
 
 
 def _retry_due(board: dict[str, Any], ttl_days: int, now: datetime) -> bool:
@@ -291,6 +297,8 @@ def _safe_state_row(board: dict[str, Any], metrics: dict[str, Any], filtered: in
         "response_bytes": int(metrics.get("response_bytes", 0)),
         "jobs_received": int(metrics.get("jobs_received", 0)),
         "jobs_normalized": int(metrics.get("jobs_normalized", 0)),
+        "jobs_with_jd": int(metrics.get("jobs_with_jd", 0)),
+        "jd_text_truncated": int(metrics.get("jd_text_truncated", 0)),
         "jobs_prefiltered": filtered,
         "truncated": bool(metrics.get("truncated")),
         "rate_limited": bool(metrics.get("rate_limited")),
@@ -376,6 +384,7 @@ def sync_registry(
     seen_identities: set[str] = set()
     emitted: list[dict[str, Any]] = []
     emitted_by_board: dict[str, int] = {}
+    emitted_with_jd_by_board: dict[str, int] = {}
     for board, jobs in zip(eligible, filtered_by_board):
         for job in jobs:
             identity = str((job.get("identity_keys") or [""])[0])
@@ -386,10 +395,15 @@ def sync_registry(
             seen_identities.add(identity)
             emitted.append(_clean_candidate(job))
             emitted_by_board[board["board_id"]] = emitted_by_board.get(board["board_id"], 0) + 1
+            if job.get("jd_text"):
+                emitted_with_jd_by_board[board["board_id"]] = (
+                    emitted_with_jd_by_board.get(board["board_id"], 0) + 1
+                )
 
     metrics_recorded = True
     for row in state_rows:
         row["jobs_emitted"] = emitted_by_board.get(row["board_id"], 0)
+        row["jobs_with_jd_emitted"] = emitted_with_jd_by_board.get(row["board_id"], 0)
         metric_values = {key: value for key, value in row.items() if key not in {"board_id", "ok", "attempted_at"}}
         metrics_recorded = (
             record_metric(METRICS_PATH, "ats", bool(row["ok"]), **metric_values)
@@ -409,6 +423,11 @@ def sync_registry(
             "response_bytes": sum(row["response_bytes"] for row in state_rows),
             "jobs_received": sum(row["jobs_received"] for row in state_rows),
             "jobs_normalized": sum(row["jobs_normalized"] for row in state_rows),
+            "jobs_with_jd": sum(row["jobs_with_jd"] for row in state_rows),
+            "jobs_with_jd_emitted": sum(
+                row["jobs_with_jd_emitted"] for row in state_rows
+            ),
+            "jd_text_truncated": sum(row["jd_text_truncated"] for row in state_rows),
             "jobs_prefiltered": sum(row["jobs_prefiltered"] for row in state_rows),
             "jobs_emitted": len(emitted),
             "content_fallback_boards": sum(

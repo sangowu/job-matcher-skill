@@ -45,6 +45,8 @@ _MERGE_FIELDS = {
     "strong_identity_records",
     "strong_identity_conflicts_prevented",
     "ambiguous_weak_matches_prevented",
+    "jd_handoffs",
+    "jd_handoff_chars",
 }
 _UPDATE_FIELDS = {
     "results_in",
@@ -107,6 +109,9 @@ _ATS_FIELDS = {
     "jobs_normalized",
     "jobs_prefiltered",
     "jobs_emitted",
+    "jobs_with_jd",
+    "jobs_with_jd_emitted",
+    "jd_text_truncated",
     "truncated",
     "rate_limited",
     "content_fallback",
@@ -436,6 +441,10 @@ def _build_summary_from_events(
             ),
             "jobs_received": int(sum(_number(event, "jobs_received") for event in group)),
             "jobs_emitted": int(sum(_number(event, "jobs_emitted") for event in group)),
+            "jobs_with_jd": int(sum(_number(event, "jobs_with_jd") for event in group)),
+            "jobs_with_jd_emitted": int(
+                sum(_number(event, "jobs_with_jd_emitted") for event in group)
+            ),
         })
 
     results_in = sum(_number(event, "results_in") for event in update_events)
@@ -480,6 +489,10 @@ def _build_summary_from_events(
         "update_runs": len(update_events),
         "candidates_in": int(candidates_in),
         "newly_added": int(sum(_number(event, "newly_added") for event in merge_events)),
+        "jd_handoffs": int(sum(_number(event, "jd_handoffs") for event in merge_events)),
+        "jd_handoff_chars": int(
+            sum(_number(event, "jd_handoff_chars") for event in merge_events)
+        ),
         "cache_hit_rate": _ratio(cached, candidates_in),
         "results_in": int(results_in),
         "updated": int(updated),
@@ -550,6 +563,13 @@ def _build_summary_from_events(
             "jobs_normalized": int(sum(_number(event, "jobs_normalized") for event in ats_events)),
             "jobs_prefiltered": int(sum(_number(event, "jobs_prefiltered") for event in ats_events)),
             "jobs_emitted": int(sum(_number(event, "jobs_emitted") for event in ats_events)),
+            "jobs_with_jd": int(sum(_number(event, "jobs_with_jd") for event in ats_events)),
+            "jobs_with_jd_emitted": int(
+                sum(_number(event, "jobs_with_jd_emitted") for event in ats_events)
+            ),
+            "jd_text_truncated": int(
+                sum(_number(event, "jd_text_truncated") for event in ats_events)
+            ),
             "truncated": sum(1 for event in ats_events if event.get("truncated") is True),
             "rate_limited": sum(1 for event in ats_events if event.get("rate_limited") is True),
             "content_fallback": sum(
@@ -683,6 +703,8 @@ def render_markdown(summary: dict) -> str:
         ("Failed events", metrics["failed_events"]),
         ("Candidates in", metrics["candidates_in"]),
         ("Newly added", metrics["newly_added"]),
+        ("JD handoffs", metrics["jd_handoffs"]),
+        ("JD handoff characters", metrics["jd_handoff_chars"]),
         ("Cache hit rate", metrics["cache_hit_rate"]),
         ("Evaluation success rate", metrics["evaluation_success_rate"]),
         ("Rejected rate", metrics["rejected_rate"]),
@@ -708,6 +730,9 @@ def render_markdown(summary: dict) -> str:
         ("ATS response bytes", metrics["ats"]["response_bytes"]),
         ("ATS content fallbacks", metrics["ats"]["content_fallback"]),
         ("ATS jobs emitted", metrics["ats"]["jobs_emitted"]),
+        ("ATS jobs with JD", metrics["ats"]["jobs_with_jd"]),
+        ("ATS emitted with JD", metrics["ats"]["jobs_with_jd_emitted"]),
+        ("ATS JD text truncated", metrics["ats"]["jd_text_truncated"]),
         ("Active runs", queue["active_runs"]),
         ("Pending tasks", queue["pending_tasks"]),
         ("Oldest pending (minutes)", queue["oldest_pending_age_minutes"]),

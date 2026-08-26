@@ -46,6 +46,9 @@ from _jobutil import (
 )
 from runtime_metrics import record_metric
 
+
+MAX_JD_HANDOFF_CHARS = 50_000
+
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = SKILL_ROOT / "data"
 TABLE_PATH = DATA_DIR / "jobs_table.json"
@@ -179,6 +182,7 @@ def _brief(
     with_jd: bool = False,
     with_score: bool = False,
     mk: str = "",
+    jd_handoff: dict | None = None,
 ) -> dict:
     """给下游 subagent 的精简视图。"""
     b = {
@@ -196,6 +200,10 @@ def _brief(
         "base_record_version": int(job.get("record_version") or 1),
         "jd_input_hash": make_jd_input_hash(job),
     }
+    if jd_handoff:
+        b["jd_text_available"] = True
+        b["jd_text_truncated"] = bool(jd_handoff.get("jd_text_truncated"))
+        b["jd_text_source"] = str(jd_handoff.get("jd_text_source") or "ats")
     if with_jd and job.get("jd_profile"):
         b["jd_profile"] = job["jd_profile"]
     if with_score and mk:
@@ -211,22 +219,37 @@ def make_jd_input_hash(job: dict) -> str:
         "location": job.get("location", ""),
         "url": job.get("url", ""),
         "snippet": job.get("snippet", ""),
+        "jd_content_hash": job.get("jd_content_hash", ""),
         "jd_profile": job.get("jd_profile"),
     }
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _create_eval_run(cv_hash: str, cp_hash: str, tasks: list[dict]) -> dict | None:
+def _create_eval_run(
+    cv_hash: str,
+    cp_hash: str,
+    tasks: list[dict],
+    jd_handoffs: dict[str, dict] | None = None,
+) -> dict | None:
     if not tasks:
         return None
     created_at = _now().isoformat()
     run_id = f"eval-{_now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
     manifest_tasks = []
     for task in tasks:
+        handoff = (jd_handoffs or {}).get(str(task.get("record_id") or ""))
+        transient = {}
+        if handoff and task.get("task_type") == "analyze_and_score":
+            transient = {
+                "jd_text": handoff["jd_text"],
+                "jd_text_truncated": bool(handoff.get("jd_text_truncated")),
+                "jd_text_source": str(handoff.get("jd_text_source") or "ats"),
+            }
         manifest_tasks.append(
             {
                 **task,
+                **transient,
                 "status": "pending",
                 "created_at": created_at,
             }
@@ -403,6 +426,13 @@ def _absorb(agg: dict, candidate: dict, src: dict) -> None:
     for field in ("location", "snippet", "salary", "date_posted", "url"):
         if not agg.get(field) and candidate.get(field):
             agg[field] = candidate[field]
+    incoming_jd = str(candidate.get("jd_text") or "").strip()
+    if len(incoming_jd) > len(str(agg.get("jd_text") or "")):
+        agg["jd_text"] = incoming_jd[:MAX_JD_HANDOFF_CHARS]
+        agg["jd_text_truncated"] = bool(candidate.get("jd_text_truncated")) or (
+            len(incoming_jd) > MAX_JD_HANDOFF_CHARS
+        )
+        agg["jd_text_source"] = str(candidate.get("source") or "ats")
     for key in all_url_keys(candidate):
         if key not in agg.setdefault("url_keys", []):
             agg["url_keys"].append(key)
@@ -482,6 +512,13 @@ def _aggregate_batch(candidates: list, identity_stats: dict | None = None) -> di
                 "url_keys": candidate_keys,
                 "identity_keys": candidate_view["identity_keys"],
             }
+            incoming_jd = str(c.get("jd_text") or "").strip()
+            if incoming_jd:
+                batch[target]["jd_text"] = incoming_jd[:MAX_JD_HANDOFF_CHARS]
+                batch[target]["jd_text_truncated"] = bool(
+                    c.get("jd_text_truncated")
+                ) or len(incoming_jd) > MAX_JD_HANDOFF_CHARS
+                batch[target]["jd_text_source"] = str(c.get("source") or "ats")
             by_dedup.setdefault(dk, []).append(batch[target])
         for key in candidate_keys:
             by_url_key.setdefault(key, target)
@@ -533,6 +570,20 @@ def _merge_into(hit: dict, cand: dict) -> bool:
         sort_keys=True,
     )
     return before != after
+
+
+def _apply_jd_content_hash(job: dict, jd_text: str) -> bool:
+    """Persist only a digest; invalidate derived analysis when ATS JD changes."""
+    digest = hashlib.sha256(jd_text.encode("utf-8")).hexdigest()
+    if job.get("jd_content_hash") == digest:
+        return False
+    job["jd_content_hash"] = digest
+    job["jd_profile"] = None
+    job["fetched_at"] = None
+    job["match_scores"] = {}
+    job["verified"] = None
+    job["scored_from"] = None
+    return True
 
 
 def _archive_stale(table: dict, ttl_days: int) -> int:
@@ -594,6 +645,7 @@ def cmd_merge(cv_hash: str, cp_hash: str) -> None:
         active_eval_keys = _active_eval_keys()
         today = date.today().isoformat()
         to_analyze, to_score_only, cached, in_evaluation = [], [], [], []
+        jd_handoffs: dict[str, dict] = {}
         newly_added = 0
 
         for _, cand in batch.items():
@@ -628,6 +680,15 @@ def cmd_merge(cv_hash: str, cp_hash: str) -> None:
             if hit is not None:
                 if _merge_into(hit, cand):
                     hit["record_version"] += 1
+                jd_text = str(cand.get("jd_text") or "")
+                if jd_text:
+                    jd_handoffs[hit["record_id"]] = {
+                        "jd_text": jd_text,
+                        "jd_text_truncated": bool(cand.get("jd_text_truncated")),
+                        "jd_text_source": str(cand.get("jd_text_source") or "ats"),
+                    }
+                    if _apply_jd_content_hash(hit, jd_text):
+                        hit["record_version"] += 1
                 hit["last_seen"] = today
                 hit["seen_count"] = hit.get("seen_count", 0) + 1
                 hit["status"] = "existing"
@@ -643,7 +704,7 @@ def cmd_merge(cv_hash: str, cp_hash: str) -> None:
                     if expired and hit.get("jd_profile") is not None:
                         hit["jd_profile"] = None
                         hit["record_version"] += 1
-                    task = _brief(hit)
+                    task = _brief(hit, jd_handoff=jd_handoffs.get(hit["record_id"]))
                     (in_evaluation if _is_active(hit, active_eval_keys) else to_analyze).append(task)
             else:
                 record_id = cand["record_id"]
@@ -666,6 +727,14 @@ def cmd_merge(cv_hash: str, cp_hash: str) -> None:
                     "possibly_closed": is_closed_posting(cand.get("snippet", "")),
                     "verified": None, "scored_from": None,
                 }
+                jd_text = str(cand.get("jd_text") or "")
+                if jd_text:
+                    _apply_jd_content_hash(newjob, jd_text)
+                    jd_handoffs[record_id] = {
+                        "jd_text": jd_text,
+                        "jd_text_truncated": bool(cand.get("jd_text_truncated")),
+                        "jd_text_source": str(cand.get("jd_text_source") or "ats"),
+                    }
                 jobs.append(newjob)
                 used_record_ids.add(record_id)
                 newly_added += 1
@@ -674,11 +743,21 @@ def cmd_merge(cv_hash: str, cp_hash: str) -> None:
                     by_urlkey[uk] = newjob
                 for identity_key in newjob["identity_keys"]:
                     by_identity[identity_key] = newjob
-                to_analyze.append(_brief(newjob))
+                to_analyze.append(
+                    _brief(newjob, jd_handoff=jd_handoffs.get(record_id))
+                )
 
         archived = _archive_stale(table, ttl_days)
         _save(TABLE_PATH, table)
-        eval_run = _create_eval_run(cv_hash, cp_hash, to_analyze + to_score_only)
+        eval_run = _create_eval_run(
+            cv_hash, cp_hash, to_analyze + to_score_only, jd_handoffs
+        )
+
+        handed_off = [
+            jd_handoffs[task["record_id"]]
+            for task in to_analyze
+            if task.get("record_id") in jd_handoffs
+        ]
 
         stats = {
             "candidates_in": len(candidates), "deduped": len(batch),
@@ -695,6 +774,8 @@ def cmd_merge(cv_hash: str, cp_hash: str) -> None:
                 "ambiguous_weak_matches_prevented", 0
             ),
             "table_size": len(jobs), **lock_metrics,
+            "jd_handoffs": len(handed_off),
+            "jd_handoff_chars": sum(len(item["jd_text"]) for item in handed_off),
         }
 
     stats["duration_ms"] = round((time.monotonic() - started) * 1000, 2)
@@ -832,6 +913,7 @@ def cmd_update(cv_hash: str, cp_hash: str, run_id: str) -> None:
                 })
                 task["status"] = "conflict"
                 task["conflict_reason"] = "job no longer exists or identity is ambiguous"
+                task.pop("jd_text", None)
                 continue
 
             current_hash = make_jd_input_hash(job)
@@ -845,6 +927,7 @@ def cmd_update(cv_hash: str, cp_hash: str, run_id: str) -> None:
                 task["status"] = "conflict"
                 task["conflict_reason"] = reason
                 task["current_jd_input_hash"] = current_hash
+                task.pop("jd_text", None)
                 continue
             current_version = int(job.get("record_version") or 1)
             if current_version != task["base_record_version"]:
@@ -861,6 +944,7 @@ def cmd_update(cv_hash: str, cp_hash: str, run_id: str) -> None:
             task["status"] = "completed"
             task["completed_at"] = _now().isoformat()
             task["result_hash"] = result_hash
+            task.pop("jd_text", None)
             updated += 1
 
         completed_tasks = sum(1 for task in tasks if task.get("status") == "completed")

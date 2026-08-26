@@ -46,7 +46,7 @@ python scripts/subagent_metrics.py record --role search --ok \
 | `lock_wait_ms` | 等待职位主表锁的时间 |
 | `stale_lock_recoveries` | 本次回收异常遗留主表锁次数 |
 
-`merge` 事件还记录候选输入、批内去重、本轮新增、缓存命中、待评估、评估中、归档、主表大小、新建评估任务数，以及旧记录身份迁移数、强身份记录数、阻止的强身份冲突/歧义弱匹配数。
+`merge` 事件还记录候选输入、批内去重、本轮新增、缓存命中、待评估、评估中、归档、主表大小、新建评估任务数，以及旧记录身份迁移数、强身份记录数、阻止的强身份冲突/歧义弱匹配数。`jd_handoffs` 与 `jd_handoff_chars` 只记录交接任务数和字符总数，不含正文或 hash。
 
 `update` 事件还记录输入结果、成功更新、安全 rebase、幂等重试、拒绝、冲突、run 释放、任务状态数量和旧记录身份迁移数。
 
@@ -54,7 +54,7 @@ python scripts/subagent_metrics.py record --role search --ok \
 
 `browser` 事件记录 Provider、动作、耗时、页码/链接计数、接管、限流和估算费用。session id、Live View URL、页面 URL、键盘输入和截图不允许进入事件。
 
-`ats` 事件按 board 同步记录 Provider、动作、成功/分类状态、请求/页数/字节数、收到/规范化/初筛/输出职位数、截断、限流和 HTTP 状态。board id、company/token、职位名、URL、JD 和异常全文不允许进入指标事件。
+`ats` 事件按 board 同步记录 Provider、动作、成功/分类状态、请求/页数/字节数、收到/规范化/初筛/输出职位数、含 JD 的规范化/输出职位数、JD 截断数、响应截断、限流和 HTTP 状态。board id、company/token、职位名、URL、JD 和异常全文不允许进入指标事件。
 
 失败事件只记录低基数 `failure_kind`：`input_validation`、`input_json`、`data_store_read`、`data_store_write`、`lock_timeout`、`data_store` 或 `unexpected`。不记录原始异常消息，避免路径或输入内容进入指标日志。
 
@@ -85,6 +85,8 @@ python scripts/subagent_metrics.py record --role search --ok \
 | `ats.requests` / `pages` | ATS 公开 GET 请求和已处理页数合计 |
 | `ats.response_bytes` / `content_fallback` | 已读取公开响应字节数与 Greenhouse 超大正文响应降级次数 |
 | `ats.jobs_received` / `jobs_emitted` | API 接收职位数与确定性初筛后输出数 |
+| `ats.jobs_with_jd` / `jobs_with_jd_emitted` | 规范化职位与最终候选中可直接交接 JD 的数量 |
+| `ats.jd_text_truncated` | JD 纯文本超过 50,000 字符而被截断的职位数 |
 | `ats.by_provider` | 按 Provider 汇总运行数、成功率、请求、页数与职位计数 |
 
 分位数采用观测窗口内样本排序后的最近秩值。这里的延迟用于本机回归和异常发现，不是生产 SLA。

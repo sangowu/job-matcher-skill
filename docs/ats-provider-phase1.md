@@ -1,6 +1,6 @@
 # ATS Provider Phase 1/2/3：架构、实现与接入门槛
 
-状态：Phase 1 measured / Phase 2 implemented / Phase 3 controlled discovery-to-merge measured。基于 Job Matcher v2.3.0，更新日期 2026-08-26。
+状态：Phase 1 measured / Phase 2 implemented / Phase 3 controlled discovery-to-merge measured / Phase 4 JD handoff implemented and under validation。基于 Job Matcher v2.3.0，更新日期 2026-08-26。
 
 ## 决策摘要
 
@@ -107,7 +107,13 @@ Greenhouse 的 `content=true` 整板响应可能超过 25 MB。实现会记录�
 - 统一强身份 merge 后，Web-only 为 5 条唯一记录，Web+ATS 为 24 条；新增 19 条，避免 1 次重复评估，原 5 条 Web 记录全部保留。
 - ATS 同步耗时 12,568.189 ms；Web-only merge 为 27.636 ms，Web+ATS merge 为 85.493 ms，ATS arm discovery-to-merge 总计 12,653.682 ms。
 
-这只证明候选发现、身份去重与 Web 结果保留的机械链路。首次独立标题级质量审计判定：固定 Web 对照组 4/5 直接相关，而 ATS 输出只有 5/20 直接相关、3/20 边缘/延伸、12/20 误报；误报主要来自移动端、Android、iOS、UI 职位仅因产品后缀含 `AI` 而通过。修复把单独的 `ai` 作为低信息量 token，并保留 `AI evaluation`、`AI systems`、`agent systems` 等明确岗位短语。最终真实复核输出 8 条：6 条直接相关、2 条边缘/延伸、0 条误报，严格 precision 75%；8/8 链接存活、Web 结果保留 5/5，并继续避免 1 次跨来源重复评估，标题级质量门禁通过。ATS 候选的 JD 正文仍未直接交给评估 worker，因此没有测得浏览器兜底减少或完整 CV-to-JD 质量。低请求数也不等于低数据量，最终复核仍读取约 49 MB。脱敏结果见 `docs/performance/ats-phase3-controlled-e2e.*` 与 `docs/performance/ats-phase3-quality-audit.*`。
+这只证明候选发现、身份去重与 Web 结果保留的机械链路。首次独立标题级质量审计判定：固定 Web 对照组 4/5 直接相关，而 ATS 输出只有 5/20 直接相关、3/20 边缘/延伸、12/20 误报；误报主要来自移动端、Android、iOS、UI 职位仅因产品后缀含 `AI` 而通过。修复把单独的 `ai` 作为低信息量 token，并保留 `AI evaluation`、`AI systems`、`agent systems` 等明确岗位短语。最终真实复核输出 8 条：6 条直接相关、2 条边缘/延伸、0 条误报，严格 precision 75%；8/8 链接存活、Web 结果保留 5/5，并继续避免 1 次跨来源重复评估，标题级质量门禁通过。低请求数不等于低数据量，最终复核仍读取约 49 MB。脱敏结果见 `docs/performance/ats-phase3-controlled-e2e.*` 与 `docs/performance/ats-phase3-quality-audit.*`。
+
+## Phase 4 JD 交接
+
+公开 ATS 响应中已有的描述会先转为纯文本，移除 `script/style`，并限制为 50,000 字符。`ats_pipeline.py` 将其交给统一 merge；`merge_jobs.py` 的标准输出和职位主表都不含正文，只在 `data/eval_runs/<run_id>.json` 的待处理任务中临时保存。精排 worker 从该路径读取任务：有 `jd_text` 就直接做五维分析并跳过页面抓取，没有则继续使用原有 WebFetch/静态/headless/远程浏览器容错阶梯。
+
+主表只保存 `jd_content_hash`。hash 改变时旧 `jd_profile` 与所有 CV 评分立即失效，避免把旧 JD 的结论复用于新内容。任务完成或冲突后立即从尚存快照中删除正文；run 完成或超龄回收时删除整个快照，history 只留计数。离线性能与隐私边界见 `docs/performance/ats-phase4-jd-handoff.*`。
 
 ## 实现入口
 

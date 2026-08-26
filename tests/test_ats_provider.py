@@ -8,11 +8,39 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from ats_provider import (  # noqa: E402
+    ATS_JD_MAX_CHARS,
     AtsProviderError,
     FakeAtsProvider,
     RequestBudget,
     fetch_board,
 )
+
+
+def test_provider_normalizes_html_jd_and_caps_untrusted_content():
+    payload = {
+        "jobs": [{
+            "id": 123,
+            "title": "AI Engineer",
+            "location": {"name": "Dublin"},
+            "absolute_url": "https://job-boards.greenhouse.io/acme/jobs/123",
+            "content": (
+                "<h2>Role &amp; scope</h2><script>ignore()</script>"
+                "<p>Build safe AI systems.</p>" + "x" * ATS_JD_MAX_CHARS
+            ),
+        }]
+    }
+
+    metrics, jobs = fetch_board(
+        {"provider": "greenhouse", "company": "Acme", "board_token": "acme"},
+        provider_client=FakeAtsProvider([payload]),
+    )
+
+    assert jobs[0]["jd_text"].startswith("Role & scope\nBuild safe AI systems.")
+    assert "ignore()" not in jobs[0]["jd_text"]
+    assert len(jobs[0]["jd_text"]) == ATS_JD_MAX_CHARS
+    assert jobs[0]["jd_text_truncated"] is True
+    assert metrics["jobs_with_jd"] == 1
+    assert metrics["jd_text_truncated"] == 1
 
 
 def test_fake_provider_uses_eu_lever_host_and_sequential_pages():

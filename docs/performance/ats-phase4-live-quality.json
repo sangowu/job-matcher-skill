@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "run_kind": "ats_phase4_live_jd_handoff_quality_audit",
+  "recorded_at": "2026-08-26",
+  "skill_version": "2.3.0",
+  "privacy": "count_only",
+  "live_discovery": {
+    "boards": 1,
+    "requests": 1,
+    "response_bytes": 19544818,
+    "jobs_received": 1727,
+    "jobs_normalized": 1727,
+    "jobs_prefiltered": 8,
+    "jobs_emitted": 8,
+    "jobs_with_jd_emitted": 8,
+    "jd_text_truncated": 0,
+    "web_records_preserved": 1,
+    "duplicate_evaluations_avoided": 1,
+    "browser_fetches_eligible_to_avoid": 8
+  },
+  "five_dimension_sample": {
+    "selection": "purposive_direct_adjacent_direct",
+    "jobs_scored": 3,
+    "contract_updates_accepted": 3,
+    "contract_updates_rejected": 0,
+    "conflicts": 0,
+    "overall_scores": [95.0, 75.0, 92.5],
+    "mean_overall_score": 87.5,
+    "strong_apply": 2,
+    "apply": 1,
+    "below_apply": 0
+  },
+  "retention_checks": {
+    "completed_tasks_with_jd_text": 0,
+    "canonical_jobs_with_raw_jd": 0,
+    "metrics_containing_sample_jd_text": false
+  },
+  "limitations": {
+    "single_board": true,
+    "single_company_concentration": true,
+    "sample_random": false,
+    "actual_browser_actions_measured": false,
+    "browser_metric_interpretation": "eligible_fetches_avoided"
+  }
+}

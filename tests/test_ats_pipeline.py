@@ -118,18 +118,22 @@ def test_partial_success_emits_only_prefiltered_jobs_and_private_state_is_clean(
     assert result["summary"]["jobs_emitted"] == 1
     assert result["metrics_recorded"] is True
     assert result["candidates"][0]["identity_keys"] == ["greenhouse:123"]
-    assert "description_present" not in result["candidates"][0]
+    assert result["candidates"][0]["jd_text"] == "JD content stays in memory"
+    assert result["candidates"][0]["jd_text_truncated"] is False
+    assert result["summary"]["jobs_with_jd_emitted"] == 1
     statuses = {item["provider"]: item["status"] for item in store["boards"]}
     assert statuses == {"greenhouse": "verified", "ashby": "candidate"}
 
     state_text = (isolated_ats / "ats_sync_state.json").read_text(encoding="utf-8")
     metric_text = (isolated_ats / "metrics.jsonl").read_text(encoding="utf-8")
     assert "AI Engineer" not in state_text + metric_text
+    assert "JD content stays in memory" not in state_text + metric_text
     assert "job-boards.greenhouse.io" not in state_text + metric_text
     assert "ashbyco" not in state_text + metric_text
     events = [json.loads(line) for line in metric_text.splitlines()]
     assert all(event["schema_version"] == 4 for event in events)
     assert any(event.get("rate_limited") is True for event in events)
+    assert any(event.get("jobs_with_jd_emitted") == 1 for event in events)
 
 
 def test_three_definitive_not_found_responses_mark_board_unavailable(isolated_ats):

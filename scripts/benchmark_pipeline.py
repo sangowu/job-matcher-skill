@@ -296,7 +296,9 @@ def run_fake_once(root: Path, session_count: int, run_index: int) -> dict:
         }
 
 
-def run_fake_ats_once(root: Path, run_index: int, ats_pipeline: Any) -> dict:
+def run_fake_ats_once(
+    root: Path, run_index: int, ats_pipeline: Any, merge_jobs: Any
+) -> dict:
     with tempfile.TemporaryDirectory(prefix=f"ats-{run_index:02d}-", dir=root) as temporary:
         data_dir = Path(temporary) / "data"
         ats_pipeline.DATA_DIR = data_dir
@@ -332,7 +334,7 @@ def run_fake_ats_once(root: Path, run_index: int, ats_pipeline: Any) -> dict:
                     "title": "AI Engineer",
                     "location": {"name": "Dublin"},
                     "absolute_url": "https://job-boards.greenhouse.io/greenbench/jobs/101",
-                    "content": "benchmark",
+                    "content": "JD-HANDOFF-SENTINEL",
                 }]
             }],
             "job-board/ashbybench": [{
@@ -344,7 +346,7 @@ def run_fake_ats_once(root: Path, run_index: int, ats_pipeline: Any) -> dict:
                         "https://jobs.ashbyhq.com/ashbybench/"
                         "11111111-1111-4111-8111-111111111111"
                     ),
-                    "descriptionPlain": "benchmark",
+                    "descriptionPlain": "JD-HANDOFF-SENTINEL",
                 }]
             }],
             "api.eu.lever.co": [[{
@@ -355,7 +357,7 @@ def run_fake_ats_once(root: Path, run_index: int, ats_pipeline: Any) -> dict:
                     "22222222-2222-4222-8222-222222222222"
                 ),
                 "categories": {"location": "Dublin"},
-                "descriptionPlain": "benchmark",
+                "descriptionPlain": "JD-HANDOFF-SENTINEL",
             }]],
         })
         config = {
@@ -380,16 +382,46 @@ def run_fake_ats_once(root: Path, run_index: int, ats_pipeline: Any) -> dict:
         result = ats_pipeline.sync_registry(
             registry, profile, config=config, provider_client=provider
         )
-        finished = time.perf_counter_ns()
+        sync_finished = time.perf_counter_ns()
         assert result["summary"]["boards_succeeded"] == 3
         assert result["summary"]["requests"] == 3
         assert result["summary"]["jobs_emitted"] == 3
+        assert result["summary"]["jobs_with_jd_emitted"] == 3
+
+        merge_jobs.DATA_DIR = data_dir
+        merge_jobs.TABLE_PATH = data_dir / "jobs_table.json"
+        merge_jobs.ARCHIVE_PATH = data_dir / "archive.json"
+        merge_jobs.EVAL_RUNS_DIR = data_dir / "eval_runs"
+        merge_jobs.EVAL_HISTORY_PATH = data_dir / "eval_runs" / "history.jsonl"
+        merge_jobs.LOCK_PATH = data_dir / "jobs_table.lock"
+        merge_jobs.METRICS_PATH = data_dir / "metrics.jsonl"
+        merge_jobs.load_config = lambda: {
+            "jd_ttl_days": 30,
+            "table_lock_timeout_seconds": 2,
+            "stale_lock_seconds": 10,
+            "eval_run_stale_hours": 2,
+        }
+        merged = invoke(
+            merge_jobs.cmd_merge,
+            result["candidates"],
+            "benchmark-cv",
+            "benchmark-profile",
+        )
+        finished = time.perf_counter_ns()
+        manifest = json.loads(Path(merged["eval_run"]["path"]).read_text(encoding="utf-8"))
+        table_text = merge_jobs.TABLE_PATH.read_text(encoding="utf-8")
+        tasks_with_jd = sum(bool(task.get("jd_text")) for task in manifest["tasks"])
+        assert tasks_with_jd == 3
+        assert "JD-HANDOFF-SENTINEL" not in table_text
         return {
             "run": run_index,
-            "ats_fake_wall_ms": round((finished - started) / 1_000_000, 3),
+            "ats_fake_wall_ms": round((sync_finished - started) / 1_000_000, 3),
+            "ats_handoff_total_ms": round((finished - started) / 1_000_000, 3),
             "boards_succeeded": 3,
             "requests": 3,
             "jobs_emitted": 3,
+            "jobs_with_jd_emitted": 3,
+            "eval_tasks_with_jd": tasks_with_jd,
         }
 
 
@@ -443,7 +475,7 @@ def main() -> int:
     for index in range(args.warmups):
         run_core_once(scratch, args.jobs, -(index + 1), merge_jobs, render_html)
         run_identity_once(scratch, args.identity_jobs, -(index + 1), merge_jobs)
-        run_fake_ats_once(scratch, -(index + 1), ats_pipeline)
+        run_fake_ats_once(scratch, -(index + 1), ats_pipeline, merge_jobs)
         run_fake_once(scratch, args.fake_sessions, -(index + 1))
     core_runs = [
         run_core_once(scratch, args.jobs, index, merge_jobs, render_html)
@@ -454,7 +486,7 @@ def main() -> int:
         for index in range(1, args.iterations + 1)
     ]
     ats_fake_runs = [
-        run_fake_ats_once(scratch, index, ats_pipeline)
+        run_fake_ats_once(scratch, index, ats_pipeline, merge_jobs)
         for index in range(1, args.iterations + 1)
     ]
     fake_runs = [
@@ -497,9 +529,16 @@ def main() -> int:
             "ats_fake_wall_ms": summarize(
                 [float(run["ats_fake_wall_ms"]) for run in ats_fake_runs]
             ),
+            "ats_handoff_total_ms": summarize(
+                [float(run["ats_handoff_total_ms"]) for run in ats_fake_runs]
+            ),
             "boards_per_iteration": 3,
             "requests_per_iteration": 3,
             "jobs_emitted_per_iteration": 3,
+            "jobs_with_jd_emitted_per_iteration": 3,
+            "eval_tasks_with_jd_per_iteration": 3,
+            "browser_fetches_eligible_to_avoid_per_iteration": 3,
+            "canonical_raw_jd_count": 0,
             "external_calls": 0,
         },
         "fake_provider_metrics": {

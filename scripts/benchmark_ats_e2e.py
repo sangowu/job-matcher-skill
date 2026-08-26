@@ -258,6 +258,7 @@ def run_comparison(
     web_unique = int(baseline["stats"]["new"])
     combined_unique = int(combined["stats"]["new"])
     emitted = len(ats_candidates)
+    jd_handoffs = sum(bool(item.get("jd_text")) for item in ats_candidates)
     preserved = _preserved_records(baseline_jobs, combined_jobs)
     state_rows = state.get("boards") if isinstance(state, dict) else []
     if not isinstance(state_rows, list):
@@ -300,15 +301,19 @@ def run_comparison(
                 float(ats_result["summary"].get("duration_ms") or 0) + combined_ms,
                 3,
             ),
-            "ats_candidates_with_jd_handoff": sum(
-                bool(item.get("jd_text") or item.get("jd_profile"))
-                for item in ats_candidates
-            ),
+            "ats_candidates_with_jd_handoff": jd_handoffs,
         },
         "providers": _provider_summary(state_rows),
         "observations": {
-            "browser_fallback_reduction_measured": False,
-            "reason": "ATS candidates do not yet hand JD content to evaluation workers",
+            "browser_fallback_reduction_measured": True,
+            "eligible_browser_fetches_avoided": jd_handoffs,
+            "eligible_browser_fetch_avoidance_rate": round(jd_handoffs / emitted, 4)
+            if emitted
+            else None,
+            "reason": (
+                "ATS JD text is handed directly to evaluation; page fetching remains "
+                "the fallback for candidates without text"
+            ),
         },
         "privacy": {
             "contains_cv_text": False,

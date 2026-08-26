@@ -9,6 +9,9 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- ATS-to-evaluation JD handoff: normalized Ashby/Greenhouse/Lever descriptions now flow through run-scoped task snapshots so eligible workers can skip a second page fetch.
+- `ats_handoff.py`, an orchestration entry point that keeps full ATS candidates in process/subprocess stdin while returning only count summaries and merge task metadata to the agent.
+- Count-only JD availability, truncation, handoff, and handoff-character metrics, plus a reproducible three-provider Fake handoff benchmark.
 - Opt-in production ATS enhancement pipeline for public Ashby, Greenhouse, and global/EU Lever boards, with a persistent board registry, deterministic CV-aware prefilter, independent request/page/concurrency budgets, partial-success handling, and merge-ready strong identities.
 - Shared production/Fake ATS Provider contract and offline regressions covering single-response boards, sequential Lever pagination, EU routing, unlisted Ashby jobs, global request exhaustion, 404/429/timeouts, disabled routing, and unavailable-board transitions.
 - PII-safe ATS sync state and runtime schema v4 metrics, plus a fixed three-provider Fake benchmark integrated into the release performance harness.
@@ -20,6 +23,8 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- ATS HTML descriptions are converted to plain text, script/style content is discarded, and each handoff is capped at 50,000 characters. Evaluation workers treat it as untrusted data and use browser fetching only when no ATS text is available.
+- Canonical jobs persist only `jd_content_hash`; a changed hash invalidates cached JD analysis and match scores. Completed/conflicted tasks immediately discard transient JD text and completed/expired run snapshots are deleted.
 - The public ATS benchmark now reuses the production parser and pagination implementation so benchmark contracts cannot drift from runtime behavior; ATS remains explicitly disabled by default.
 - Greenhouse discovery now recognizes EU public job-board pages while continuing to use the documented global API endpoint; oversized `content=true` responses may retry once without content inside the existing request budget, with response bytes and fallback counts recorded.
 - Exact Provider IDs and canonical URLs now match before weak company/title matching. Disjoint strong IDs never merge by weak key alone; weak-only matches require compatible locations and exactly one target.
@@ -31,11 +36,14 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- Raw ATS JD text is excluded from the canonical table, command output, runtime metrics, sync state, benchmark reports, and evaluation history; it exists only in an active local evaluation task.
 - The ATS benchmark only performs allowlisted public GET requests and never persists job descriptions, titles, URLs, candidate data, API keys, or arbitrary exception text.
 - The controlled ATS A/B artifact is count-only and omits CV/profile fields, board tokens, company names, job titles, URLs, API keys, and raw exception text.
 
 ### Performance
 
+- The Phase 4 offline handoff baseline completed three-provider ATS normalization at p50 4.094 ms / p95 5.108 ms and normalization-through-evaluation-snapshot handoff at p50 7.408 ms / p95 8.367 ms across 30 runs. Each run handed off 3/3 JDs, made all 3 tasks eligible to skip page fetching, and persisted zero raw JDs in the canonical table. No live latency or scoring-quality claim is made from this fixture.
+- A one-board live validation handed off JD text for 8/8 emitted candidates with one request; a purposive three-JD five-dimensional audit produced 2 `strong_apply` and 1 `apply`, with 3/3 contract updates accepted, zero conflicts/rejections, and zero raw JD text in completed tasks, the canonical table, or metrics. The sample is single-company and not a market-wide quality estimate.
 - The three-provider offline ATS fixture completed 3 boards / 3 requests / 3 emitted jobs per iteration at p50 6.654 ms and p95 7.867 ms across 30 measured runs, with no external calls. The same machine run showed core total +22.6% p50 / +32.9% p95 versus the earlier checkpoint alongside similar slowdowns in unrelated harness sections; the observation is retained, causation is not claimed, and no core speedup is claimed.
 - The production-adapter public regression completed 6/6 boards with 7 requests, 414 normalized jobs, no truncation/rate limiting, and zero strong-identity duplicates; its artifact is count-only and PII-safe.
 - The controlled Phase 3 run preserved all 5 fixed Web records and produced 24 combined unique records: 19 incremental identities and 1 avoided duplicate evaluation. Three boards succeeded with 5 requests and 48,955,686 response bytes in 12,653.682 ms end-to-end. No candidate-quality or browser-fallback improvement is claimed because JD evaluation handoff was not measured.

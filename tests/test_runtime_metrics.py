@@ -143,6 +143,9 @@ def test_ats_metrics_are_sanitized_and_summarized_by_provider(tmp_path):
         jobs_normalized=40,
         jobs_prefiltered=5,
         jobs_emitted=5,
+        jobs_with_jd=4,
+        jobs_with_jd_emitted=3,
+        jd_text_truncated=1,
         content_fallback=True,
         duration_ms=12,
         company="Secret Company",
@@ -159,6 +162,9 @@ def test_ats_metrics_are_sanitized_and_summarized_by_provider(tmp_path):
     assert summary["metrics"]["ats"]["pages"] == 1
     assert summary["metrics"]["ats"]["response_bytes"] == 12345
     assert summary["metrics"]["ats"]["jobs_emitted"] == 5
+    assert summary["metrics"]["ats"]["jobs_with_jd"] == 4
+    assert summary["metrics"]["ats"]["jobs_with_jd_emitted"] == 3
+    assert summary["metrics"]["ats"]["jd_text_truncated"] == 1
     assert summary["metrics"]["ats"]["content_fallback"] == 1
     assert summary["metrics"]["ats"]["by_provider"] == [{
         "provider": "greenhouse",
@@ -169,6 +175,8 @@ def test_ats_metrics_are_sanitized_and_summarized_by_provider(tmp_path):
         "response_bytes": 12345,
         "jobs_received": 40,
         "jobs_emitted": 5,
+        "jobs_with_jd": 4,
+        "jobs_with_jd_emitted": 3,
     }]
 
 

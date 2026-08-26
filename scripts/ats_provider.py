@@ -7,6 +7,7 @@ import re
 import threading
 import time
 from collections import deque
+from html.parser import HTMLParser
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -16,6 +17,7 @@ from _jobutil import canonicalize_url
 
 
 MAX_RESPONSE_BYTES = 25 * 1024 * 1024
+ATS_JD_MAX_CHARS = 50_000
 PROVIDERS = ("ashby", "greenhouse", "lever")
 _BOARD_TOKEN = re.compile(r"[A-Za-z0-9_-]{1,100}\Z")
 _SAFE_FAILURES = {
@@ -29,6 +31,51 @@ _SAFE_FAILURES = {
     "invalid_board_token",
     "request_budget_exhausted",
 }
+
+
+class _JobDescriptionParser(HTMLParser):
+    """Small dependency-free HTML-to-text converter for untrusted ATS data."""
+
+    _BLOCKS = {
+        "address", "article", "aside", "blockquote", "br", "div", "dl", "dt",
+        "dd", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "li", "ol", "p",
+        "pre", "section", "table", "tr", "ul",
+    }
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self._ignored_depth = 0
+
+    def handle_starttag(self, tag: str, _attrs: list[tuple[str, str | None]]) -> None:
+        if tag in {"script", "style"}:
+            self._ignored_depth += 1
+        elif not self._ignored_depth and tag in self._BLOCKS:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"script", "style"} and self._ignored_depth:
+            self._ignored_depth -= 1
+        elif not self._ignored_depth and tag in self._BLOCKS:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if not self._ignored_depth:
+            self.parts.append(data)
+
+
+def _normalize_jd_text(value: Any, *, is_html: bool) -> tuple[str, bool]:
+    text = str(value or "")
+    if is_html and text:
+        parser = _JobDescriptionParser()
+        parser.feed(text)
+        parser.close()
+        text = "".join(parser.parts)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [re.sub(r"[ \t\f\v]+", " ", line).strip() for line in text.split("\n")]
+    text = "\n".join(line for line in lines if line).strip()
+    truncated = len(text) > ATS_JD_MAX_CHARS
+    return text[:ATS_JD_MAX_CHARS], truncated
 
 
 class AtsProviderError(RuntimeError):
@@ -164,12 +211,16 @@ def _candidate(
     title: str,
     location: str,
     url: str,
-    description_present: bool,
+    description: Any = "",
+    description_is_html: bool = False,
     date_posted: str = "",
     salary: str = "",
 ) -> dict[str, Any] | None:
     if not title or not url or not provider_id:
         return None
+    jd_text, jd_text_truncated = _normalize_jd_text(
+        description, is_html=description_is_html
+    )
     return {
         "provider": provider,
         "provider_job_id": provider_id,
@@ -182,7 +233,9 @@ def _candidate(
         "salary": salary,
         "date_posted": date_posted,
         "source": provider,
-        "description_present": description_present,
+        "description_present": bool(jd_text),
+        "jd_text": jd_text,
+        "jd_text_truncated": jd_text_truncated,
     }
 
 
@@ -196,7 +249,8 @@ def greenhouse_job(company: str, job: dict[str, Any]) -> dict[str, Any] | None:
         title=str(job.get("title") or "").strip(),
         location=location,
         url=str(job.get("absolute_url") or "").strip(),
-        description_present=bool(job.get("content")),
+        description=job.get("content"),
+        description_is_html=True,
         date_posted=str(job.get("updated_at") or "").strip(),
     )
 
@@ -218,6 +272,7 @@ def ashby_job(company: str, job: dict[str, Any]) -> dict[str, Any] | None:
     salary = ""
     if isinstance(compensation, dict):
         salary = str(compensation.get("scrapeableCompensationSalarySummary") or "").strip()
+    plain_description = job.get("descriptionPlain")
     return _candidate(
         provider="ashby",
         provider_id=provider_id,
@@ -225,7 +280,8 @@ def ashby_job(company: str, job: dict[str, Any]) -> dict[str, Any] | None:
         title=str(job.get("title") or "").strip(),
         location="; ".join(value for value in locations if value),
         url=url,
-        description_present=bool(job.get("descriptionPlain") or job.get("descriptionHtml")),
+        description=plain_description or job.get("descriptionHtml"),
+        description_is_html=not bool(plain_description),
         date_posted=str(job.get("publishedAt") or "").strip(),
         salary=salary,
     )
@@ -243,6 +299,7 @@ def lever_job(company: str, job: dict[str, Any]) -> dict[str, Any] | None:
             if text and text not in locations:
                 locations.append(text)
     salary = str(job.get("salaryDescriptionPlain") or "").strip()
+    plain_description = job.get("descriptionPlain")
     return _candidate(
         provider="lever",
         provider_id=str(job.get("id") or "").strip(),
@@ -250,7 +307,8 @@ def lever_job(company: str, job: dict[str, Any]) -> dict[str, Any] | None:
         title=str(job.get("text") or "").strip(),
         location="; ".join(locations),
         url=str(job.get("hostedUrl") or "").strip(),
-        description_present=bool(job.get("descriptionPlain") or job.get("description")),
+        description=plain_description or job.get("description"),
+        description_is_html=not bool(plain_description),
         salary=salary,
     )
 
@@ -285,6 +343,8 @@ def fetch_board(
         "truncated": False,
         "rate_limited": False,
         "content_fallback": False,
+        "jobs_with_jd": 0,
+        "jd_text_truncated": 0,
     }
     normalized: list[dict[str, Any]] = []
 
@@ -352,6 +412,10 @@ def fetch_board(
             else:
                 normalized.append(converted)
         metrics["jobs_normalized"] = len(normalized)
+        metrics["jobs_with_jd"] = sum(bool(job.get("jd_text")) for job in normalized)
+        metrics["jd_text_truncated"] = sum(
+            bool(job.get("jd_text_truncated")) for job in normalized
+        )
         metrics["ok"] = True
     except AtsProviderError as error:
         metrics["failure_kind"] = error.kind

@@ -97,7 +97,9 @@ def test_fake_comparison_measures_incremental_and_duplicate_jobs_without_pii():
     assert report["summary"]["duplicate_evaluations_avoided"] == 1
     assert report["summary"]["web_records_preserved"] == 2
     assert report["summary"]["web_records_preserved_rate"] == 1.0
-    assert report["summary"]["ats_candidates_with_jd_handoff"] == 0
+    assert report["summary"]["ats_candidates_with_jd_handoff"] == 2
+    assert report["observations"]["browser_fallback_reduction_measured"] is True
+    assert report["observations"]["eligible_browser_fetches_avoided"] == 2
     assert report["providers"][0]["response_bytes"] > 0
     text = json.dumps(report)
     assert "Example" not in text

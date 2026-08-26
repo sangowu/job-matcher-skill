@@ -71,6 +71,7 @@ job-matcher/
 │   ├── browser_workflow.py   # 列表翻页/暂停状态机
 │   ├── ats_provider.py       # Ashby/Greenhouse/Lever 公开 GET 适配器与 Fake
 │   ├── ats_pipeline.py       # ATS 标识库、初筛、同步与候选归一化
+│   ├── ats_handoff.py        # ATS 正文内存直送统一 merge，避免主上下文暴露
 │   ├── benchmark_pipeline.py # 固定小数据集核心/Fake Provider 基准
 │   ├── benchmark_ats.py      # 复用生产适配器的公开 ATS 有界回归
 │   ├── benchmark_ats_e2e.py  # 固定 Web 对照组与 Web+ATS 受控 A/B
@@ -142,7 +143,7 @@ agent 会自动识别。然后在对话里：
 | `monitoring_default_window_days` | 7 | 默认健康报告窗口 |
 | `monitoring_thresholds` | 见配置 | 冲突、拒绝、成功率、锁等待和积压阈值 |
 
-运行时只保留一个职位主表 `data/jobs_table.json`。`record_id` 是稳定记录/评估主键，`identity_keys` 保存平台职位 ID；公司 + 标题 `dedup_key` 仅作兼容弱匹配。两个不相交的强 ID 不会因同公司同标题而误合并，弱键匹配还要求地点兼容且结果唯一。旧表会在下一次 merge/update 时原位补齐身份字段。每轮待评估职位写入最小化快照 `data/eval_runs/<run_id>.json`；worker 完成后由主 agent 串行回写评估字段，成功完成的快照会释放，仅在 `history.jsonl` 留下不含 CV/JD 正文的摘要。每次 merge/update 另写一条 PII-safe `data/metrics.jsonl` 事件。
+运行时只保留一个职位主表 `data/jobs_table.json`。`record_id` 是稳定记录/评估主键，`identity_keys` 保存平台职位 ID；公司 + 标题 `dedup_key` 仅作兼容弱匹配。两个不相交的强 ID 不会因同公司同标题而误合并，弱键匹配还要求地点兼容且结果唯一。旧表会在下一次 merge/update 时原位补齐身份字段。每轮待评估职位写入最小化快照 `data/eval_runs/<run_id>.json`；ATS 已返回 JD 时，正文只临时存在对应任务快照，主表只保存内容 hash，worker 可直接分析并跳过网页抓取。单个任务完成即清除正文，整轮完成后快照释放，仅在 `history.jsonl` 留下不含 CV/JD 正文的摘要。每次 merge/update 另写一条 PII-safe `data/metrics.jsonl` 事件。
 
 远程浏览器为可选功能。安装依赖后运行一次性本地设置页；页面只绑定 `127.0.0.1`，连接测试成功后把 API Key 保存到系统密钥库，非敏感设置保存到已忽略的 `data/browser_provider.json`：
 
@@ -173,9 +174,9 @@ python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|s
 
 汇总按编排模式给出 p50/p95 与 `overlap_saving_pct`；两种模式都有样本前显示 `n/a`。
 
-版本性能回归使用固定 15 职位冷数据集和 10 个 Fake 会话：`python scripts/benchmark_pipeline.py --output <json> --baseline docs/performance/v2.2.0-small-baseline.json`。输出同时包含原始迭代、p50/p95、绝对变化和相对变化；不会调用真实 Web Search 或云 Provider。强身份迁移基准见 [`docs/performance/strong-job-identity-baseline.md`](docs/performance/strong-job-identity-baseline.md)，三家 ATS 离线管道基准见 [`docs/performance/ats-phase2-fake-baseline.md`](docs/performance/ats-phase2-fake-baseline.md)。固定 Web 候选对照组与受限真实 ATS 的 discovery-to-merge A/B 使用 `python scripts/benchmark_ats_e2e.py --web-candidates <json> --profile <json> --output <json>`；它会发出公开 ATS 请求，必须显式提供本地输入并遵守生产硬上限。结果与限制见 [`docs/performance/ats-phase3-controlled-e2e.md`](docs/performance/ats-phase3-controlled-e2e.md)。
+版本性能回归使用固定 15 职位冷数据集和 10 个 Fake 会话：`python scripts/benchmark_pipeline.py --output <json> --baseline docs/performance/v2.2.0-small-baseline.json`。输出同时包含原始迭代、p50/p95、绝对变化和相对变化；不会调用真实 Web Search 或云 Provider，并验证三家 Fake ATS 的 JD 均进入临时任务、主表零正文。强身份迁移基准见 [`docs/performance/strong-job-identity-baseline.md`](docs/performance/strong-job-identity-baseline.md)，三家 ATS 离线管道基准见 [`docs/performance/ats-phase2-fake-baseline.md`](docs/performance/ats-phase2-fake-baseline.md)，Phase 4 交接基准见 [`docs/performance/ats-phase4-jd-handoff.md`](docs/performance/ats-phase4-jd-handoff.md)，真实三条五维抽检见 [`docs/performance/ats-phase4-live-quality.md`](docs/performance/ats-phase4-live-quality.md)。固定 Web 候选对照组与受限真实 ATS 的 discovery-to-merge A/B 使用 `python scripts/benchmark_ats_e2e.py --web-candidates <json> --profile <json> --output <json>`；它会发出公开 ATS 请求，必须显式提供本地输入并遵守生产硬上限。结果与限制见 [`docs/performance/ats-phase3-controlled-e2e.md`](docs/performance/ats-phase3-controlled-e2e.md)。
 
-ATS Phase 2 已提供可选的生产增强管道，默认仍由 `ats_enabled: false` 关闭。Web Search 结果中的官方 Ashby/Greenhouse/Lever URL 可经 `python scripts/ats_pipeline.py discover` 写入本地标识库；Greenhouse 同时识别 `job-boards.eu.greenhouse.io` 的公开职位页，但公开 API 仍使用官方 `boards-api.greenhouse.io`。启用后用 `sync --profile <cv-profile.json>` 同步已到期 board，或用 `run --profile ...` 一次完成发现与同步。管道只做公开 GET，按标题/地点/资历确定性初筛；单独的 `AI` 产品/团队后缀不是有效岗位匹配，明确的 `AI evaluation`、`AI systems`、`agent systems` 等岗位短语才作为 AI 方向信号。输出候选数组交给同一个 `merge_jobs.py`，因此 Web 与 ATS 共用职位主表和分析缓存，但 ATS 控制状态独立保存在 `data/ats_companies.json` 与 `data/ats_sync_state.json`。ATS 预算独立于 Web Search；跨 board 可并发，Lever 单 board 内顺序翻页。Greenhouse 的 `content=true` 响应超过 25 MB 时可在同一全局请求预算内降级重试不含正文的列表，并记录 `content_fallback`。公开 API 回归仍使用 `python scripts/benchmark_ats.py --output <json> --page-size 50 --max-pages 10`，且脱敏证据不保存职位正文、标题或 URL。详见 [`docs/ats-provider-phase1.md`](docs/ats-provider-phase1.md)。
+ATS Phase 2 已提供可选的生产增强管道，默认仍由 `ats_enabled: false` 关闭。Web Search 结果中的官方 Ashby/Greenhouse/Lever URL 可经 `python scripts/ats_pipeline.py discover` 写入本地标识库；Greenhouse 同时识别 `job-boards.eu.greenhouse.io` 的公开职位页，但公开 API 仍使用官方 `boards-api.greenhouse.io`。启用后用 `sync --profile <cv-profile.json>` 同步已到期 board，或用 `run --profile ...` 一次完成发现与同步。管道只做公开 GET，按标题/地点/资历确定性初筛；单独的 `AI` 产品/团队后缀不是有效岗位匹配，明确的 `AI evaluation`、`AI systems`、`agent systems` 等岗位短语才作为 AI 方向信号。Phase 4 会把 ATS 已提供的 JD 清洗并限制为 50,000 字符，通过同一 `merge_jobs.py` 的本地 run 快照交给精排 worker；有正文的任务跳过网页抓取，没有正文的任务继续走原容错阶梯。Web 与 ATS 仍共用职位主表和分析缓存，主表只留 JD hash，ATS 控制状态独立保存在 `data/ats_companies.json` 与 `data/ats_sync_state.json`。ATS 预算独立于 Web Search；跨 board 可并发，Lever 单 board内顺序翻页。Greenhouse 的 `content=true` 响应超过 25 MB 时可在同一全局请求预算内降级重试不含正文的列表，并记录 `content_fallback`。公开 API 回归仍使用 `python scripts/benchmark_ats.py --output <json> --page-size 50 --max-pages 10`，且脱敏证据不保存职位正文、标题或 URL。详见 [`docs/ats-provider-phase1.md`](docs/ats-provider-phase1.md)。
 
 ## 🔧 依赖
 

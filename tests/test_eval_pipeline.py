@@ -133,6 +133,97 @@ def test_merge_creates_minimal_versioned_eval_snapshot(isolated_store, monkeypat
     assert "cv_hash" not in metric and "run_id" not in metric and "dedup_key" not in metric
 
 
+def test_ats_jd_is_ephemeral_and_only_hash_is_persisted(
+    isolated_store, monkeypatch, capsys
+):
+    raw_jd = "UNTRUSTED JOB DATA: Build production RAG and evaluation systems"
+    output = invoke(
+        monkeypatch,
+        capsys,
+        merge_jobs.cmd_merge,
+        [candidate(source="ashby", jd_text=raw_jd, jd_text_truncated=False)],
+        "cv",
+        "cp",
+    )
+
+    task = load_run(output["eval_run"]["path"])["tasks"][0]
+    table_text = (isolated_store / "jobs_table.json").read_text(encoding="utf-8")
+    metrics_text = (isolated_store / "metrics.jsonl").read_text(encoding="utf-8")
+    output_text = json.dumps(output)
+
+    assert task["jd_text"] == raw_jd
+    assert task["jd_text_source"] == "ashby"
+    assert output["to_analyze"][0]["jd_text_available"] is True
+    assert raw_jd not in table_text + metrics_text + output_text
+    job = load_table(isolated_store)["jobs"][0]
+    assert len(job["jd_content_hash"]) == 64
+    assert "jd_text" not in job
+    metric = json.loads(metrics_text)
+    assert metric["jd_handoffs"] == 1
+    assert metric["jd_handoff_chars"] == len(raw_jd)
+
+    completed = invoke(
+        monkeypatch,
+        capsys,
+        merge_jobs.cmd_update,
+        [evaluation_result(task)],
+        "cv",
+        "cp",
+        output["eval_run"]["run_id"],
+    )
+    assert completed["released"] is True
+    assert not Path(output["eval_run"]["path"]).exists()
+    history = (isolated_store / "eval_runs" / "history.jsonl").read_text(encoding="utf-8")
+    assert raw_jd not in history
+
+
+def test_changed_ats_jd_invalidates_cached_analysis(isolated_store, monkeypatch, capsys):
+    first = invoke(
+        monkeypatch, capsys, merge_jobs.cmd_merge,
+        [candidate(source="ashby", jd_text="First complete JD")], "cv", "cp",
+    )
+    first_task = load_run(first["eval_run"]["path"])["tasks"][0]
+    invoke(
+        monkeypatch, capsys, merge_jobs.cmd_update, [evaluation_result(first_task)],
+        "cv", "cp", first["eval_run"]["run_id"],
+    )
+
+    second = invoke(
+        monkeypatch, capsys, merge_jobs.cmd_merge,
+        [candidate(source="ashby", jd_text="Changed complete JD")], "cv", "cp",
+    )
+    second_task = load_run(second["eval_run"]["path"])["tasks"][0]
+    job = load_table(isolated_store)["jobs"][0]
+
+    assert second["stats"]["to_analyze"] == 1
+    assert second["stats"]["cached"] == 0
+    assert first_task["jd_input_hash"] != second_task["jd_input_hash"]
+    assert second_task["jd_text"] == "Changed complete JD"
+    assert job["jd_profile"] is None
+    assert job["match_scores"] == {}
+
+
+def test_partial_update_removes_completed_task_jd_while_pending_jd_remains(
+    isolated_store, monkeypatch, capsys
+):
+    merged = invoke(
+        monkeypatch, capsys, merge_jobs.cmd_merge,
+        [candidate(1, jd_text="First JD"), candidate(2, jd_text="Second JD")],
+        "cv", "cp",
+    )
+    tasks = load_run(merged["eval_run"]["path"])["tasks"]
+
+    partial = invoke(
+        monkeypatch, capsys, merge_jobs.cmd_update, [evaluation_result(tasks[0])],
+        "cv", "cp", merged["eval_run"]["run_id"],
+    )
+    retained = load_run(merged["eval_run"]["path"])["tasks"]
+
+    assert partial["released"] is False
+    assert "jd_text" not in retained[0]
+    assert retained[1]["jd_text"] == "Second JD"
+
+
 def test_search_can_overlap_evaluation_without_losing_sources(isolated_store, monkeypatch, capsys):
     first = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
     run = load_run(first["eval_run"]["path"])

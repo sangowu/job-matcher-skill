@@ -45,6 +45,73 @@ def test_fake_provider_uses_eu_lever_host_and_sequential_pages():
     assert jobs[0]["identity_keys"] == ["lever:11111111-1111-4111-8111-111111111111"]
 
 
+def test_eu_greenhouse_page_uses_the_official_global_api_host():
+    provider = FakeAtsProvider([{"jobs": []}])
+
+    metrics, jobs = fetch_board(
+        {
+            "provider": "greenhouse",
+            "company": "Acme",
+            "board_token": "acme",
+            "instance": "eu",
+        },
+        provider_client=provider,
+    )
+
+    assert metrics["ok"] is True
+    assert jobs == []
+    assert provider.calls == [
+        "https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true"
+    ]
+
+
+def test_oversized_greenhouse_content_falls_back_to_bounded_listing():
+    provider = FakeAtsProvider([
+        AtsProviderError("response_too_large", response_bytes=25 * 1024 * 1024 + 1),
+        {
+            "jobs": [{
+                "id": 123,
+                "title": "AI Engineer",
+                "location": {"name": "Dublin"},
+                "absolute_url": "https://job-boards.greenhouse.io/acme/jobs/123",
+            }]
+        },
+    ])
+
+    metrics, jobs = fetch_board(
+        {"provider": "greenhouse", "company": "Acme", "board_token": "acme"},
+        provider_client=provider,
+    )
+
+    assert metrics["ok"] is True
+    assert metrics["content_fallback"] is True
+    assert metrics["requests"] == 2
+    assert metrics["response_bytes"] > 25 * 1024 * 1024
+    assert len(jobs) == 1
+    assert provider.calls == [
+        "https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true",
+        "https://boards-api.greenhouse.io/v1/boards/acme/jobs",
+    ]
+
+
+def test_greenhouse_content_fallback_cannot_exceed_global_request_budget():
+    provider = FakeAtsProvider([
+        AtsProviderError("response_too_large", response_bytes=25 * 1024 * 1024 + 1)
+    ])
+
+    metrics, jobs = fetch_board(
+        {"provider": "greenhouse", "company": "Acme", "board_token": "acme"},
+        provider_client=provider,
+        request_budget=RequestBudget(1),
+    )
+
+    assert jobs == []
+    assert metrics["failure_kind"] == "request_budget_exhausted"
+    assert metrics["content_fallback"] is True
+    assert metrics["response_bytes"] > 25 * 1024 * 1024
+    assert len(provider.calls) == 1
+
+
 def test_request_budget_stops_before_an_extra_network_call():
     provider = FakeAtsProvider([[{
         "id": "11111111-1111-4111-8111-111111111111",

@@ -138,10 +138,12 @@ def test_ats_metrics_are_sanitized_and_summarized_by_provider(tmp_path):
         status="verified",
         requests=1,
         pages_requested=1,
+        response_bytes=12345,
         jobs_received=40,
         jobs_normalized=40,
         jobs_prefiltered=5,
         jobs_emitted=5,
+        content_fallback=True,
         duration_ms=12,
         company="Secret Company",
         board_token="secret-board",
@@ -155,13 +157,16 @@ def test_ats_metrics_are_sanitized_and_summarized_by_provider(tmp_path):
     assert "example.com" not in text
     assert summary["metrics"]["ats"]["requests"] == 1
     assert summary["metrics"]["ats"]["pages"] == 1
+    assert summary["metrics"]["ats"]["response_bytes"] == 12345
     assert summary["metrics"]["ats"]["jobs_emitted"] == 5
+    assert summary["metrics"]["ats"]["content_fallback"] == 1
     assert summary["metrics"]["ats"]["by_provider"] == [{
         "provider": "greenhouse",
         "runs": 1,
         "success_rate": 1.0,
         "requests": 1,
         "pages": 1,
+        "response_bytes": 12345,
         "jobs_received": 40,
         "jobs_emitted": 5,
     }]

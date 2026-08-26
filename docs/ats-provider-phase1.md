@@ -1,13 +1,13 @@
-# ATS Provider Phase 1/2：架构、实现与接入门槛
+# ATS Provider Phase 1/2/3：架构、实现与接入门槛
 
-状态：Phase 1 measured / Phase 2 implemented / local, public regression, and CI verified。基于 Job Matcher v2.3.0，更新日期 2026-08-26。
+状态：Phase 1 measured / Phase 2 implemented / Phase 3 controlled discovery-to-merge measured。基于 Job Matcher v2.3.0，更新日期 2026-08-26。
 
 ## 决策摘要
 
 首批只研究 Ashby、Greenhouse Job Board API 与 Lever Postings API。它们提供无需登录的公开职位 GET 接口，但三者的分页契约不同：
 
 - [Ashby Job Postings API](https://developers.ashbyhq.com/docs/public-job-posting-api) 返回当前公开职位的单个 `jobs` 数组；`includeCompensation=true` 可附带结构化薪酬。`isListed=false` 的直链职位不进入聚合结果。
-- [Greenhouse Job Board API](https://developer.greenhouse.io/job-board.html) 的公开 GET 不要求认证；`GET /v1/boards/{board_token}/jobs?content=true` 返回单个职位列表，Job Board 的 list jobs 契约未提供职位分页参数。
+- [Greenhouse Job Board API](https://developer.greenhouse.io/job-board.html) 的公开 GET 不要求认证；`GET /v1/boards/{board_token}/jobs?content=true` 返回单个职位列表，Job Board 的 list jobs 契约未提供职位分页参数。`job-boards.eu.greenhouse.io` 公开页面也用于发现 board token，但 API 请求仍发送到官方 `boards-api.greenhouse.io`。
 - [Lever Postings API](https://github.com/lever/postings-api) 只暴露 published 职位，支持 global/EU 实例，并用 `skip` + `limit` 分页；API 不提供跨公司全文搜索。
 
 ATS 仍然是 Web Search 发现后的增强来源，但已有已验证公司标识时，ATS 拉取可以与下一批 Web Search 并发，不需要每轮重新等待 Web Search 才开始。
@@ -79,6 +79,8 @@ ATS 调用不计入 `max_websearch_calls`，也不复用浏览器的 3 页上限
 
 API 返回的是整板职位，不能把所有职位直接送给 LLM。必须先做确定性的 title/location 初筛，再受 `top_n + precise_buffer` 与单轮评估预算约束。
 
+Greenhouse 的 `content=true` 整板响应可能超过 25 MB。实现会记录已读取字节数，并仅在 `response_too_large` 时使用同一全局请求预算重试一次不含正文的列表；预算不足或第二次失败时按该 board 失败降级，不扩大请求上限。
+
 ## 失败与法律边界
 
 - 只调用供应商公开文档明确用于公开 careers page 的 GET endpoint，不调用申请 POST、Harvest/Hire/Partner 私有 API。
@@ -96,6 +98,17 @@ API 返回的是整板职位，不能把所有职位直接送给 LLM。必须先
 4. **已完成**：2026-08-26 公开小样本回归 6/6 board 成功，7 个请求接收并规范化 414 条职位，强身份重复率 0%，无截断/限流；脱敏证据不保存职位正文、标题和 URL。见 `docs/performance/ats-phase2-public-api-regression.*`。
 5. **已完成**：PR #20 首轮 [GitHub Actions 32962486697](https://github.com/sangowu/job-matcher-skill/actions/runs/32962486697) 的 Ubuntu/Windows Python 3.10 均通过。正式路由已经写入 `WORKFLOW.md`，但默认开关保持关闭，只有使用者显式启用后才会发出 ATS 请求。
 
+## Phase 3 受控端到端结果
+
+2026-08-26 使用固定的 5 条 Web 候选作为对照组，并在生产硬上限内同步 3 个公开 board。Web-only 与 Web+ATS 分别写入隔离临时主表，再复用生产 `ats_pipeline.sync_registry` 与 `merge_jobs.py` 比较 discovery-to-merge 结果：
+
+- 3/3 board 成功，5 个公开 GET 请求共读取 48,955,686 bytes；其中 1 个 Greenhouse board 因含正文响应超过 25 MB，消耗第 2 个请求降级到列表模式。
+- ATS 接收并规范化 5,492 条公开职位，确定性初筛保留 22 条，受 `top_n + precise_buffer` 限制输出 20 条。
+- 统一强身份 merge 后，Web-only 为 5 条唯一记录，Web+ATS 为 24 条；新增 19 条，避免 1 次重复评估，原 5 条 Web 记录全部保留。
+- ATS 同步耗时 12,568.189 ms；Web-only merge 为 27.636 ms，Web+ATS merge 为 85.493 ms，ATS arm discovery-to-merge 总计 12,653.682 ms。
+
+这只证明候选发现、身份去重与 Web 结果保留的机械链路。首次独立标题级质量审计判定：固定 Web 对照组 4/5 直接相关，而 ATS 输出只有 5/20 直接相关、3/20 边缘/延伸、12/20 误报；误报主要来自移动端、Android、iOS、UI 职位仅因产品后缀含 `AI` 而通过。修复把单独的 `ai` 作为低信息量 token，并保留 `AI evaluation`、`AI systems`、`agent systems` 等明确岗位短语。最终真实复核输出 8 条：6 条直接相关、2 条边缘/延伸、0 条误报，严格 precision 75%；8/8 链接存活、Web 结果保留 5/5，并继续避免 1 次跨来源重复评估，标题级质量门禁通过。ATS 候选的 JD 正文仍未直接交给评估 worker，因此没有测得浏览器兜底减少或完整 CV-to-JD 质量。低请求数也不等于低数据量，最终复核仍读取约 49 MB。脱敏结果见 `docs/performance/ats-phase3-controlled-e2e.*` 与 `docs/performance/ats-phase3-quality-audit.*`。
+
 ## 实现入口
 
 - `scripts/ats_provider.py`：统一 Provider 协议、公开 HTTPS GET、三家 payload 规范化、Lever 顺序分页、线程安全请求预算和 Fake Provider。
@@ -103,5 +116,6 @@ API 返回的是整板职位，不能把所有职位直接送给 LLM。必须先
 - `scripts/ats_pipeline.py sync --profile <path>`：同步已到期 board，跨 board 有界并发，按 CV 做确定性初筛并输出 merge-ready 候选。
 - `scripts/ats_pipeline.py run --profile <path>`：从 stdin 接收一批 Web 候选，串联 discover + sync。
 - `scripts/benchmark_ats.py`：复用生产适配器的公开脱敏回归；`scripts/benchmark_pipeline.py` 另含完全离线的三 Provider Fake 基准。
+- `scripts/benchmark_ats_e2e.py`：固定 Web 对照组与受限公开 ATS 的 PII-safe discovery-to-merge A/B；不保存职位标题、公司、URL、CV/profile 字段、board token 或异常全文。
 
 标识库和同步状态由编排者每轮最多调用一次，文件写入不是给多个独立编排者同时竞争的分布式协调机制；职位主表仍只允许 `merge_jobs.py` 串行写入。

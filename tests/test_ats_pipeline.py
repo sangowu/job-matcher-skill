@@ -208,6 +208,43 @@ def test_prefilter_is_deterministic_for_role_location_remote_and_seniority():
     ]
 
 
+def test_prefilter_does_not_treat_ai_product_suffix_as_role_match():
+    target_profile = {
+        "preferred_roles": [
+            "LLM Quality Engineer",
+            "AI Evaluation Engineer",
+            "Applied AI Engineer",
+            "LLM Engineer",
+        ],
+        "preferred_locations": ["Ireland"],
+        "open_to_remote": False,
+        "blocked_levels": ["lead"],
+    }
+    jobs = [
+        {"title": "Mobile Application Developer - AI Neobank App", "location": "Ireland"},
+        {"title": "Android Developer - AI Finance Agent", "location": "Ireland"},
+        {"title": "iOS Developer - AI Finance Agent", "location": "Ireland"},
+        {"title": "UI Designer - AI Neobank App", "location": "Ireland"},
+        {"title": "Applied AI Engineer - AI Finance Agent", "location": "Ireland"},
+        {"title": "AI Developer", "location": "Ireland"},
+        {"title": "AI Evaluation Specialist", "location": "Ireland"},
+        {"title": "Senior Machine Learning Engineer", "location": "Ireland"},
+        {"title": "Backend Engineer, AI (Agent Systems)", "location": "Ireland"},
+        {"title": "Full Stack Engineer, AI systems", "location": "Ireland"},
+    ]
+
+    filtered = ats_pipeline.prefilter_jobs(jobs, target_profile)
+
+    assert [job["title"] for job in filtered] == [
+        "Applied AI Engineer - AI Finance Agent",
+        "AI Developer",
+        "AI Evaluation Specialist",
+        "Senior Machine Learning Engineer",
+        "Backend Engineer, AI (Agent Systems)",
+        "Full Stack Engineer, AI systems",
+    ]
+
+
 def test_global_request_budget_allows_partial_success(isolated_ats):
     store = registry(board("greenhouse"), board("ashby", token="ashbyco"))
     provider = FakeAtsProvider({

@@ -1,0 +1,376 @@
+{
+  "baseline": {
+    "jobs_normalized_per_run": [
+      292
+    ],
+    "jobs_with_jd_per_run": [
+      292
+    ],
+    "requests_per_run": [
+      3
+    ],
+    "response_bytes": {
+      "p50": 4581392.0,
+      "p95": 4581392.0
+    },
+    "runs": 3,
+    "success_rate": 1.0,
+    "wall_ms": {
+      "p50": 2407.832,
+      "p95": 2969.542
+    }
+  },
+  "comparison": {
+    "request_delta": 0,
+    "wall_time_change": -0.0537,
+    "wire_bytes_reduction": 0.7931
+  },
+  "design": {
+    "boards_per_arm": 3,
+    "max_pages": 1,
+    "max_workers": 3,
+    "minimum_wire_reduction": 0.2,
+    "order": "alternating_ab_ba",
+    "page_size": 50,
+    "pairs": 3,
+    "requests_per_arm_budget": 3
+  },
+  "environment": {
+    "os": "Windows",
+    "python": "3.13.5"
+  },
+  "generated_at": "2026-08-27T10:14:49.296373+00:00",
+  "limitations": {
+    "model_cost_measured": false,
+    "provider_monetary_cost_measured": false,
+    "public_network_variance": true
+  },
+  "optimized": {
+    "jobs_normalized_per_run": [
+      292
+    ],
+    "jobs_with_jd_per_run": [
+      292
+    ],
+    "requests_per_run": [
+      3
+    ],
+    "response_bytes": {
+      "p50": 948090.0,
+      "p95": 948111.6
+    },
+    "runs": 3,
+    "success_rate": 1.0,
+    "wall_ms": {
+      "p50": 2278.456,
+      "p95": 2451.821
+    }
+  },
+  "pair_checks": [
+    {
+      "both_ok": true,
+      "content_equivalent": true,
+      "jobs_equal": true,
+      "pair": 1,
+      "requests_equal": true
+    },
+    {
+      "both_ok": true,
+      "content_equivalent": true,
+      "jobs_equal": true,
+      "pair": 2,
+      "requests_equal": true
+    },
+    {
+      "both_ok": true,
+      "content_equivalent": true,
+      "jobs_equal": true,
+      "pair": 3,
+      "requests_equal": true
+    }
+  ],
+  "privacy": {
+    "contains_api_keys": false,
+    "contains_board_tokens": false,
+    "contains_company_names": false,
+    "contains_content_fingerprints": false,
+    "contains_job_descriptions": false,
+    "contains_job_titles": false,
+    "contains_job_urls": false,
+    "contains_profile_fields": false
+  },
+  "quality_gate": {
+    "checks": {
+      "all_runs_succeeded": true,
+      "content_equivalent": true,
+      "job_counts_equal": true,
+      "request_count_equal": true,
+      "wire_reduction": true
+    },
+    "failed": [],
+    "passed": true
+  },
+  "run_kind": "ats_http_compression_ab",
+  "runs": [
+    {
+      "compression": false,
+      "jobs_normalized": 292,
+      "jobs_with_jd": 292,
+      "ok": true,
+      "order_position": 1,
+      "pair": 1,
+      "providers": [
+        {
+          "duration_ms": 461.383,
+          "failure_kind": "",
+          "jobs_normalized": 146,
+          "jobs_with_jd": 146,
+          "ok": true,
+          "provider": "ashby",
+          "requests": 1,
+          "response_bytes": 2449187
+        },
+        {
+          "duration_ms": 419.976,
+          "failure_kind": "",
+          "jobs_normalized": 120,
+          "jobs_with_jd": 120,
+          "ok": true,
+          "provider": "greenhouse",
+          "requests": 1,
+          "response_bytes": 1651781
+        },
+        {
+          "duration_ms": 3029.617,
+          "failure_kind": "",
+          "jobs_normalized": 26,
+          "jobs_with_jd": 26,
+          "ok": true,
+          "provider": "lever",
+          "requests": 1,
+          "response_bytes": 480424
+        }
+      ],
+      "requests": 3,
+      "response_bytes": 4581392,
+      "wall_ms": 3031.954
+    },
+    {
+      "compression": true,
+      "jobs_normalized": 292,
+      "jobs_with_jd": 292,
+      "ok": true,
+      "order_position": 2,
+      "pair": 1,
+      "providers": [
+        {
+          "duration_ms": 182.823,
+          "failure_kind": "",
+          "jobs_normalized": 146,
+          "jobs_with_jd": 146,
+          "ok": true,
+          "provider": "ashby",
+          "requests": 1,
+          "response_bytes": 223525
+        },
+        {
+          "duration_ms": 328.759,
+          "failure_kind": "",
+          "jobs_normalized": 120,
+          "jobs_with_jd": 120,
+          "ok": true,
+          "provider": "greenhouse",
+          "requests": 1,
+          "response_bytes": 244141
+        },
+        {
+          "duration_ms": 2469.526,
+          "failure_kind": "",
+          "jobs_normalized": 26,
+          "jobs_with_jd": 26,
+          "ok": true,
+          "provider": "lever",
+          "requests": 1,
+          "response_bytes": 480424
+        }
+      ],
+      "requests": 3,
+      "response_bytes": 948090,
+      "wall_ms": 2471.084
+    },
+    {
+      "compression": true,
+      "jobs_normalized": 292,
+      "jobs_with_jd": 292,
+      "ok": true,
+      "order_position": 1,
+      "pair": 2,
+      "providers": [
+        {
+          "duration_ms": 433.895,
+          "failure_kind": "",
+          "jobs_normalized": 146,
+          "jobs_with_jd": 146,
+          "ok": true,
+          "provider": "ashby",
+          "requests": 1,
+          "response_bytes": 223525
+        },
+        {
+          "duration_ms": 296.901,
+          "failure_kind": "",
+          "jobs_normalized": 120,
+          "jobs_with_jd": 120,
+          "ok": true,
+          "provider": "greenhouse",
+          "requests": 1,
+          "response_bytes": 244141
+        },
+        {
+          "duration_ms": 2276.69,
+          "failure_kind": "",
+          "jobs_normalized": 26,
+          "jobs_with_jd": 26,
+          "ok": true,
+          "provider": "lever",
+          "requests": 1,
+          "response_bytes": 480424
+        }
+      ],
+      "requests": 3,
+      "response_bytes": 948090,
+      "wall_ms": 2278.456
+    },
+    {
+      "compression": false,
+      "jobs_normalized": 292,
+      "jobs_with_jd": 292,
+      "ok": true,
+      "order_position": 2,
+      "pair": 2,
+      "providers": [
+        {
+          "duration_ms": 166.094,
+          "failure_kind": "",
+          "jobs_normalized": 146,
+          "jobs_with_jd": 146,
+          "ok": true,
+          "provider": "ashby",
+          "requests": 1,
+          "response_bytes": 2449187
+        },
+        {
+          "duration_ms": 349.212,
+          "failure_kind": "",
+          "jobs_normalized": 120,
+          "jobs_with_jd": 120,
+          "ok": true,
+          "provider": "greenhouse",
+          "requests": 1,
+          "response_bytes": 1651781
+        },
+        {
+          "duration_ms": 2406.487,
+          "failure_kind": "",
+          "jobs_normalized": 26,
+          "jobs_with_jd": 26,
+          "ok": true,
+          "provider": "lever",
+          "requests": 1,
+          "response_bytes": 480424
+        }
+      ],
+      "requests": 3,
+      "response_bytes": 4581392,
+      "wall_ms": 2407.832
+    },
+    {
+      "compression": false,
+      "jobs_normalized": 292,
+      "jobs_with_jd": 292,
+      "ok": true,
+      "order_position": 1,
+      "pair": 3,
+      "providers": [
+        {
+          "duration_ms": 189.259,
+          "failure_kind": "",
+          "jobs_normalized": 146,
+          "jobs_with_jd": 146,
+          "ok": true,
+          "provider": "ashby",
+          "requests": 1,
+          "response_bytes": 2449187
+        },
+        {
+          "duration_ms": 390.567,
+          "failure_kind": "",
+          "jobs_normalized": 120,
+          "jobs_with_jd": 120,
+          "ok": true,
+          "provider": "greenhouse",
+          "requests": 1,
+          "response_bytes": 1651781
+        },
+        {
+          "duration_ms": 2285.931,
+          "failure_kind": "",
+          "jobs_normalized": 26,
+          "jobs_with_jd": 26,
+          "ok": true,
+          "provider": "lever",
+          "requests": 1,
+          "response_bytes": 480424
+        }
+      ],
+      "requests": 3,
+      "response_bytes": 4581392,
+      "wall_ms": 2287.375
+    },
+    {
+      "compression": true,
+      "jobs_normalized": 292,
+      "jobs_with_jd": 292,
+      "ok": true,
+      "order_position": 2,
+      "pair": 3,
+      "providers": [
+        {
+          "duration_ms": 161.757,
+          "failure_kind": "",
+          "jobs_normalized": 146,
+          "jobs_with_jd": 146,
+          "ok": true,
+          "provider": "ashby",
+          "requests": 1,
+          "response_bytes": 223525
+        },
+        {
+          "duration_ms": 321.028,
+          "failure_kind": "",
+          "jobs_normalized": 120,
+          "jobs_with_jd": 120,
+          "ok": true,
+          "provider": "greenhouse",
+          "requests": 1,
+          "response_bytes": 244165
+        },
+        {
+          "duration_ms": 2235.272,
+          "failure_kind": "",
+          "jobs_normalized": 26,
+          "jobs_with_jd": 26,
+          "ok": true,
+          "provider": "lever",
+          "requests": 1,
+          "response_bytes": 480424
+        }
+      ],
+      "requests": 3,
+      "response_bytes": 948114,
+      "wall_ms": 2236.526
+    }
+  ],
+  "schema_version": 1,
+  "skill_version": "2.3.0"
+}

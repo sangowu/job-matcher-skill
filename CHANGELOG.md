@@ -9,6 +9,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A bounded, count-only interleaved ATS HTTP-compression A/B harness with content-equivalence, request-count, job-count, and minimum wire-reduction gates.
 - A bounded three-provider ATS quality collector and count-only audit with pre-registered JD coverage, false-positive, direct/adjacent calibration, contract, and browser-fallback gates.
 - ATS-to-evaluation JD handoff: normalized Ashby/Greenhouse/Lever descriptions now flow through run-scoped task snapshots so eligible workers can skip a second page fetch.
 - `ats_handoff.py`, an orchestration entry point that keeps full ATS candidates in process/subprocess stdin while returning only count summaries and merge task metadata to the agent.
@@ -24,6 +25,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Public ATS requests now advertise gzip support by default while independently bounding compressed wire data and decompressed JSON; the transport switch remains injectable for controlled A/B tests.
 - ATS HTML descriptions are converted to plain text, script/style content is discarded, and each handoff is capped at 50,000 characters. Evaluation workers treat it as untrusted data and use browser fetching only when no ATS text is available.
 - Canonical jobs persist only `jd_content_hash`; a changed hash invalidates cached JD analysis and match scores. Completed/conflicted tasks immediately discard transient JD text and completed/expired run snapshots are deleted.
 - The public ATS benchmark now reuses the production parser and pagination implementation so benchmark contracts cannot drift from runtime behavior; ATS remains explicitly disabled by default.
@@ -38,12 +40,14 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- Compressed ATS payloads are decompressed through a bounded stream, preventing a small wire response from bypassing the existing 25 MB response limit.
 - Raw ATS JD text is excluded from the canonical table, command output, runtime metrics, sync state, benchmark reports, and evaluation history; it exists only in an active local evaluation task.
 - The ATS benchmark only performs allowlisted public GET requests and never persists job descriptions, titles, URLs, candidate data, API keys, or arbitrary exception text.
 - The controlled ATS A/B artifact is count-only and omits CV/profile fields, board tokens, company names, job titles, URLs, API keys, and raw exception text.
 
 ### Performance
 
+- A three-pair live A/B across one Ashby, Greenhouse, and Lever board kept 292 jobs, 292 JD-bearing jobs, and 3 requests identical in every arm. Median wire bytes fell from 4,581,392 to 948,090 (-79.31%); median wall time moved from 2,407.832 ms to 2,278.456 ms (-5.37%). Content fingerprints matched in all pairs. The byte reduction is the accepted optimization; public-network variance means the latency observation is not a guaranteed speedup.
 - The Phase 5 bounded live sample used 3 public GETs across Ashby, Greenhouse, and Lever, normalized 291 jobs in 2,672.85 ms, and handed off complete JD text for 7/7 sampled jobs. All 7 five-dimensional results passed the contract; one direct job scored 92.0, five adjacent jobs averaged 65.15, one false positive produced a 14.29% false-positive rate, and no adjacent job was inflated to `strong_apply`. This is a small 3/3/1 provider sample with only one direct job, not a market-wide precision or browser A/B claim.
 - The 30-iteration Phase 5 offline regression recorded core total p50/p95 of 53.541/60.395 ms and ATS Fake normalization p50/p95 of 5.133/5.536 ms. Both were slower than the Phase 4 snapshot, alongside slowdowns in unchanged core stages, so no performance improvement or parser-specific regression is claimed.
 - The Phase 4 offline handoff baseline completed three-provider ATS normalization at p50 4.094 ms / p95 5.108 ms and normalization-through-evaluation-snapshot handoff at p50 7.408 ms / p95 8.367 ms across 30 runs. Each run handed off 3/3 JDs, made all 3 tasks eligible to skip page fetching, and persisted zero raw JDs in the canonical table. No live latency or scoring-quality claim is made from this fixture.

@@ -7,6 +7,7 @@ import re
 import threading
 import time
 from collections import deque
+from html import unescape
 from html.parser import HTMLParser
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
@@ -64,16 +65,28 @@ class _JobDescriptionParser(HTMLParser):
             self.parts.append(data)
 
 
-def _normalize_jd_text(value: Any, *, is_html: bool) -> tuple[str, bool]:
+def _clean_jd_text(value: Any, *, is_html: bool) -> str:
     text = str(value or "")
     if is_html and text:
+        # Greenhouse can return HTML whose tags are themselves entity-escaped.
+        # Decode a bounded number of layers before parsing so those tags do not
+        # leak into the evaluation text (and encoded script/style stays ignored).
+        for _ in range(2):
+            decoded = unescape(text)
+            if decoded == text:
+                break
+            text = decoded
         parser = _JobDescriptionParser()
         parser.feed(text)
         parser.close()
         text = "".join(parser.parts)
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     lines = [re.sub(r"[ \t\f\v]+", " ", line).strip() for line in text.split("\n")]
-    text = "\n".join(line for line in lines if line).strip()
+    return "\n".join(line for line in lines if line).strip()
+
+
+def _normalize_jd_text(value: Any, *, is_html: bool) -> tuple[str, bool]:
+    text = _clean_jd_text(value, is_html=is_html)
     truncated = len(text) > ATS_JD_MAX_CHARS
     return text[:ATS_JD_MAX_CHARS], truncated
 
@@ -300,6 +313,26 @@ def lever_job(company: str, job: dict[str, Any]) -> dict[str, Any] | None:
                 locations.append(text)
     salary = str(job.get("salaryDescriptionPlain") or "").strip()
     plain_description = job.get("descriptionPlain")
+    description_parts = [
+        _clean_jd_text(
+            plain_description or job.get("description"),
+            is_html=not bool(plain_description),
+        )
+    ]
+    lists = job.get("lists")
+    if isinstance(lists, list):
+        for item in lists:
+            if not isinstance(item, dict):
+                continue
+            description_parts.extend((
+                _clean_jd_text(item.get("text"), is_html=False),
+                _clean_jd_text(item.get("content"), is_html=True),
+            ))
+    additional_plain = job.get("additionalPlain")
+    description_parts.append(_clean_jd_text(
+        additional_plain or job.get("additional"),
+        is_html=not bool(additional_plain),
+    ))
     return _candidate(
         provider="lever",
         provider_id=str(job.get("id") or "").strip(),
@@ -307,8 +340,7 @@ def lever_job(company: str, job: dict[str, Any]) -> dict[str, Any] | None:
         title=str(job.get("text") or "").strip(),
         location="; ".join(locations),
         url=str(job.get("hostedUrl") or "").strip(),
-        description=plain_description or job.get("description"),
-        description_is_html=not bool(plain_description),
+        description="\n".join(part for part in description_parts if part),
         salary=salary,
     )
 

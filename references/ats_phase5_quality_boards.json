@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "boards": [
+    {
+      "provider": "ashby",
+      "company": "Cohere",
+      "board_token": "cohere",
+      "region_focus": ["united_states", "europe"]
+    },
+    {
+      "provider": "greenhouse",
+      "company": "Doctolib",
+      "board_token": "doctolib",
+      "region_focus": ["europe"]
+    },
+    {
+      "provider": "lever",
+      "company": "Sword Health",
+      "board_token": "swordhealth",
+      "instance": "global",
+      "region_focus": ["united_states", "europe"]
+    }
+  ]
+}

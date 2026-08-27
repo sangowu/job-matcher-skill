@@ -1,0 +1,156 @@
+{
+  "schema_version": 1,
+  "run_kind": "ats_phase5_multiprovider_quality_validation",
+  "recorded_at": "2026-08-27",
+  "skill_version": "2.3.0",
+  "environment": {
+    "os": "Windows",
+    "python": "3.13.5"
+  },
+  "collection": {
+    "limits": {
+      "boards": 3,
+      "max_pages": 1,
+      "max_per_provider": 3,
+      "max_workers": 3,
+      "page_size": 50,
+      "request_budget": 3
+    },
+    "providers_attempted": 3,
+    "providers_sampled": 3,
+    "requests": 3,
+    "response_bytes": 4563606,
+    "duration_ms": 2672.85,
+    "jobs_normalized": 291,
+    "title_candidates": 11,
+    "sampled_jobs": 7,
+    "direct_title_jobs": 1,
+    "adjacent_title_jobs": 6,
+    "jobs_with_jd": 7,
+    "jd_handoff_coverage": 1.0,
+    "jd_text_truncated": 0,
+    "providers": [
+      {
+        "provider": "ashby",
+        "requests": 1,
+        "jobs_normalized": 145,
+        "title_candidates": 5,
+        "sampled_jobs": 3,
+        "jobs_with_jd": 3
+      },
+      {
+        "provider": "greenhouse",
+        "requests": 1,
+        "jobs_normalized": 120,
+        "title_candidates": 5,
+        "sampled_jobs": 3,
+        "jobs_with_jd": 3
+      },
+      {
+        "provider": "lever",
+        "requests": 1,
+        "jobs_normalized": 26,
+        "title_candidates": 1,
+        "sampled_jobs": 1,
+        "jobs_with_jd": 1
+      }
+    ]
+  },
+  "parser_regression": {
+    "greenhouse": {
+      "sampled_jobs": 3,
+      "pre_fix_total_chars_with_entity_escaped_markup": 45997,
+      "post_fix_total_plain_text_chars": 19149,
+      "post_fix_jobs_with_html_tag_residue": 0
+    },
+    "lever": {
+      "sampled_jobs": 1,
+      "pre_fix_description_only_chars": 1346,
+      "post_fix_combined_description_lists_additional_chars": 5840,
+      "post_fix_jobs_with_html_tag_residue": 0
+    }
+  },
+  "quality_audit": {
+    "evaluation_method": "orchestrator_manual_five_dimension_rubric",
+    "jobs_sampled": 7,
+    "valid_contract_results": 7,
+    "rejected_contract_results": 0,
+    "contract_acceptance_rate": 1.0,
+    "direct_jobs": 1,
+    "adjacent_jobs": 5,
+    "false_positive_jobs": 1,
+    "false_positive_rate": 0.1429,
+    "direct_apply_rate": 1.0,
+    "adjacent_strong_apply_rate": 0.0,
+    "direct_mean_score": 92.0,
+    "adjacent_mean_score": 65.15,
+    "direct_adjacent_mean_gap": 26.85
+  },
+  "quality_gate": {
+    "passed": true,
+    "thresholds": {
+      "providers_sampled_min": 3,
+      "contract_acceptance_rate_min": 1.0,
+      "jd_handoff_coverage_min": 0.8,
+      "false_positive_rate_max": 0.15,
+      "direct_apply_rate_min": 0.75,
+      "adjacent_strong_apply_rate_max": 0.0,
+      "direct_adjacent_mean_gap_min": 10.0
+    },
+    "failed": []
+  },
+  "browser_evidence": {
+    "fallback_required": 0,
+    "fallback_attempted": 0,
+    "fallback_succeeded": 0,
+    "actual_browser_actions": 0,
+    "actual_ab_measured": false,
+    "kernel_key_available": false,
+    "interpretation": "All sampled ATS records contained usable JD text; no browser fallback was invoked."
+  },
+  "offline_regression": {
+    "artifact": "ats-phase5-offline-regression.json",
+    "iterations": 30,
+    "warmups": 3,
+    "external_calls": 0,
+    "core_total_wall_ms": {
+      "p50": 53.541,
+      "p95": 60.395,
+      "change_vs_phase4_p50_pct": 28.5,
+      "change_vs_phase4_p95_pct": 30.2
+    },
+    "ats_fake_wall_ms": {
+      "p50": 5.133,
+      "p95": 5.536,
+      "change_vs_phase4_p50_pct": 25.4,
+      "change_vs_phase4_p95_pct": 8.4
+    },
+    "ats_handoff_total_ms": {
+      "p50": 9.393,
+      "p95": 10.305,
+      "change_vs_phase4_p50_pct": 26.8,
+      "change_vs_phase4_p95_pct": 23.2
+    },
+    "interpretation": "No performance improvement is claimed. Unchanged merge, update, and render stages slowed in the same run, so the cross-snapshot delta is not attributed to the parser change."
+  },
+  "privacy": {
+    "count_only": true,
+    "contains_api_keys": false,
+    "contains_board_tokens": false,
+    "contains_company_names": false,
+    "contains_job_descriptions": false,
+    "contains_job_titles": false,
+    "contains_job_urls": false,
+    "contains_profile_fields": false,
+    "private_sample_committed": false
+  },
+  "limitations": {
+    "small_sample": true,
+    "direct_job_count": 1,
+    "provider_samples_balanced": false,
+    "market_wide_precision_claim": false,
+    "browser_comparison_claim": false,
+    "model_switch_measured": false,
+    "performance_improvement_claim": false
+  }
+}

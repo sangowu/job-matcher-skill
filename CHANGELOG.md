@@ -9,6 +9,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A bounded three-provider ATS quality collector and count-only audit with pre-registered JD coverage, false-positive, direct/adjacent calibration, contract, and browser-fallback gates.
 - ATS-to-evaluation JD handoff: normalized Ashby/Greenhouse/Lever descriptions now flow through run-scoped task snapshots so eligible workers can skip a second page fetch.
 - `ats_handoff.py`, an orchestration entry point that keeps full ATS candidates in process/subprocess stdin while returning only count summaries and merge task metadata to the agent.
 - Count-only JD availability, truncation, handoff, and handoff-character metrics, plus a reproducible three-provider Fake handoff benchmark.
@@ -32,6 +33,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Greenhouse entity-escaped HTML is decoded before plain-text extraction, preventing literal tags from entering evaluation input; Lever normalization now includes documented `lists` and `additionalPlain` sections instead of dropping requirements and closing content.
 - ATS title prefiltering no longer accepts mobile, Android, iOS, or UI roles solely because an `AI` product suffix overlaps a preferred AI role. Standalone `ai` is low-information while explicit `AI evaluation`, `AI systems`, and `agent systems` phrases remain eligible.
 
 ### Security
@@ -42,6 +44,8 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Performance
 
+- The Phase 5 bounded live sample used 3 public GETs across Ashby, Greenhouse, and Lever, normalized 291 jobs in 2,672.85 ms, and handed off complete JD text for 7/7 sampled jobs. All 7 five-dimensional results passed the contract; one direct job scored 92.0, five adjacent jobs averaged 65.15, one false positive produced a 14.29% false-positive rate, and no adjacent job was inflated to `strong_apply`. This is a small 3/3/1 provider sample with only one direct job, not a market-wide precision or browser A/B claim.
+- The 30-iteration Phase 5 offline regression recorded core total p50/p95 of 53.541/60.395 ms and ATS Fake normalization p50/p95 of 5.133/5.536 ms. Both were slower than the Phase 4 snapshot, alongside slowdowns in unchanged core stages, so no performance improvement or parser-specific regression is claimed.
 - The Phase 4 offline handoff baseline completed three-provider ATS normalization at p50 4.094 ms / p95 5.108 ms and normalization-through-evaluation-snapshot handoff at p50 7.408 ms / p95 8.367 ms across 30 runs. Each run handed off 3/3 JDs, made all 3 tasks eligible to skip page fetching, and persisted zero raw JDs in the canonical table. No live latency or scoring-quality claim is made from this fixture.
 - A one-board live validation handed off JD text for 8/8 emitted candidates with one request; a purposive three-JD five-dimensional audit produced 2 `strong_apply` and 1 `apply`, with 3/3 contract updates accepted, zero conflicts/rejections, and zero raw JD text in completed tasks, the canonical table, or metrics. The sample is single-company and not a market-wide quality estimate.
 - The three-provider offline ATS fixture completed 3 boards / 3 requests / 3 emitted jobs per iteration at p50 6.654 ms and p95 7.867 ms across 30 measured runs, with no external calls. The same machine run showed core total +22.6% p50 / +32.9% p95 versus the earlier checkpoint alongside similar slowdowns in unrelated harness sections; the observation is retained, causation is not claimed, and no core speedup is claimed.

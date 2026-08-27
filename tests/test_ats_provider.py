@@ -1,19 +1,113 @@
 from __future__ import annotations
 
+import gzip
+import json
 import sys
 from pathlib import Path
+
+import pytest
 
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
+import ats_provider  # noqa: E402
 from ats_provider import (  # noqa: E402
     ATS_JD_MAX_CHARS,
     AtsProviderError,
     FakeAtsProvider,
+    HttpAtsProvider,
     RequestBudget,
     fetch_board,
 )
+
+
+class _FakeHttpResponse:
+    def __init__(self, payload: bytes, *, content_encoding: str = "") -> None:
+        self.payload = payload
+        self.headers = {"Content-Encoding": content_encoding}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self, limit: int) -> bytes:
+        return self.payload[:limit]
+
+
+def test_http_provider_requests_gzip_and_reports_wire_bytes(monkeypatch):
+    decoded = json.dumps({"jobs": [{"id": 1}]}).encode()
+    encoded = gzip.compress(decoded)
+    seen = {}
+
+    def fake_urlopen(request, timeout):
+        seen["accept_encoding"] = request.get_header("Accept-encoding")
+        seen["timeout"] = timeout
+        return _FakeHttpResponse(encoded, content_encoding="gzip")
+
+    monkeypatch.setattr(ats_provider, "urlopen", fake_urlopen)
+
+    payload, response_bytes, _ = HttpAtsProvider().fetch_json(
+        "https://example.test/jobs", 12
+    )
+
+    assert payload == {"jobs": [{"id": 1}]}
+    assert response_bytes == len(encoded)
+    assert seen == {"accept_encoding": "gzip", "timeout": 12}
+
+
+def test_http_provider_ab_control_can_disable_compression(monkeypatch):
+    decoded = json.dumps({"jobs": []}).encode()
+    seen = {}
+
+    def fake_urlopen(request, timeout):
+        seen["accept_encoding"] = request.get_header("Accept-encoding")
+        return _FakeHttpResponse(decoded)
+
+    monkeypatch.setattr(ats_provider, "urlopen", fake_urlopen)
+
+    payload, response_bytes, _ = HttpAtsProvider(
+        accept_compression=False
+    ).fetch_json("https://example.test/jobs", 12)
+
+    assert payload == {"jobs": []}
+    assert response_bytes == len(decoded)
+    assert seen["accept_encoding"] is None
+
+
+def test_http_provider_bounds_decompressed_gzip(monkeypatch):
+    monkeypatch.setattr(ats_provider, "MAX_RESPONSE_BYTES", 64)
+    encoded = gzip.compress(b'"' + b"x" * 100 + b'"')
+    monkeypatch.setattr(
+        ats_provider,
+        "urlopen",
+        lambda _request, timeout: _FakeHttpResponse(
+            encoded, content_encoding="gzip"
+        ),
+    )
+
+    with pytest.raises(AtsProviderError) as error:
+        HttpAtsProvider().fetch_json("https://example.test/jobs", 12)
+
+    assert error.value.kind == "response_too_large"
+    assert error.value.response_bytes == len(encoded)
+
+
+def test_http_provider_classifies_invalid_gzip_without_raw_error(monkeypatch):
+    monkeypatch.setattr(
+        ats_provider,
+        "urlopen",
+        lambda _request, timeout: _FakeHttpResponse(
+            b"not-gzip", content_encoding="gzip"
+        ),
+    )
+
+    with pytest.raises(AtsProviderError) as error:
+        HttpAtsProvider().fetch_json("https://example.test/jobs", 12)
+
+    assert error.value.kind == "invalid_compression"
 
 
 def test_provider_normalizes_html_jd_and_caps_untrusted_content():

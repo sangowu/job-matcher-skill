@@ -7,8 +7,10 @@ import re
 import threading
 import time
 from collections import deque
+from gzip import GzipFile
 from html import unescape
 from html.parser import HTMLParser
+from io import BytesIO
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -26,6 +28,7 @@ _SAFE_FAILURES = {
     "network_error",
     "timeout",
     "invalid_json",
+    "invalid_compression",
     "invalid_payload",
     "response_too_large",
     "unsupported_provider",
@@ -111,21 +114,30 @@ class AtsProvider(Protocol):
 class HttpAtsProvider:
     """Production transport: public HTTPS GET only, with a bounded response."""
 
+    def __init__(self, *, accept_compression: bool = True) -> None:
+        self.accept_compression = accept_compression
+
     def fetch_json(self, url: str, timeout_seconds: float) -> tuple[Any, int, float]:
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": (
+                "JobMatcher-ATS/1.0 (+https://github.com/sangowu/job-matcher-skill)"
+            ),
+        }
+        if self.accept_compression:
+            headers["Accept-Encoding"] = "gzip"
         request = Request(
             url,
-            headers={
-                "Accept": "application/json",
-                "User-Agent": (
-                    "JobMatcher-ATS/1.0 (+https://github.com/sangowu/job-matcher-skill)"
-                ),
-            },
+            headers=headers,
             method="GET",
         )
         started = time.perf_counter()
         try:
             with urlopen(request, timeout=timeout_seconds) as response:
                 payload = response.read(MAX_RESPONSE_BYTES + 1)
+                content_encoding = str(
+                    response.headers.get("Content-Encoding", "")
+                ).strip().lower()
         except HTTPError as error:
             raise AtsProviderError("http_error", error.code) from error
         except TimeoutError as error:
@@ -133,10 +145,27 @@ class HttpAtsProvider:
         except (URLError, OSError) as error:
             raise AtsProviderError("network_error") from error
         duration_ms = (time.perf_counter() - started) * 1000
-        if len(payload) > MAX_RESPONSE_BYTES:
-            raise AtsProviderError("response_too_large", response_bytes=len(payload))
+        response_bytes = len(payload)
+        if response_bytes > MAX_RESPONSE_BYTES:
+            raise AtsProviderError("response_too_large", response_bytes=response_bytes)
+        if content_encoding == "gzip":
+            try:
+                with GzipFile(fileobj=BytesIO(payload)) as compressed:
+                    payload = compressed.read(MAX_RESPONSE_BYTES + 1)
+            except (EOFError, OSError) as error:
+                raise AtsProviderError(
+                    "invalid_compression", response_bytes=response_bytes
+                ) from error
+            if len(payload) > MAX_RESPONSE_BYTES:
+                raise AtsProviderError(
+                    "response_too_large", response_bytes=response_bytes
+                )
+        elif content_encoding not in {"", "identity"}:
+            raise AtsProviderError(
+                "invalid_compression", response_bytes=response_bytes
+            )
         try:
-            return json.loads(payload), len(payload), duration_ms
+            return json.loads(payload), response_bytes, duration_ms
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise AtsProviderError("invalid_json") from error
 

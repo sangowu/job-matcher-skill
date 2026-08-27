@@ -43,6 +43,60 @@ def test_provider_normalizes_html_jd_and_caps_untrusted_content():
     assert metrics["jd_text_truncated"] == 1
 
 
+def test_greenhouse_decodes_entity_escaped_html_before_normalizing_jd():
+    payload = {
+        "jobs": [{
+            "id": 123,
+            "title": "AI Engineer",
+            "location": {"name": "Dublin"},
+            "absolute_url": "https://job-boards.greenhouse.io/acme/jobs/123",
+            "content": (
+                "&lt;h2&gt;Role &amp;amp; scope&lt;/h2&gt;"
+                "&lt;script&gt;ignore()&lt;/script&gt;"
+                "&lt;p&gt;Build safe AI systems.&lt;/p&gt;"
+            ),
+        }]
+    }
+
+    _, jobs = fetch_board(
+        {"provider": "greenhouse", "company": "Acme", "board_token": "acme"},
+        provider_client=FakeAtsProvider([payload]),
+    )
+
+    assert jobs[0]["jd_text"] == "Role & scope\nBuild safe AI systems."
+    assert "<" not in jobs[0]["jd_text"]
+    assert "ignore()" not in jobs[0]["jd_text"]
+
+
+def test_lever_combines_description_lists_and_additional_content():
+    payload = [{
+        "id": "11111111-1111-4111-8111-111111111111",
+        "text": "AI Engineer",
+        "hostedUrl": (
+            "https://jobs.lever.co/acme/"
+            "11111111-1111-4111-8111-111111111111"
+        ),
+        "categories": {"location": "Dublin"},
+        "descriptionPlain": "Build reliable products.",
+        "lists": [{
+            "text": "Requirements",
+            "content": "<ul><li>Python</li><li>LLMs</li></ul>",
+        }],
+        "additionalPlain": "Equal opportunity employer.",
+    }]
+
+    _, jobs = fetch_board(
+        {"provider": "lever", "company": "Acme", "board_token": "acme"},
+        provider_client=FakeAtsProvider([payload]),
+    )
+
+    assert jobs[0]["jd_text"] == (
+        "Build reliable products.\nRequirements\nPython\nLLMs\n"
+        "Equal opportunity employer."
+    )
+    assert "<li>" not in jobs[0]["jd_text"]
+
+
 def test_fake_provider_uses_eu_lever_host_and_sequential_pages():
     provider = FakeAtsProvider({
         "api.eu.lever.co": [

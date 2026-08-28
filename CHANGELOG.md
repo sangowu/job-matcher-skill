@@ -38,6 +38,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Runtime metadata now reuses the Python 3.10-compatible version reader instead of importing Python 3.11-only `tomllib`, restoring the declared Python 3.10 CI path.
 - Greenhouse entity-escaped HTML is decoded before plain-text extraction, preventing literal tags from entering evaluation input; Lever normalization now includes documented `lists` and `additionalPlain` sections instead of dropping requirements and closing content.
 - ATS title prefiltering no longer accepts mobile, Android, iOS, or UI roles solely because an `AI` product suffix overlaps a preferred AI role. Standalone `ai` is low-information while explicit `AI evaluation`, `AI systems`, and `agent systems` phrases remain eligible.
 

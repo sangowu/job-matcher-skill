@@ -18,11 +18,30 @@ from runtime_metrics import (  # noqa: E402
     build_summary,
     record_metric,
     render_markdown,
+    run_metadata,
 )
 import summarize_metrics  # noqa: E402
 
 
 RUN_ID = "round-20260827-120000-abcdef"
+
+
+def test_run_metadata_does_not_require_python_311_tomllib(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def block_tomllib(name, *args, **kwargs):
+        if name == "tomllib":
+            raise ModuleNotFoundError("simulated Python 3.10")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", block_tomllib)
+    run_metadata.cache_clear()
+    try:
+        assert run_metadata()["skill_version"] == "2.3.0"
+    finally:
+        run_metadata.cache_clear()
 
 
 def test_record_metric_drops_high_cardinality_and_sensitive_fields(tmp_path):

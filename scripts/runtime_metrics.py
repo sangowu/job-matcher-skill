@@ -14,6 +14,8 @@ from hashlib import sha256
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from _jobutil import skill_version
+
 
 SCHEMA_VERSION = 5
 DEFAULT_THRESHOLDS = {
@@ -221,15 +223,9 @@ def run_metadata() -> dict[str, str | bool | None]:
     """Return stable, non-business run metadata without failing the pipeline."""
     root = Path(__file__).resolve().parent.parent
     version: str | None = None
-    try:
-        import tomllib
-
-        project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-        value = project.get("project", {}).get("version")
-        if isinstance(value, str) and _SAFE_CATEGORY.fullmatch(value):
-            version = value
-    except (OSError, ValueError):
-        pass
+    value = skill_version()
+    if _SAFE_CATEGORY.fullmatch(value):
+        version = value
 
     revision: str | None = None
     code_dirty: bool | None = None

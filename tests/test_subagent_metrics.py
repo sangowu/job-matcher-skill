@@ -12,7 +12,11 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from runtime_metrics import build_summary, record_metric, render_markdown  # noqa: E402
+import subagent_metrics  # noqa: E402
 from subagent_metrics import resolve_profile  # noqa: E402
+
+
+RUN_ID = "round-20260827-120000-abcdef"
 
 
 def test_default_subagent_profiles_choose_models_by_workload():
@@ -151,3 +155,35 @@ def test_free_form_category_values_are_not_written(tmp_path):
     event = json.loads(path.read_text(encoding="utf-8"))
     assert "model_requested" not in event
     assert "failure_kind" not in event
+
+
+def test_subagent_cli_links_usage_and_actual_cost(monkeypatch, tmp_path, capsys):
+    path = tmp_path / "metrics.jsonl"
+    monkeypatch.setattr(sys, "argv", [
+        "subagent_metrics.py",
+        "record",
+        "--run-id", RUN_ID,
+        "--role", "search",
+        "--ok",
+        "--model-effective", "gpt-5.6-luna",
+        "--effort-effective", "low",
+        "--duration-ms", "100",
+        "--items-in", "1",
+        "--items-out", "5",
+        "--valid-items", "4",
+        "--rejected-items", "1",
+        "--input-tokens", "120",
+        "--output-tokens", "40",
+        "--cost-usd", "0.0025",
+        "--cost-type", "actual",
+        "--metrics-path", str(path),
+    ])
+
+    assert subagent_metrics.main() == 0
+    assert json.loads(capsys.readouterr().out) == {"recorded": True}
+    event = json.loads(path.read_text(encoding="utf-8"))
+    assert event["run_id"] == RUN_ID
+    assert event["input_tokens"] == 120 and event["reasoning_tokens"] is None
+    summary = build_summary(path, tmp_path / "eval_runs")
+    assert summary["metrics"]["subagents"]["actual_cost_usd"] == 0.0025
+    assert summary["metrics"]["subagents"]["estimated_cost_usd"] is None

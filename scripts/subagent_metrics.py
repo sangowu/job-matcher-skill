@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 from pathlib import Path
 
 from _jobutil import SKILL_ROOT, load_config
-from runtime_metrics import record_metric
+from runtime_metrics import record_metric, validate_run_id
 
 
 ROLES = ("cv_extract", "search", "evaluation", "browser")
@@ -36,6 +37,20 @@ DEFAULT_PROFILES = {
         "fork_turns": "none",
     },
 }
+
+
+def _nonnegative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be non-negative")
+    return parsed
+
+
+def _nonnegative_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0:
+        raise argparse.ArgumentTypeError("must be non-negative")
+    return parsed
 
 
 def resolve_profile(role: str, config: dict | None = None) -> dict[str, str]:
@@ -74,6 +89,7 @@ def _parser() -> argparse.ArgumentParser:
     profile.add_argument("--role", required=True, choices=ROLES)
 
     record = subparsers.add_parser("record", help="append one sanitized subagent metric")
+    record.add_argument("--run-id", required=True, type=validate_run_id)
     record.add_argument("--role", required=True, choices=ROLES)
     outcome = record.add_mutually_exclusive_group(required=True)
     outcome.add_argument("--ok", action="store_true")
@@ -83,11 +99,21 @@ def _parser() -> argparse.ArgumentParser:
         "--effort-effective", required=True, choices=(*REASONING_EFFORTS, "inherited")
     )
     record.add_argument("--fallback-used", action="store_true")
-    record.add_argument("--duration-ms", type=float, required=True)
-    record.add_argument("--items-in", type=int, default=0)
-    record.add_argument("--items-out", type=int, default=0)
-    record.add_argument("--valid-items", type=int, default=0)
-    record.add_argument("--rejected-items", type=int, default=0)
+    record.add_argument("--duration-ms", type=_nonnegative_float, required=True)
+    record.add_argument("--items-in", type=_nonnegative_int, default=0)
+    record.add_argument("--items-out", type=_nonnegative_int, default=0)
+    record.add_argument("--valid-items", type=_nonnegative_int, default=0)
+    record.add_argument("--rejected-items", type=_nonnegative_int, default=0)
+    record.add_argument("--input-tokens", type=_nonnegative_int)
+    record.add_argument("--output-tokens", type=_nonnegative_int)
+    record.add_argument("--cached-input-tokens", type=_nonnegative_int)
+    record.add_argument("--reasoning-tokens", type=_nonnegative_int)
+    record.add_argument("--cost-usd", type=_nonnegative_float)
+    record.add_argument(
+        "--cost-type",
+        choices=("actual", "estimated", "unavailable"),
+        default="unavailable",
+    )
     record.add_argument("--failure-kind")
     record.add_argument(
         "--metrics-path",
@@ -104,7 +130,15 @@ def main() -> int:
         print(json.dumps(profile, ensure_ascii=False, sort_keys=True))
         return 0
 
+    if not _SAFE_MODEL.fullmatch(args.model_effective):
+        raise SystemExit("--model-effective must be a safe model identifier")
+    if args.valid_items + args.rejected_items > args.items_out:
+        raise SystemExit("valid-items + rejected-items cannot exceed items-out")
+    if (args.cost_type == "unavailable") != (args.cost_usd is None):
+        raise SystemExit("cost-usd and cost-type must be provided together")
+
     values = {
+        "run_id": args.run_id,
         "role": args.role,
         "model_requested": profile["model"],
         "model_effective": args.model_effective,
@@ -116,6 +150,12 @@ def main() -> int:
         "items_out": args.items_out,
         "valid_items": args.valid_items,
         "rejected_items": args.rejected_items,
+        "input_tokens": args.input_tokens,
+        "output_tokens": args.output_tokens,
+        "cached_input_tokens": args.cached_input_tokens,
+        "reasoning_tokens": args.reasoning_tokens,
+        "cost_usd": args.cost_usd,
+        "cost_type": args.cost_type,
     }
     if args.failure_kind:
         values["failure_kind"] = args.failure_kind

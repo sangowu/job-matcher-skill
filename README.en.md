@@ -63,6 +63,7 @@ job-matcher/
 │   ├── analysis_contract.py  # validate JDProfile/MatchScore worker output
 │   ├── merge_jobs.py         # single writer: dedup/cache/eval snapshots/conditional commit
 │   ├── runtime_metrics.py    # PII-safe JSONL events and health calculations
+│   ├── search_metrics.py     # page-level Web Search counts and latency
 │   ├── summarize_metrics.py  # 7/30-day Markdown/JSON health report
 │   ├── round_timer.py        # full-round timing, compared per orchestration mode
 │   ├── subagent_metrics.py   # requested/effective subagent model and effort metrics
@@ -166,16 +167,19 @@ python scripts/summarize_metrics.py --days 30 --format json
 python scripts/summarize_metrics.py --fail-on-breach
 ```
 
-The report covers throughput/cache behavior, evaluation success/rejection/conflict rates, subagent success/valid-item/fallback rates grouped by effective model and effort, browser sessions/handoffs, command and lock-wait p50/p95/p99, and backlog state. Every HTML render automatically embeds static 7/30-day snapshots. Threshold violations produce `degraded`; the CLI's `--fail-on-breach` also exits with code 2. See [the monitoring guide](docs/monitoring.md) for definitions and privacy boundaries.
+The report covers run completeness, Web Search calls/effective candidates, throughput/cache behavior, evaluation rates, effective subagent model/effort/token/cost coverage, browser and ATS counts, latency percentiles, and backlog state. Threshold violations produce `degraded`; missing required events produce `unknown` rather than a false `healthy`. `--fail-on-breach` exits with code 2 for either case. See [the monitoring guide](docs/monitoring.md) and the [run-scoped metrics contract](docs/run-metrics-contract.md).
 
 Full-round wall clock is collected separately, because per-script duration is a rounding error next to the search and evaluation work between calls and cannot answer whether overlapped batching pays off:
 
 ```text
-python scripts/round_timer.py start          # -> {"round_id": "round-..."}
-python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|serial
+python scripts/round_timer.py start          # -> {"run_id": "round-...", "round_id": "round-..."}
+python scripts/search_metrics.py --ok --run-id <R> --query-slot q1 --duration-ms 120
+python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|serial --expect subagent
 ```
 
 The summary reports p50/p95 per mode plus `overlap_saving_pct`, which stays `n/a` until both modes have samples.
+
+`monitoring_thresholds.unfinished_run_age_minutes_max` controls when an unfinished run becomes stale and changes health to `unknown`; the default is 120 minutes.
 
 Release regressions use a fixed 15-job cold dataset and 10 Fake sessions: `python scripts/benchmark_pipeline.py --output <json> --baseline docs/performance/v2.2.0-small-baseline.json`. The artifact contains raw iterations, p50/p95, absolute and relative changes, with no real web search or cloud-provider calls; it also verifies that all three Fake ATS JDs reach temporary tasks while the canonical table contains zero raw JDs. See [`docs/performance/strong-job-identity-baseline.md`](docs/performance/strong-job-identity-baseline.md) for the identity-migration run, [`docs/performance/ats-phase2-fake-baseline.md`](docs/performance/ats-phase2-fake-baseline.md) for the three-provider offline ATS run, [`docs/performance/ats-phase4-jd-handoff.md`](docs/performance/ats-phase4-jd-handoff.md) for the Phase 4 handoff measurement, and [`docs/performance/ats-phase4-live-quality.md`](docs/performance/ats-phase4-live-quality.md) for the three-JD live quality audit. A controlled discovery-to-merge A/B with fixed Web candidates and bounded live ATS calls uses `python scripts/benchmark_ats_e2e.py --web-candidates <json> --profile <json> --output <json>`; it makes public ATS requests, requires explicit local inputs, and enforces production hard caps. See [`docs/performance/ats-phase3-controlled-e2e.md`](docs/performance/ats-phase3-controlled-e2e.md) for the result and limitations. The three-provider JD review uses `python scripts/benchmark_ats_quality.py collect ...` to create an uncommitted local sample and then `audit` to emit a count-only gate report; see [`docs/performance/ats-phase5-multiprovider-quality.md`](docs/performance/ats-phase5-multiprovider-quality.md) for this small-sample result and its limits. HTTP compression can be checked with the same-result interleaved A/B in `python scripts/benchmark_ats_compression.py --output <json> --pairs 3`; the bounded three-provider run cut median wire bytes by 79.31% with identical content fingerprints, job counts, and request counts. See [`docs/performance/ats-http-compression-ab.md`](docs/performance/ats-http-compression-ab.md).
 

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-27T16:55:17.8545837Z",
+  "base_commit": "645391e511deedf9628c870781c0c9c9a3bd7214",
+  "scope": "run-scoped metrics and completeness gate",
+  "before": {
+    "tests_passed": 158,
+    "wall_seconds": 2.86
+  },
+  "after": {
+    "tests_passed": 165,
+    "wall_seconds": 3.47,
+    "targeted_tests_passed": 53,
+    "targeted_wall_seconds": 1.04,
+    "ruff": "passed",
+    "compileall": "passed"
+  },
+  "comparability": "test suite changed; wall times are verification observations, not an A/B performance comparison",
+  "performance_claim": null,
+  "external_provider_calls": 0
+}

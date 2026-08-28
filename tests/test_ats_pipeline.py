@@ -131,7 +131,7 @@ def test_partial_success_emits_only_prefiltered_jobs_and_private_state_is_clean(
     assert "job-boards.greenhouse.io" not in state_text + metric_text
     assert "ashbyco" not in state_text + metric_text
     events = [json.loads(line) for line in metric_text.splitlines()]
-    assert all(event["schema_version"] == 4 for event in events)
+    assert all(event["schema_version"] == 5 for event in events)
     assert any(event.get("rate_limited") is True for event in events)
     assert any(event.get("jobs_with_jd_emitted") == 1 for event in events)
 

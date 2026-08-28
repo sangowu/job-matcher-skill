@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 from _jobutil import load_config, normalize_company
 from ats_provider import AtsProvider, HttpAtsProvider, RequestBudget, fetch_board
-from runtime_metrics import record_metric
+from runtime_metrics import record_metric, validate_run_id
 
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -316,6 +316,7 @@ def sync_registry(
     *,
     config: dict[str, Any] | None = None,
     provider_client: AtsProvider | None = None,
+    metrics_run_id: str | None = None,
 ) -> dict[str, Any]:
     """Synchronize eligible boards and return bounded merge-ready candidates."""
     cfg = config or load_config()
@@ -406,7 +407,13 @@ def sync_registry(
         row["jobs_with_jd_emitted"] = emitted_with_jd_by_board.get(row["board_id"], 0)
         metric_values = {key: value for key, value in row.items() if key not in {"board_id", "ok", "attempted_at"}}
         metrics_recorded = (
-            record_metric(METRICS_PATH, "ats", bool(row["ok"]), **metric_values)
+            record_metric(
+                METRICS_PATH,
+                "ats",
+                bool(row["ok"]),
+                run_id=metrics_run_id,
+                **metric_values,
+            )
             and metrics_recorded
         )
 
@@ -466,8 +473,10 @@ def main() -> int:
     subparsers.add_parser("discover")
     sync_parser = subparsers.add_parser("sync")
     sync_parser.add_argument("--profile", type=Path, required=True)
+    sync_parser.add_argument("--metrics-run-id", type=validate_run_id)
     run_parser = subparsers.add_parser("run")
     run_parser.add_argument("--profile", type=Path, required=True)
+    run_parser.add_argument("--metrics-run-id", type=validate_run_id)
     args = parser.parse_args()
     try:
         registry = _load_document(REGISTRY_PATH, {"schema_version": 1, "boards": []})
@@ -478,13 +487,23 @@ def main() -> int:
         if args.command == "discover":
             print(json.dumps({"ok": True, **(discovery or {})}, ensure_ascii=False))
             return 0
-        result = sync_registry(registry, _read_profile(args.profile))
+        result = sync_registry(
+            registry,
+            _read_profile(args.profile),
+            metrics_run_id=args.metrics_run_id,
+        )
         if discovery is not None:
             result["discovery"] = discovery
         print(json.dumps(result, ensure_ascii=False))
         return 0
     except (AtsPipelineError, json.JSONDecodeError) as error:
-        record_metric(METRICS_PATH, "ats", False, failure_kind="input_validation")
+        record_metric(
+            METRICS_PATH,
+            "ats",
+            False,
+            run_id=getattr(args, "metrics_run_id", None),
+            failure_kind="input_validation",
+        )
         print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False))
         return 1
 

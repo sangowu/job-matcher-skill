@@ -44,7 +44,7 @@ from _jobutil import (
     make_dedup_key,
     make_record_id,
 )
-from runtime_metrics import record_metric
+from runtime_metrics import record_metric, validate_run_id
 
 
 MAX_JD_HANDOFF_CHARS = 50_000
@@ -607,7 +607,7 @@ def _archive_stale(table: dict, ttl_days: int) -> int:
     return len(stale)
 
 
-def cmd_merge(cv_hash: str, cp_hash: str) -> None:
+def cmd_merge(cv_hash: str, cp_hash: str, metrics_run_id: str | None = None) -> None:
     started = time.monotonic()
     cfg = load_config()
     ttl_days = int(cfg.get("jd_ttl_days", 30))
@@ -783,6 +783,7 @@ def cmd_merge(cv_hash: str, cp_hash: str) -> None:
         METRICS_PATH,
         "merge",
         True,
+        run_id=metrics_run_id,
         **stats,
         eval_tasks_created=len(to_analyze) + len(to_score_only),
     )
@@ -793,7 +794,12 @@ def cmd_merge(cv_hash: str, cp_hash: str) -> None:
                       "metrics_recorded": metrics_recorded}))
 
 
-def cmd_update(cv_hash: str, cp_hash: str, run_id: str) -> None:
+def cmd_update(
+    cv_hash: str,
+    cp_hash: str,
+    run_id: str,
+    metrics_run_id: str | None = None,
+) -> None:
     started = time.monotonic()
     mk = f"{cv_hash}:{cp_hash}"
     results = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace") or "[]")
@@ -980,6 +986,7 @@ def cmd_update(cv_hash: str, cp_hash: str, run_id: str) -> None:
         METRICS_PATH,
         "update",
         True,
+        run_id=metrics_run_id,
         results_in=len(results),
         updated=updated,
         rebased=rebased,
@@ -1033,20 +1040,26 @@ def main() -> None:
     ap.add_argument("--cv-hash", required=True)
     ap.add_argument("--cp-hash", required=True)
     ap.add_argument("--run-id", help="Evaluation run id returned by merge; required for update.")
+    ap.add_argument(
+        "--metrics-run-id",
+        type=validate_run_id,
+        help="Pipeline run id returned by round_timer.py start.",
+    )
     args = ap.parse_args()
     started = time.monotonic()
     try:
         if args.mode == "merge":
-            cmd_merge(args.cv_hash, args.cp_hash)
+            cmd_merge(args.cv_hash, args.cp_hash, args.metrics_run_id)
         else:
             if not args.run_id:
                 raise InputDataError("--run-id is required for update")
-            cmd_update(args.cv_hash, args.cp_hash, args.run_id)
+            cmd_update(args.cv_hash, args.cp_hash, args.run_id, args.metrics_run_id)
     except (DataStoreError, InputDataError, json.JSONDecodeError) as error:
         metrics_recorded = record_metric(
             METRICS_PATH,
             args.mode,
             False,
+            run_id=args.metrics_run_id,
             duration_ms=round((time.monotonic() - started) * 1000, 2),
             failure_kind=_failure_kind(error),
         )
@@ -1061,6 +1074,7 @@ def main() -> None:
             METRICS_PATH,
             args.mode,
             False,
+            run_id=args.metrics_run_id,
             duration_ms=round((time.monotonic() - started) * 1000, 2),
             failure_kind=_failure_kind(error),
         )

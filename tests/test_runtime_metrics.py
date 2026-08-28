@@ -6,11 +6,23 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from runtime_metrics import build_summaries, build_summary, record_metric, render_markdown  # noqa: E402
+from runtime_metrics import (  # noqa: E402
+    assess_run_completeness,
+    build_summaries,
+    build_summary,
+    record_metric,
+    render_markdown,
+)
+import summarize_metrics  # noqa: E402
+
+
+RUN_ID = "round-20260827-120000-abcdef"
 
 
 def test_record_metric_drops_high_cardinality_and_sensitive_fields(tmp_path):
@@ -35,6 +47,81 @@ def test_record_metric_drops_high_cardinality_and_sensitive_fields(tmp_path):
     assert event["candidates_in"] == 3
     assert event["newly_added"] == 2
     assert "secret" not in text and "example.com" not in text
+
+
+def test_run_completeness_is_linked_without_business_identifiers(tmp_path):
+    path = tmp_path / "metrics.jsonl"
+    record_metric(path, "run_start", True, run_id=RUN_ID, skill_version="2.3.0")
+    record_metric(path, "search", True, run_id=RUN_ID, calls=1, new_candidates=4)
+    record_metric(path, "merge", True, run_id=RUN_ID, candidates_in=4)
+    record_metric(path, "round", True, run_id=RUN_ID, round_duration_ms=100)
+
+    completeness = assess_run_completeness(path, RUN_ID, {"search", "merge", "update"})
+    assert completeness["complete"] is False
+    assert completeness["missing_operations"] == "update"
+    record_metric(path, "run_finish", True, run_id=RUN_ID, **completeness)
+
+    summary = build_summary(path, tmp_path / "eval_runs")
+    assert summary["metrics_status"] == "incomplete"
+    assert summary["status"] == "unknown"
+    assert summary["metrics"]["runs"]["incomplete"] == 1
+
+
+def test_search_and_subagent_usage_keep_unavailable_values_null(tmp_path):
+    path = tmp_path / "metrics.jsonl"
+    record_metric(
+        path,
+        "search",
+        True,
+        run_id=RUN_ID,
+        query_slot="q1",
+        calls=1,
+        raw_results=10,
+        prefiltered=6,
+        deduplicated=5,
+        new_candidates=4,
+        cached_candidates=1,
+    )
+    record_metric(
+        path,
+        "subagent",
+        True,
+        run_id=RUN_ID,
+        role="search",
+        input_tokens=None,
+        output_tokens=None,
+        cached_input_tokens=None,
+        reasoning_tokens=None,
+        cost_usd=None,
+        cost_type="unavailable",
+    )
+
+    event = json.loads(path.read_text(encoding="utf-8").splitlines()[1])
+    assert event["input_tokens"] is None and event["cost_usd"] is None
+    summary = build_summary(path, tmp_path / "eval_runs")
+    assert summary["metrics"]["search"]["effective_candidates_per_call"] == 4.0
+    assert summary["metrics"]["subagents"]["usage_reported_rate"] == 0.0
+    assert summary["metrics"]["subagents"]["input_tokens"] is None
+    assert summary["metrics"]["subagents"]["actual_cost_usd"] is None
+    assert summary["metrics"]["subagents"]["estimated_cost_usd"] is None
+
+
+def test_fail_on_breach_exits_for_incomplete_metrics(monkeypatch, tmp_path, capsys):
+    path = tmp_path / "metrics.jsonl"
+    record_metric(path, "run_start", True, run_id=RUN_ID)
+    record_metric(path, "run_finish", True, run_id=RUN_ID, complete=False)
+    monkeypatch.setattr(sys, "argv", [
+        "summarize_metrics.py",
+        "--data-dir", str(tmp_path),
+        "--format", "json",
+        "--fail-on-breach",
+    ])
+
+    with pytest.raises(SystemExit) as raised:
+        summarize_metrics.main()
+
+    assert raised.value.code == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "unknown"
 
 
 def test_summary_calculates_rates_percentiles_queue_and_breaches(tmp_path):

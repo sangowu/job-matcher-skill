@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import ats_pipeline
-from runtime_metrics import record_metric
+from runtime_metrics import record_metric, validate_run_id
 
 
 MergeRunner = Callable[[list[dict[str, Any]], str, str], dict[str, Any]]
@@ -21,7 +21,10 @@ class AtsHandoffError(RuntimeError):
 
 
 def _merge_subprocess(
-    candidates: list[dict[str, Any]], cv_hash: str, cp_hash: str
+    candidates: list[dict[str, Any]],
+    cv_hash: str,
+    cp_hash: str,
+    metrics_run_id: str | None = None,
 ) -> dict[str, Any]:
     command = [
         sys.executable,
@@ -32,6 +35,8 @@ def _merge_subprocess(
         "--cp-hash",
         cp_hash,
     ]
+    if metrics_run_id:
+        command.extend(["--metrics-run-id", metrics_run_id])
     try:
         completed = subprocess.run(
             command,
@@ -61,6 +66,7 @@ def run_handoff(
     config: dict[str, Any] | None = None,
     provider_client: Any = None,
     merge_runner: MergeRunner | None = None,
+    metrics_run_id: str | None = None,
 ) -> dict[str, Any]:
     registry = ats_pipeline._load_document(
         ats_pipeline.REGISTRY_PATH, {"schema_version": 1, "boards": []}
@@ -72,9 +78,13 @@ def run_handoff(
         profile,
         config=config,
         provider_client=provider_client,
+        metrics_run_id=metrics_run_id,
     )
     combined = [*web_candidates, *ats_result["candidates"]]
-    merged = (merge_runner or _merge_subprocess)(combined, cv_hash, cp_hash)
+    if merge_runner is not None:
+        merged = merge_runner(combined, cv_hash, cp_hash)
+    else:
+        merged = _merge_subprocess(combined, cv_hash, cp_hash, metrics_run_id)
     return {
         "ok": True,
         "discovery": discovery,
@@ -88,6 +98,7 @@ def main() -> int:
     parser.add_argument("--profile", type=Path, required=True)
     parser.add_argument("--cv-hash", required=True)
     parser.add_argument("--cp-hash", required=True)
+    parser.add_argument("--metrics-run-id", type=validate_run_id)
     args = parser.parse_args()
     try:
         web_candidates = ats_pipeline._read_stdin_list()
@@ -97,6 +108,7 @@ def main() -> int:
             profile,
             args.cv_hash,
             args.cp_hash,
+            metrics_run_id=args.metrics_run_id,
         )
         print(json.dumps(result, ensure_ascii=False))
         return 0
@@ -105,6 +117,7 @@ def main() -> int:
             ats_pipeline.METRICS_PATH,
             "ats",
             False,
+            run_id=args.metrics_run_id,
             action="handoff",
             failure_kind="input_validation" if isinstance(
                 error, (ats_pipeline.AtsPipelineError, json.JSONDecodeError)

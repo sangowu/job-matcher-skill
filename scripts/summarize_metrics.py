@@ -43,7 +43,9 @@ def main() -> None:
         print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
     else:
         print(render_markdown(summary), end="")
-    if args.fail_on_breach and summary["breaches"]:
+    if args.fail_on_breach and (
+        summary["breaches"] or summary.get("metrics_status") == "incomplete"
+    ):
         sys.exit(2)
 
 

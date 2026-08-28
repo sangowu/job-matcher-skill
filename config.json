@@ -63,6 +63,7 @@
     "failed_events_max": 0,
     "write_failures_max": 0,
     "malformed_events_max": 0,
-    "malformed_manifests_max": 0
+    "malformed_manifests_max": 0,
+    "unfinished_run_age_minutes_max": 120
   }
 }

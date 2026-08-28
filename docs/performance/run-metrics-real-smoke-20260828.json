@@ -1,0 +1,67 @@
+{
+  "date": "2026-08-28",
+  "test_type": "small_real_pipeline_smoke",
+  "branch": "feat/run-metrics-completeness",
+  "privacy": {
+    "candidate_or_company_identifiers_in_evidence": false,
+    "cv_or_candidate_profile_hashes_in_metrics": false,
+    "urls_in_metrics": false
+  },
+  "scope": {
+    "web_search_calls": 1,
+    "ats_sync_enabled": false,
+    "browser_provider_enabled": false,
+    "evaluation_workers": 1,
+    "orchestration": "serial"
+  },
+  "search": {
+    "raw_results": 12,
+    "prefiltered": 7,
+    "deduplicated": 6,
+    "new_candidates": 4,
+    "duration_ms": 1845.0,
+    "first_result_ms": null
+  },
+  "pipeline": {
+    "candidates_in": 4,
+    "newly_added": 4,
+    "evaluations_in": 4,
+    "evaluations_updated": 4,
+    "evaluations_rejected": 0,
+    "evaluation_conflicts": 0,
+    "evaluation_success_rate": 1.0,
+    "queue_pending_tasks": 0,
+    "round_duration_ms": 496307.99
+  },
+  "quality": {
+    "contract_valid_results": 4,
+    "scored_from_full_jd": 4,
+    "scored_from_snippet": 0,
+    "verified_alive": 3,
+    "unverified": 1,
+    "closed": 0
+  },
+  "subagent": {
+    "role": "evaluation",
+    "model": "gpt-5.6-terra",
+    "reasoning_effort": "high",
+    "runs": 1,
+    "duration_ms": 195821.0,
+    "valid_item_rate": 1.0,
+    "fallback_rate": 0.0,
+    "token_usage": null,
+    "cost_usd": null,
+    "cost_type": "unavailable"
+  },
+  "metrics": {
+    "schema_version": 5,
+    "events_total": 7,
+    "failed_events": 0,
+    "malformed_events": 0,
+    "write_failures": 0,
+    "metrics_status": "complete",
+    "health_status": "healthy",
+    "breaches": []
+  },
+  "result": "passed"
+}

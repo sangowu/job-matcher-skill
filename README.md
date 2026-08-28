@@ -63,6 +63,7 @@ job-matcher/
 │   ├── analysis_contract.py  # 校验 JDProfile/MatchScore worker 输出
 │   ├── merge_jobs.py         # 单写入器：去重/缓存/评估快照/条件化回写
 │   ├── runtime_metrics.py    # PII-safe JSONL 指标与健康计算
+│   ├── search_metrics.py     # Web Search 页级计数与耗时指标
 │   ├── summarize_metrics.py  # 7/30 天 Markdown/JSON 健康报告
 │   ├── round_timer.py        # 整轮计时，按编排模式对比墙钟
 │   ├── subagent_metrics.py   # 子代理模型/effort 配置与结果指标
@@ -166,16 +167,19 @@ python scripts/summarize_metrics.py --days 30 --format json
 python scripts/summarize_metrics.py --fail-on-breach
 ```
 
-报告包含吞吐/缓存、评估成功/拒绝/冲突率、子代理按实际模型与 effort 的成功率/有效结果率/回退率、浏览器会话与接管计数、命令与锁等待 p50/p95/p99，以及积压状态。每次生成 HTML 时会自动嵌入 7/30 天静态快照；默认阈值违规时状态为 `degraded`。CLI 的 `--fail-on-breach` 同时返回退出码 2。字段定义、隐私边界和接入方式见 [运行时监控文档](docs/monitoring.md)。
+报告包含 run 完整性、Web Search 调用/有效候选、吞吐/缓存、评估成功/拒绝/冲突率、子代理实际模型/effort/token/成本覆盖、浏览器与 ATS 计数、命令与锁等待分位数及积压状态。阈值违规为 `degraded`；缺失必需事件时健康状态为 `unknown`，不会误报 `healthy`。CLI 的 `--fail-on-breach` 对两种情况都返回退出码 2。字段定义见 [运行时监控文档](docs/monitoring.md)，设计与后续 A/B 门槛见 [run-scoped 指标契约](docs/run-metrics-contract.md)。
 
 整轮墙钟另行采集——脚本级耗时相比编排者在两次调用之间的搜索与评估工作可以忽略，无法回答「批间重叠值不值」：
 
 ```text
-python scripts/round_timer.py start          # → {"round_id": "round-..."}
-python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|serial
+python scripts/round_timer.py start          # → {"run_id": "round-...", "round_id": "round-..."}
+python scripts/search_metrics.py --ok --run-id <R> --query-slot q1 --duration-ms 120
+python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|serial --expect subagent
 ```
 
 汇总按编排模式给出 p50/p95 与 `overlap_saving_pct`；两种模式都有样本前显示 `n/a`。
+
+`monitoring_thresholds.unfinished_run_age_minutes_max` 控制未完成 run 何时被判为陈旧并令健康状态变为 `unknown`；默认 120 分钟。
 
 版本性能回归使用固定 15 职位冷数据集和 10 个 Fake 会话：`python scripts/benchmark_pipeline.py --output <json> --baseline docs/performance/v2.2.0-small-baseline.json`。输出同时包含原始迭代、p50/p95、绝对变化和相对变化；不会调用真实 Web Search 或云 Provider，并验证三家 Fake ATS 的 JD 均进入临时任务、主表零正文。强身份迁移基准见 [`docs/performance/strong-job-identity-baseline.md`](docs/performance/strong-job-identity-baseline.md)，三家 ATS 离线管道基准见 [`docs/performance/ats-phase2-fake-baseline.md`](docs/performance/ats-phase2-fake-baseline.md)，Phase 4 交接基准见 [`docs/performance/ats-phase4-jd-handoff.md`](docs/performance/ats-phase4-jd-handoff.md)，真实三条五维抽检见 [`docs/performance/ats-phase4-live-quality.md`](docs/performance/ats-phase4-live-quality.md)。固定 Web 候选对照组与受限真实 ATS 的 discovery-to-merge A/B 使用 `python scripts/benchmark_ats_e2e.py --web-candidates <json> --profile <json> --output <json>`；它会发出公开 ATS 请求，必须显式提供本地输入并遵守生产硬上限。结果与限制见 [`docs/performance/ats-phase3-controlled-e2e.md`](docs/performance/ats-phase3-controlled-e2e.md)。三供应商 JD 质量复核可先用 `python scripts/benchmark_ats_quality.py collect ...` 创建不提交的本地样本，再用 `audit` 生成计数型门禁报告；本次小样本结果与限制见 [`docs/performance/ats-phase5-multiprovider-quality.md`](docs/performance/ats-phase5-multiprovider-quality.md)。ATS HTTP 压缩可用 `python scripts/benchmark_ats_compression.py --output <json> --pairs 3` 做相同结果集的交错 A/B；本次三供应商实测中位传输量减少 79.31%，内容指纹、职位数与请求数均相同，详见 [`docs/performance/ats-http-compression-ab.md`](docs/performance/ats-http-compression-ab.md)。
 

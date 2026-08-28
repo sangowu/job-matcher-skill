@@ -42,6 +42,7 @@
 | `merge_jobs.py merge` | `… merge --cv-hash H --cp-hash H`（stdin） | 候选职位数组 | `{to_analyze, to_score_only, in_evaluation, cached, eval_run, stats, metrics_recorded}` |
 | `merge_jobs.py update` | `… update --cv-hash H --cp-hash H --run-id R`（stdin） | 带快照元数据的打分结果数组 | `{ok, updated, rebased, rejected, conflicts, released, duration_ms, metrics_recorded}` |
 | `summarize_metrics.py` | `… [--days N] [--format json\|markdown] [--fail-on-breach]` | `data/metrics.jsonl` + 活跃 eval runs | 健康状态、比率、p50/p95/p99、积压与阈值违规 |
+| `search_metrics.py` | `… --ok --run-id R --query-slot qN …` | Web Search 页级计数，不接收 query/URL | 写入一次 PII-safe `search` 事件 |
 | `verify_jobs.py` | `python scripts/verify_jobs.py`（stdin） | URL 数组 | `{results:[{url, alive, reason, final_url}]}` |
 | `fetch_rendered.py` | `python scripts/fetch_rendered.py <url>` | 单 URL | `{ok, text, browser_used}` 或 `{ok:false, error}` |
 | `cp_hash.py` | `python scripts/cp_hash.py`（stdin） | candidate_profile JSON | `{ok, cp_hash}`（规范化后稳定 hash） |
@@ -58,7 +59,7 @@
 
 ### 0. 准备
 - 读 `config.json` 拿参数。
-- `python scripts/round_timer.py start` → 记下 `round_id`（整轮计时，第 7 步收尾时结束）。失败不阻塞流程。
+- `python scripts/round_timer.py start` → 记下返回的 `run_id`（兼容字段 `round_id` 值相同；整轮计时，第 7 步收尾时结束）。后续所有指标命令都显式传这个 pipeline run id；它与 `merge` 返回的评估 `run_id` 不是同一概念。`metrics_recorded:false` 不阻塞流程，但必须告知用户。
 - **灵活识别输入**：从用户消息找出 CV（文件路径，或粘贴的大段简历文本）和 query（求职意向）。
   - 只有 query 没 CV → 追问 CV。
   - 有 CV 没 query → 可继续，但目标职位/地点缺失时按第 3 步规则追问。
@@ -85,7 +86,7 @@
 - Web 搜索“结果翻页”视为下一次独立搜索调用；仅在上一页仍有高相关未覆盖结果时继续，且每一页都计入 `max_websearch_calls`。不要假定一次搜索调用会自动替你翻完全部结果页。
 - Web Search 发现公司招聘列表但职位链接不完整时，可把该列表交给 browser worker 做网站内翻页；同一网站第 1→N 页必须串行，不同网站可在 `browser_max_concurrency` 内并行。
 - 每批结构化 Web 候选先送入 `python scripts/ats_pipeline.py discover`，只识别 allowlist 中的官方 Ashby/Greenhouse/Lever board。已登记的 verified board 只抑制重复的招聘列表抓取，不跳过该公司的普通 Web 职位、新闻或未知来源。
-- `ats_enabled` 为 true 时，每轮最多同步一次。首批优先把 Web 候选小 JSON 送入 `python scripts/ats_handoff.py --profile <cv-profile.json> --cv-hash H --cp-hash H`：它在单个本地进程中完成发现/同步，再经子进程 stdin 把 Web+ATS 候选直送同一个 `merge_jobs.py merge`，标准输出不含 ATS JD 正文。只需单独维护 registry 时仍可用 `ats_pipeline.py discover/sync/run`，但不要让含正文的 `sync/run` JSON 进入主 agent 上下文。不要把 ATS 标识库当作第二张职位表。
+- `ats_enabled` 为 true 时，每轮最多同步一次。首批优先把 Web 候选小 JSON 送入 `python scripts/ats_handoff.py --profile <cv-profile.json> --cv-hash H --cp-hash H --metrics-run-id R`：它在单个本地进程中完成发现/同步，再经子进程 stdin 把 Web+ATS 候选直送同一个 `merge_jobs.py merge`，标准输出不含 ATS JD 正文。只需单独维护 registry 时仍可用 `ats_pipeline.py discover/sync/run`，`sync/run` 也传 `--metrics-run-id R`；不要让含正文的 JSON 进入主 agent 上下文。不要把 ATS 标识库当作第二张职位表。
 - 已到期的 known verified board 可在首批开始时同步；跨 board ATS 同步可与下一批 Web Search/既有 JD 评估并发。同一 Lever board 的 `skip/limit` 翻页必须串行。ATS 失败只降级该 board，不能阻塞或丢弃 Web 结果。
 - ATS 的 board/request/page/concurrency 预算独立于 `max_websearch_calls` 和浏览器预算；不得因为 Web 预算尚有余额而突破 ATS 硬上限。
 - 汇总 → `merge_jobs.py merge` → `{to_analyze, to_score_only, in_evaluation, cached, eval_run, stats}`。
@@ -95,7 +96,8 @@
 - **重叠执行**：决定追加第 N+1 批时，不必等第 N 批评完——把「第 N 批评估 worker（第 5 步）」
   和「第 N+1 批搜索 worker」放进同一条消息并行发出，评估结果回来就增量 `update`。
 - 一行进度：`第N批 搜X条→候选Y→新Z/缓存W`。
-- 每个搜索 worker 返回后调用 `subagent_metrics.py record`，至少记录请求/实际模型、effort、耗时、候选输出数、通过初筛数、拒绝数和是否回退；不得记录 query 或 URL。
+- 每个 Web Search 结果页处理后调用 `search_metrics.py --run-id <pipeline-run-id>`，记录 query 槽位（`q1` 等）、页码、调用/原始/初筛/去重/新增/缓存计数和耗时；不得把 query、hash、职位或 URL 传给指标脚本。
+- 每个搜索 worker 返回后调用 `subagent_metrics.py record --run-id <pipeline-run-id>`，至少记录请求/实际模型、effort、耗时、候选输出数、通过初筛数、拒绝数和是否回退；运行时暴露 token/成本时如实传入，不暴露时保持 `null`，不得填 0 冒充。不得记录 query 或 URL。
 
 ### 5. 匹配排序（打分 + 脚本，读 `references/scoring_rubric.md`）
 - **粗排**：对 `to_analyze`+`to_score_only` 用 snippet 做 5 维快速估分排序（有子代理则分片并行）。
@@ -104,7 +106,7 @@
 - 精排使用 `evaluation` profile；需视觉远程浏览时使用 `browser` profile。两种 worker 都要记录实际模型/effort、耗时、成功、有效输出和回退情况。
 - **失效验证**（精排 Top-N）：`verify_jobs.py` 查死链；`possibly_closed` 的走容错阶梯确认；失效则剔除、从次位递补。
 - 每个 worker 必须原样回传任务中的 `record_id`、`dedup_key`、`base_record_version`、`jd_input_hash`，再附加 `jd_profile`、`match_score`、`verified`、`scored_from`。`record_id` 是主键；`dedup_key` 仅是兼容弱键。不得回传或覆盖 title/company/url/source 等搜索字段。
-- 写回：`merge_jobs.py update --run-id <eval_run.run_id>`。脚本会校验评分契约，只合并评估字段；搜索期间仅来源等非评估输入变化时安全 rebase，JD 输入变化时报告 conflict 并拒绝旧结果。
+- 写回：`merge_jobs.py update --run-id <eval_run.run_id> --metrics-run-id <pipeline-run-id>`。脚本会校验评分契约，只合并评估字段；搜索期间仅来源等非评估输入变化时安全 rebase，JD 输入变化时报告 conflict 并拒绝旧结果。`merge` 同样传 `--metrics-run-id`。
 - 同一 run 可增量提交多个 worker 结果；单个任务完成或冲突时立即清除其快照正文，全部任务结束后 `released:true` 并删除快照，只在 `data/eval_runs/history.jsonl` 留一条不含 CV/JD 正文的运行摘要。ATS 正文 hash 变化会清除旧 `jd_profile`/评分并要求重评；冲突职位由后续 `merge` 重新建立新快照。
 
 ### 6. 生成报告（脚本）
@@ -115,8 +117,8 @@
 - 把 `report_path` 告诉用户。
 
 ### 7. 收尾
-- `python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|serial --batches N --evaluations N --jobs-reported N`
-  —— `overlapped` 表示本轮真的把「第 N 批评估」和「第 N+1 批搜索」并行发出过，否则填 `serial`。
+- `python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|serial --batches N --evaluations N --jobs-reported N [--expect subagent] [--expect ats] [--expect browser]`
+  —— `overlapped` 表示本轮真的把「第 N 批评估」和「第 N+1 批搜索」并行发出过，否则填 `serial`。只为本轮实际使用的可选管道追加 `--expect`。默认检查 `run_start/search/merge/round`，有评估时自动检查 `update`；缺事件时返回 `metrics_status: incomplete`，健康状态只能是 `unknown`。
   如实填写：这是唯一能实测重叠编排收益的数据来源，填错会让对比失去意义。
 - 简述结果（新增/复用/路径），指出风险（未验证/基于摘要评分的职位）。
 - `metrics_recorded:false` 时提示运行指标未落盘；需要健康检查时运行 `summarize_metrics.py`。指标字段和默认阈值见 `docs/monitoring.md`。
@@ -133,7 +135,7 @@
 ### 远程视觉浏览器协议
 
 1. 未配置时运行 `browser_setup.py`；密钥缺失或连接测试失败即跳过远程层，不阻塞整轮。
-2. 使用第 0 步的 `round_id` 创建会话：`browser_control.py create --round-id R --url U`。控制脚本在调用 Provider **之前**原子预留并发、单轮会话数和估算费用预算；默认每次预留 `browser_cost_limit_usd / browser_session_budget`。
+2. 使用第 0 步的 `run_id` 创建会话：`browser_control.py --metrics-run-id R create --round-id R --url U`。后续 screenshot/click/type/press/scroll/event/close 命令也传同一个 `--metrics-run-id`。控制脚本在调用 Provider **之前**原子预留并发、单轮会话数和估算费用预算；默认每次预留 `browser_cost_limit_usd / browser_session_budget`。
 3. `screenshot` 保存到 `data/browser_sessions/`，browser worker 读取图片并用 `click/type/press/scroll` 操作。不要引入本机 Playwright 来控制远程会话。
 4. 单个招聘列表最多 `browser_max_pages` 页；用 `browser_workflow.py` 的状态契约逐页观察、去重链接、再点击下一页。单站串行，多站并行。
 5. 识别到验证码、登录、限流或人工确认时，返回 `user_action_required` 或 `rate_limited`，立即暂停该任务；不得自动解验证码、启用 stealth 或轮换代理。

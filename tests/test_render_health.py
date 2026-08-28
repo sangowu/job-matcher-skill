@@ -99,6 +99,30 @@ def test_render_distinguishes_7_day_no_data_from_30_day_history(monkeypatch, tmp
     assert health["30d"]["metrics"]["events_total"] == 1
 
 
+def test_render_reports_unknown_for_incomplete_run(monkeypatch, tmp_path, capsys):
+    metrics_path, _ = _configure_renderer(monkeypatch, tmp_path)
+    run_id = "round-20260827-120000-abcdef"
+    record_metric(metrics_path, "run_start", True, run_id=run_id)
+    record_metric(
+        metrics_path,
+        "run_finish",
+        True,
+        run_id=run_id,
+        complete=False,
+        expected_operations="merge:round:run_start:search",
+        observed_operations="run_start",
+        missing_operations="merge:round:search",
+        expected_count=4,
+        observed_count=1,
+    )
+
+    result, html, health = _render(monkeypatch, tmp_path, capsys)
+
+    assert result["health_status"] == "unknown"
+    assert health["7d"]["metrics_status"] == "incomplete"
+    assert "health_unknown" in html
+
+
 def test_monitoring_failure_does_not_block_report_or_expose_error(
     monkeypatch, tmp_path, capsys
 ):

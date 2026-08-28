@@ -2,7 +2,7 @@
 
 Job Matcher 是本地 CLI skill，不需要常驻 Prometheus 服务。运行监控采用两个低依赖组件：
 
-- `data/metrics.jsonl`：每次 `merge` / `update` / `round` / `subagent` / `browser` / `ats` 的结构化事件。
+- `data/metrics.jsonl`：每次 `run_start` / `search` / `merge` / `update` / `subagent` / `browser` / `ats` / `round` / `run_finish` 的结构化事件。
 - `scripts/summarize_metrics.py`：按时间窗口汇总健康状态、比率、分位数和队列积压。
 - `scripts/render_html.py`：每次生成职位报告时自动计算 7/30 天快照并嵌入 HTML。
 
@@ -19,9 +19,13 @@ python scripts/summarize_metrics.py --days 30 --format json
 python scripts/summarize_metrics.py --fail-on-breach
 
 # 子代理完成后记录请求值与实际值；运行时未接受 override 时用 inherited + fallback
-python scripts/subagent_metrics.py record --role search --ok \
+python scripts/subagent_metrics.py record --run-id <R> --role search --ok \
   --model-effective gpt-5.6-luna --effort-effective low \
   --duration-ms 1200 --items-in 1 --items-out 8 --valid-items 6 --rejected-items 2
+
+# 每个 Web Search 结果页完成后，只记录页序号与计数
+python scripts/search_metrics.py --ok --run-id <R> --query-slot q1 \
+  --page-number 1 --raw-results 10 --prefiltered 6 --new-candidates 4 --duration-ms 800
 ```
 
 没有运行数据时脚本仍会正常输出报告，状态为 `no_data`；无样本的比率和分位数显示为 `null` / `n/a`，不会被误判为 0 或 `healthy`。
@@ -38,10 +42,11 @@ python scripts/subagent_metrics.py record --role search --ok \
 
 | 字段 | 说明 |
 |---|---|
-| `schema_version` | 指标事件 schema 版本，当前为 4；汇总仍兼容已有 v1/v2/v3 事件 |
+| `schema_version` | 指标事件 schema 版本，当前为 5；汇总仍兼容已有 v1–v4 事件 |
 | `timestamp` | UTC ISO-8601 时间 |
-| `operation` | `merge`、`update`、`round`、`subagent`、`browser` 或 `ats` |
+| `operation` | `run_start`、`search`、`merge`、`update`、`subagent`、`browser`、`ats`、`round` 或 `run_finish` |
 | `ok` | 操作是否成功 |
+| `run_id` | `round_timer.py start` 生成的随机流水线标识；与评估快照 ID 无关 |
 | `duration_ms` | 命令端到端耗时 |
 | `lock_wait_ms` | 等待职位主表锁的时间 |
 | `stale_lock_recoveries` | 本次回收异常遗留主表锁次数 |
@@ -50,7 +55,11 @@ python scripts/subagent_metrics.py record --role search --ok \
 
 `update` 事件还记录输入结果、成功更新、安全 rebase、幂等重试、拒绝、冲突、run 释放、任务状态数量和旧记录身份迁移数。
 
-`subagent` 事件记录角色、请求/实际模型、请求/实际 reasoning effort、是否发生继承回退、耗时及输入/输出/有效/拒绝条数。汇总按实际生效 profile 分组，避免把模型切换失败算成目标模型成绩。
+`run_start` 记录 skill 版本、可用时的 Git 短 revision、工作树是否有已跟踪改动，以及不含密钥的 `config.json` 指纹。`run_finish` 只记录期望/观测/缺失的低基数 operation 名称和计数。默认期望 `run_start/search/merge/round`；`evaluations > 0` 时自动期望 `update`，使用子代理、ATS 或浏览器时由编排者重复传入 `--expect` 声明。
+
+`search` 事件记录 query 槽位（如 `q1`）、搜索结果页、调用数、原始/初筛/去重/新增/缓存候选数、总耗时及可用时的首结果耗时，不接收 query、职位名、公司或 URL。
+
+`subagent` 事件记录角色、请求/实际模型、请求/实际 reasoning effort、是否发生继承回退、耗时及输入/输出/有效/拒绝条数。若运行时提供 usage，还记录 input/output/cached/reasoning token 与实际或估算成本；不提供时字段为 `null`，汇总先报告覆盖率再给总量。
 
 `browser` 事件记录 Provider、动作、耗时、页码/链接计数、接管、限流和估算费用。session id、Live View URL、页面 URL、键盘输入和截图不允许进入事件。
 
@@ -63,6 +72,9 @@ python scripts/subagent_metrics.py record --role search --ok \
 | 指标 | 定义 |
 |---|---|
 | `cache_hit_rate` | 缓存命中数 / 输入候选数 |
+| `runs.complete/incomplete/stale_unfinished` | 完成闭环、缺必需事件、超时未收尾的 run 数 |
+| `search.effective_candidates_per_call` | Web Search 新候选数 / 调用数 |
+| `search.duration_ms` / `first_result_ms` | Web Search 总耗时与首结果耗时 p50/p95；后者另报覆盖率 |
 | `evaluation_success_rate` | (`updated` + `idempotent`) / `results_in` |
 | `rejected_rate` | `rejected` / `results_in` |
 | `conflict_rate` | `conflicts` / `results_in` |
@@ -77,6 +89,8 @@ python scripts/subagent_metrics.py record --role search --ok \
 | `subagents.valid_item_rate` | 有效输出条数 / 总输出条数 |
 | `subagents.fallback_rate` | 未按请求模型/effort 执行的调用 / 全部子代理调用 |
 | `subagents.by_profile` | 按 role + 实际模型 + 实际 effort 分组的运行数、成功率、有效率、回退率与 p50/p95 |
+| `subagents.usage_reported_rate` / `token_reported_rate.*` | 任一/各 token 字段可用的子代理事件比例；缺失字段总量为 `null` |
+| `subagents.cost_reported_rate` / `actual_cost_usd` / `estimated_cost_usd` | 成本覆盖率，以及严格分开的实际/估算成本 |
 | `browsers.success_rate` | 成功视觉动作 / 全部视觉动作 |
 | `browsers.sessions_created` | 成功创建的远程浏览器会话数 |
 | `browsers.handoffs` / `rate_limited` | 人工接管和限流事件计数 |
@@ -98,13 +112,13 @@ python scripts/subagent_metrics.py record --role search --ok \
 到出报告）计时，写入一条 `round` 事件：
 
 ```text
-python scripts/round_timer.py start          # -> {"round_id": "round-..."}
+python scripts/round_timer.py start          # -> {"run_id": "round-...", "round_id": "round-..."}
 python scripts/round_timer.py finish --round-id <R> --orchestration overlapped \
     --batches 3 --evaluations 14 --jobs-reported 12
 ```
 
 `--orchestration` 只接受 `serial` / `overlapped`，须如实填写——这是唯一能实测重叠收益的数据来源。
-`round` 事件字段：`round_duration_ms`、`orchestration`、`batches`、`evaluations`、`jobs_reported`，
+`round` 事件字段：`run_id`、`round_duration_ms`、`orchestration`、`batches`、`evaluations`、`jobs_reported`，
 同样只有时长与计数，不含任何 CV / JD / 职位 / 查询文本。
 
 整轮时长**不计入** `duration_ms` 分位数，避免污染脚本级数字。汇总输出按模式给出
@@ -126,15 +140,16 @@ python scripts/round_timer.py finish --round-id <R> --orchestration overlapped \
 | data-store write failures | 0 |
 | malformed metric events | 0 |
 | malformed active manifests | 0 |
+| unfinished run age | ≤ 120 分钟 |
 
-任何一项违规时汇总状态为 `degraded`，有事件且没有违规时为 `healthy`，没有事件时为 `no_data`。没有分母或样本时跳过相应比例/分位数阈值。
+任何一项数值阈值违规时汇总状态为 `degraded`。已完成 run 缺少必需事件，或未完成 run 超过 `unfinished_run_age_minutes_max` 时，`metrics_status` 为 `incomplete`、健康状态为 `unknown`，绝不显示 `healthy`。没有事件时为 `no_data`。进行中的未超时 run 标为 `collecting`，不会立即污染历史健康判定。
 
 ## 数据安全
 
 写入函数使用字段白名单。以下数据不会进入 `metrics.jsonl`：
 
 - CV/JD 正文
-- `cv_hash`、`cp_hash`、`run_id`、`dedup_key`
+- `cv_hash`、`cp_hash`、评估快照 ID、`dedup_key`（只允许随机 pipeline `run_id`）
 - 职位 URL、公司名、职位名
 - 原始异常消息
 - API Key、Cookie、session id、Live View URL、页面 URL、查询/键盘输入和截图内容

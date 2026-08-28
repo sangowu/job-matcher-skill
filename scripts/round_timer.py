@@ -24,7 +24,12 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from runtime_metrics import ORCHESTRATION_MODES, record_metric
+from runtime_metrics import (
+    ORCHESTRATION_MODES,
+    assess_run_completeness,
+    record_metric,
+    run_metadata,
+)
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = SKILL_ROOT / "data"
@@ -43,10 +48,30 @@ def cmd_start() -> None:
     round_id = f"round-{started.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
     marker = {"round_id": round_id, "started_at": started.isoformat(), "monotonic": time.monotonic()}
     (ROUNDS_DIR / f"{round_id}.json").write_text(json.dumps(marker), encoding="utf-8")
-    print(json.dumps({"ok": True, "round_id": round_id, "started_at": marker["started_at"]}))
+    recorded = record_metric(
+        METRICS_PATH,
+        "run_start",
+        True,
+        run_id=round_id,
+        **run_metadata(),
+    )
+    print(json.dumps({
+        "ok": True,
+        "run_id": round_id,
+        "round_id": round_id,
+        "started_at": marker["started_at"],
+        "metrics_recorded": recorded,
+    }))
 
 
-def cmd_finish(round_id: str, orchestration: str, batches: int, evaluations: int, jobs: int) -> None:
+def cmd_finish(
+    round_id: str,
+    orchestration: str,
+    batches: int,
+    evaluations: int,
+    jobs: int,
+    expected_operations: list[str] | None = None,
+) -> None:
     if orchestration not in ORCHESTRATION_MODES:
         _fail(f"--orchestration must be one of {', '.join(ORCHESTRATION_MODES)}")
     path = ROUNDS_DIR / f"{round_id}.json"
@@ -63,15 +88,27 @@ def cmd_finish(round_id: str, orchestration: str, batches: int, evaluations: int
         started_at = started_at.replace(tzinfo=timezone.utc)
     duration_ms = round((datetime.now(timezone.utc) - started_at).total_seconds() * 1000, 2)
 
-    recorded = record_metric(
+    round_recorded = record_metric(
         METRICS_PATH,
         "round",
         True,
+        run_id=round_id,
         round_duration_ms=duration_ms,
         orchestration=orchestration,
         batches=batches,
         evaluations=evaluations,
         jobs_reported=jobs,
+    )
+    expected = {"search", "merge", *(expected_operations or [])}
+    if evaluations > 0:
+        expected.add("update")
+    completeness = assess_run_completeness(METRICS_PATH, round_id, expected)
+    finish_recorded = record_metric(
+        METRICS_PATH,
+        "run_finish",
+        True,
+        run_id=round_id,
+        **completeness,
     )
     path.unlink(missing_ok=True)
     print(json.dumps({
@@ -79,7 +116,9 @@ def cmd_finish(round_id: str, orchestration: str, batches: int, evaluations: int
         "round_id": round_id,
         "round_duration_ms": duration_ms,
         "orchestration": orchestration,
-        "metrics_recorded": recorded,
+        "metrics_status": "complete" if completeness["complete"] else "incomplete",
+        "missing_operations": completeness["missing_operations"],
+        "metrics_recorded": round_recorded and finish_recorded,
     }))
 
 
@@ -93,12 +132,26 @@ def main() -> None:
     finish.add_argument("--batches", type=int, default=0)
     finish.add_argument("--evaluations", type=int, default=0)
     finish.add_argument("--jobs-reported", type=int, default=0)
+    finish.add_argument(
+        "--expect",
+        action="append",
+        default=[],
+        choices=("subagent", "ats", "browser"),
+        help="Additional operation that this run must have recorded; repeat as needed.",
+    )
     args = parser.parse_args()
 
     if args.mode == "start":
         cmd_start()
     else:
-        cmd_finish(args.round_id, args.orchestration, args.batches, args.evaluations, args.jobs_reported)
+        cmd_finish(
+            args.round_id,
+            args.orchestration,
+            args.batches,
+            args.evaluations,
+            args.jobs_reported,
+            args.expect,
+        )
 
 
 if __name__ == "__main__":

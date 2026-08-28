@@ -9,6 +9,8 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Runtime metrics schema v5 with one PII-safe pipeline `run_id`, `run_start`/`run_finish` lifecycle events, Web Search page metrics, optional subagent token/cost fields, and explicit completeness reporting.
+- A run-scoped metrics contract that pre-registers privacy rules and A/B quality/cost/latency gates before any further optimization claim.
 - A bounded, count-only interleaved ATS HTTP-compression A/B harness with content-equivalence, request-count, job-count, and minimum wire-reduction gates.
 - A bounded three-provider ATS quality collector and count-only audit with pre-registered JD coverage, false-positive, direct/adjacent calibration, contract, and browser-fallback gates.
 - ATS-to-evaluation JD handoff: normalized Ashby/Greenhouse/Lever descriptions now flow through run-scoped task snapshots so eligible workers can skip a second page fetch.
@@ -25,6 +27,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Runtime health is now `unknown` rather than `healthy` when a finished run is missing required events or an unfinished run exceeds the configured age limit; unavailable token/cost values remain `null` instead of being counted as zero.
 - Public ATS requests now advertise gzip support by default while independently bounding compressed wire data and decompressed JSON; the transport switch remains injectable for controlled A/B tests.
 - ATS HTML descriptions are converted to plain text, script/style content is discarded, and each handoff is capped at 50,000 characters. Evaluation workers treat it as untrusted data and use browser fetching only when no ATS text is available.
 - Canonical jobs persist only `jd_content_hash`; a changed hash invalidates cached JD analysis and match scores. Completed/conflicted tasks immediately discard transient JD text and completed/expired run snapshots are deleted.
@@ -35,6 +38,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Runtime metadata now reuses the Python 3.10-compatible version reader instead of importing Python 3.11-only `tomllib`, restoring the declared Python 3.10 CI path.
 - Greenhouse entity-escaped HTML is decoded before plain-text extraction, preventing literal tags from entering evaluation input; Lever normalization now includes documented `lists` and `additionalPlain` sections instead of dropping requirements and closing content.
 - ATS title prefiltering no longer accepts mobile, Android, iOS, or UI roles solely because an `AI` product suffix overlaps a preferred AI role. Standalone `ai` is low-information while explicit `AI evaluation`, `AI systems`, and `agent systems` phrases remain eligible.
 

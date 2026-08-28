@@ -26,25 +26,45 @@ def timer_env(monkeypatch, tmp_path):
 
 def _start(capsys) -> str:
     round_timer.cmd_start()
-    return json.loads(capsys.readouterr().out)["round_id"]
+    output = json.loads(capsys.readouterr().out)
+    assert output["metrics_recorded"] is True
+    assert output["run_id"] == output["round_id"]
+    return output["round_id"]
 
 
 def test_round_is_timed_and_recorded_without_identifying_data(timer_env, capsys):
     round_id = _start(capsys)
+    for operation in ("search", "merge", "update"):
+        record_metric(round_timer.METRICS_PATH, operation, True, run_id=round_id)
     round_timer.cmd_finish(round_id, "overlapped", 3, 14, 12)
     output = json.loads(capsys.readouterr().out)
 
     assert output["ok"] is True
     assert output["metrics_recorded"] is True
+    assert output["metrics_status"] == "complete"
     assert output["round_duration_ms"] >= 0
     assert not (timer_env / "rounds" / f"{round_id}.json").exists()
 
     text = (timer_env / "metrics.jsonl").read_text(encoding="utf-8")
-    event = json.loads(text)
-    assert event["operation"] == "round"
+    events = [json.loads(line) for line in text.splitlines()]
+    event = next(item for item in events if item["operation"] == "round")
     assert event["orchestration"] == "overlapped"
     assert event["batches"] == 3 and event["evaluations"] == 14
-    assert "cv_hash" not in event and "round_id" not in event and "url" not in event
+    assert event["run_id"] == round_id
+    assert "cv_hash" not in text and "url" not in text
+
+
+def test_finish_marks_missing_events_incomplete(timer_env, capsys):
+    round_id = _start(capsys)
+
+    round_timer.cmd_finish(round_id, "serial", 1, 0, 0, ["subagent"])
+    output = json.loads(capsys.readouterr().out)
+
+    assert output["metrics_status"] == "incomplete"
+    assert output["missing_operations"] == "merge:search:subagent"
+    summary = build_summary(round_timer.METRICS_PATH, timer_env / "eval_runs")
+    assert summary["metrics_status"] == "incomplete"
+    assert summary["status"] == "unknown"
 
 
 def test_unknown_round_and_bad_mode_fail_cleanly(timer_env, capsys):

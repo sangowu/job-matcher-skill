@@ -14,7 +14,7 @@ from typing import Any
 
 from _jobutil import SKILL_ROOT
 from browser_provider import build_provider, load_browser_settings
-from runtime_metrics import record_metric
+from runtime_metrics import record_metric, validate_run_id
 
 
 DEFAULT_BUDGET_PATH = SKILL_ROOT / "data" / "browser_round_budget.json"
@@ -128,10 +128,12 @@ class BrowserController:
         provider_name: str,
         *,
         metrics_path: Path = SKILL_ROOT / "data" / "metrics.jsonl",
+        metrics_run_id: str | None = None,
     ) -> None:
         self.provider = provider
         self.provider_name = provider_name
         self.metrics_path = metrics_path
+        self.metrics_run_id = metrics_run_id
 
     def _call(self, action: str, function: Any, **metric_values: Any) -> Any:
         started = time.perf_counter()
@@ -142,6 +144,7 @@ class BrowserController:
                 self.metrics_path,
                 "browser",
                 False,
+                run_id=self.metrics_run_id,
                 provider=self.provider_name,
                 action=action,
                 duration_ms=(time.perf_counter() - started) * 1000,
@@ -153,6 +156,7 @@ class BrowserController:
             self.metrics_path,
             "browser",
             True,
+            run_id=self.metrics_run_id,
             provider=self.provider_name,
             action=action,
             duration_ms=(time.perf_counter() - started) * 1000,
@@ -212,6 +216,7 @@ class BrowserController:
             self.metrics_path,
             "browser",
             status not in {"failed", "timeout"},
+            run_id=self.metrics_run_id,
             provider=self.provider_name,
             action="state",
             status=status,
@@ -231,10 +236,11 @@ class BrowserController:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--provider", choices=("kernel", "fake"))
+    parser.add_argument("--metrics-run-id", type=validate_run_id)
     subparsers = parser.add_subparsers(dest="command", required=True)
     create = subparsers.add_parser("create")
     create.add_argument("--url", required=True)
-    create.add_argument("--round-id", required=True)
+    create.add_argument("--round-id", required=True, type=validate_run_id)
     create.add_argument("--estimated-cost-usd", type=float)
     screenshot = subparsers.add_parser("screenshot")
     screenshot.add_argument("--session-id", required=True)
@@ -256,7 +262,7 @@ def _parser() -> argparse.ArgumentParser:
     scroll.add_argument("--delta-y", type=int, required=True)
     close = subparsers.add_parser("close")
     close.add_argument("--session-id", required=True)
-    close.add_argument("--round-id", required=True)
+    close.add_argument("--round-id", required=True, type=validate_run_id)
     event = subparsers.add_parser("event")
     event.add_argument(
         "--status",
@@ -277,8 +283,13 @@ def main() -> int:
     settings = load_browser_settings()
     if args.provider:
         settings["browser_provider"] = args.provider
+    metrics_run_id = args.metrics_run_id or getattr(args, "round_id", None)
     if args.command == "event":
-        controller = BrowserController(None, settings["browser_provider"])
+        controller = BrowserController(
+            None,
+            settings["browser_provider"],
+            metrics_run_id=metrics_run_id,
+        )
         result = controller.record_state(
             args.status,
             page_number=args.page_number,
@@ -290,7 +301,11 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=True, sort_keys=True))
         return 0 if result["ok"] else 1
     provider = build_provider(settings)
-    controller = BrowserController(provider, settings["browser_provider"])
+    controller = BrowserController(
+        provider,
+        settings["browser_provider"],
+        metrics_run_id=metrics_run_id,
+    )
     if args.command == "create":
         estimated_cost = args.estimated_cost_usd
         if estimated_cost is None:

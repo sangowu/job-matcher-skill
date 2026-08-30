@@ -113,6 +113,9 @@ agent 会自动识别。然后在对话里：
 |----|------|------|
 | `top_n` | 15 | 最终展示职位数 |
 | `precise_buffer` | 5 | 精排多抓缓冲 |
+| `version_check_enabled` | true | 启动时是否检查本地 skill 与 GitHub `main` 是否同步 |
+| `version_check_interval_hours` | 24 | GitHub 版本检查缓存时长；缓存期内不发网络请求 |
+| `version_check_timeout_seconds` | 3 | 单次只读 GitHub 请求超时秒数 |
 | `max_parallel_subagents` | 3 | 批内并行上限 |
 | `subagent_profiles` | 见配置 | 各角色请求的 model、reasoning effort 与隔离上下文策略 |
 | `max_websearch_calls` | 6 | WebSearch 总次数上限 |
@@ -146,6 +149,8 @@ agent 会自动识别。然后在对话里：
 | `eval_run_stale_hours` | 2 | 作废未完成评估快照的时间阈值 |
 | `monitoring_default_window_days` | 7 | 默认健康报告窗口 |
 | `monitoring_thresholds` | 见配置 | 冲突、拒绝、成功率、锁等待和积压阈值 |
+
+`python scripts/version_check.py` 会比较本地 `pyproject.toml` 版本、Git commit 与 GitHub `main`，结果缓存到已忽略的 `data/version_check.json`。它不读取或上传 CV/JD/搜索数据，不需要 GitHub token，也不会自动更新文件；离线、超时或限流只返回 `unknown`，不阻断职位流程。需要绕过缓存做只读诊断时使用 `python scripts/version_check.py --force`。
 
 运行时只保留一个职位主表 `data/jobs_table.json`。`record_id` 是稳定记录/评估主键，`identity_keys` 保存平台职位 ID；公司 + 标题 `dedup_key` 仅作兼容弱匹配。两个不相交的强 ID 不会因同公司同标题而误合并，弱键匹配还要求地点兼容且结果唯一。旧表会在下一次 merge/update 时原位补齐身份字段。每轮待评估职位写入最小化快照 `data/eval_runs/<run_id>.json`；ATS 已返回 JD 时，正文只临时存在对应任务快照，主表只保存内容 hash，worker 可直接分析并跳过网页抓取。单个任务完成即清除正文，整轮完成后快照释放，仅在 `history.jsonl` 留下不含 CV/JD 正文的摘要。每次 merge/update 另写一条 PII-safe `data/metrics.jsonl` 事件。
 

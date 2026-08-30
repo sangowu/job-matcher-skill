@@ -113,6 +113,9 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 |-----|---------|-------------|
 | `top_n` | 15 | jobs shown in the final report |
 | `precise_buffer` | 5 | extra jobs fetched for fine ranking |
+| `version_check_enabled` | true | check whether the local skill matches GitHub `main` at startup |
+| `version_check_interval_hours` | 24 | GitHub version-check cache duration; no network call inside the TTL |
+| `version_check_timeout_seconds` | 3 | timeout in seconds for one read-only GitHub request |
 | `max_parallel_subagents` | 3 | per-batch parallelism cap |
 | `subagent_profiles` | see config | requested model, reasoning effort, and context isolation per role |
 | `max_websearch_calls` | 6 | total web-search call cap |
@@ -146,6 +149,8 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `eval_run_stale_hours` | 2 | age at which an unfinished evaluation snapshot is abandoned |
 | `monitoring_default_window_days` | 7 | default health-report window |
 | `monitoring_thresholds` | see config | conflict, rejection, success, lock-wait, and backlog limits |
+
+`python scripts/version_check.py` compares the local `pyproject.toml` version and Git commit with GitHub `main`, caching the result in ignored `data/version_check.json`. It reads or uploads no CV, JD, or search data, requires no GitHub token, and never updates files automatically. Offline, timeout, and rate-limit failures return `unknown` without blocking the job pipeline. Use `python scripts/version_check.py --force` only for an immediate read-only diagnostic.
 
 Runtime state has one canonical table, `data/jobs_table.json`. `record_id` is the stable record/evaluation primary key and `identity_keys` retain platform job ids; company + title `dedup_key` is only a compatibility weak key. Disjoint strong ids never merge solely because company and title match, while weak matching also requires compatible locations and a unique target. Legacy tables gain the identity fields in place on the next merge/update. Each evaluation batch gets a minimal `data/eval_runs/<run_id>.json` snapshot. When ATS already returned a JD, its text exists only in that task snapshot, the canonical table stores only a content hash, and the worker can skip page fetching. A completed/conflicted task drops its text immediately; the completed run is released after a PII-free summary is appended to `history.jsonl`. Every merge/update also appends a PII-safe event to `data/metrics.jsonl`.
 

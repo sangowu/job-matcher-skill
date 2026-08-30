@@ -1,6 +1,9 @@
 {
   "top_n": 15,
   "precise_buffer": 5,
+  "version_check_enabled": true,
+  "version_check_interval_hours": 24,
+  "version_check_timeout_seconds": 3,
   "max_parallel_subagents": 3,
   "subagent_profiles": {
     "cv_extract": {

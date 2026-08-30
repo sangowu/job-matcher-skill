@@ -24,15 +24,16 @@ def load_config() -> dict:
 _VERSION_RE = re.compile(r'^version\s*=\s*"([^"]+)"', re.MULTILINE)
 
 
-def skill_version() -> str:
+def skill_version(root: Path | None = None) -> str:
     """Read the version from pyproject.toml, the single source of truth.
 
     Parsed with a regex rather than tomllib because CI still runs Python 3.10,
     where tomllib does not exist. Returns "unknown" if the file is missing or
     malformed -- version reporting must never break the pipeline.
     """
+    skill_root = root or SKILL_ROOT
     try:
-        match = _VERSION_RE.search((SKILL_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        match = _VERSION_RE.search((skill_root / "pyproject.toml").read_text(encoding="utf-8"))
     except OSError:
         return "unknown"
     return match.group(1) if match else "unknown"

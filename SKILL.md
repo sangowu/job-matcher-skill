@@ -25,6 +25,7 @@ description: 根据用户简历(CV)和求职意向，抽取CV结构化字段、�
 - 搜索与职位评估可以并行执行，但 worker 只返回结果；`jobs_table.json` 的 `merge/update` 必须由主 agent 串行提交。按 `WORKFLOW.md` 使用 `eval_run` 快照和 `run_id`，不要让 worker 直接写共享主表。
 - **批间重叠**：第 N 批 `merge` 拿到 `eval_run` 后，在同一条消息里并行 spawn「第 N 批评估 worker + 第 N+1 批搜索 worker」（Claude 的 Task/Agent 支持单消息并行）；`max_parallel_subagents` 是搜索+评估共用的全局预算，重叠期建议 1 搜 + 2 评。
 - `merge/update` 会写入 PII-safe 运行指标；若返回 `metrics_recorded:false`，应告知用户。健康汇总使用 `scripts/summarize_metrics.py`。
+- 每次启动先运行 `scripts/version_check.py`。只在 `different`、`version_different` 或 `local_modified` 时简短提醒；`unknown` 不阻断流程。检查器只读且有 24 小时缓存，绝不能自行 `git pull` 或覆盖本地文件。
 - 子代理创建前用 `scripts/subagent_metrics.py profile` 解析角色模型/effort；创建后记录实际生效配置、耗时、成功率所需计数与 fallback。运行时不支持覆盖时继承当前模型并如实标记，不得伪报。
 - 可选远程隔离浏览器只作为最终抓取兜底：先通过 `scripts/browser_setup.py` 配置 Kernel BYOK，再由 browser 子代理使用 `scripts/browser_control.py` 视觉操作。单站翻页串行、不同网站可并行；验证码/登录/限流只做人工接管或降级。
 - 缺目标职位 / 地点完全缺失 → 停下追问用户。

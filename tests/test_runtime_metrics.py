@@ -39,7 +39,7 @@ def test_run_metadata_does_not_require_python_311_tomllib(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", block_tomllib)
     run_metadata.cache_clear()
     try:
-        assert run_metadata()["skill_version"] == "2.3.0"
+        assert run_metadata()["skill_version"] == "2.4.0"
     finally:
         run_metadata.cache_clear()
 

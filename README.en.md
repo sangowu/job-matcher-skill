@@ -2,7 +2,7 @@
 
 **English** | [中文](README.md)
 
-Release documentation: [Changelog](CHANGELOG.md) · [v2.3.0 release notes](docs/releases/v2.3.0.md) · [v2.2.0 release notes](docs/releases/v2.2.0.md) · [v2.1.0 release notes](docs/releases/v2.1.0.md) · [v2.0.0 release notes](docs/releases/v2.0.0.md)
+Release documentation: [Changelog](CHANGELOG.md) · [v2.4.0 release notes](docs/releases/v2.4.0.md) · [v2.3.0 release notes](docs/releases/v2.3.0.md) · [v2.2.0 release notes](docs/releases/v2.2.0.md) · [v2.1.0 release notes](docs/releases/v2.1.0.md) · [v2.0.0 release notes](docs/releases/v2.0.0.md)
 
 > An **agent skill (for Claude Code & Codex)**: give it your **CV + job intent**, and it extracts your CV fields, retrieves matching jobs via **live web search**, and generates an **interactive HTML report**.
 

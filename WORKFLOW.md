@@ -49,6 +49,7 @@
 | `render_html.py` | `… --cv-hash H --cp-hash H [--meta-file F]` | jobs_table + meta + PII-safe metrics | `{ok, report_path, job_count, health_status, health_breaches}` |
 | `round_timer.py` | `… start` / `… finish --round-id R --orchestration serial\|overlapped` | 整轮起止 | `{ok, round_id}` / `{ok, round_duration_ms, metrics_recorded}` |
 | `subagent_metrics.py` | `… profile --role R` / `… record …` | 角色配置 / 实际执行计数 | 请求配置；或写入一次 PII-safe 子代理指标 |
+| `version_check.py` | `python scripts/version_check.py [--force]` | 本地版本/Git 元数据 + 只读 GitHub public API | `{status, local_version, remote_version, local_revision, remote_revision, cache_hit}`；失败不阻断 |
 | `browser_setup.py` | `python scripts/browser_setup.py` | localhost 表单 | 测试连接，密钥进系统密钥库，非敏感设置进 `data/` |
 | `browser_control.py` | `… create/screenshot/click/type/press/scroll/close/test` | session id + 视觉动作 | 小 JSON；`create` 临时返回 Live View URL |
 | `browser_workflow.py` | 由 browser worker 使用 | 逐页观察与下一页动作 | 有上限的串行翻页、链接去重与暂停状态 |
@@ -59,6 +60,7 @@
 
 ### 0. 准备
 - 读 `config.json` 拿参数。
+- `python scripts/version_check.py`：默认最多每 24 小时用只读 GitHub public API 对比 `main` 的版本号和 commit，其余启动复用 `data/version_check.json`。`different` / `version_different` / `local_modified` 时简短提醒用户但继续；`synced` / `version_synced` 无需打扰；`unknown` 只在诊断时说明。不得根据结果自动 `git pull`、切分支或覆盖文件。只有用户明确要求立即复查时才使用 `--force`。
 - `python scripts/round_timer.py start` → 记下返回的 `run_id`（兼容字段 `round_id` 值相同；整轮计时，第 7 步收尾时结束）。后续所有指标命令都显式传这个 pipeline run id；它与 `merge` 返回的评估 `run_id` 不是同一概念。`metrics_recorded:false` 不阻塞流程，但必须告知用户。
 - **灵活识别输入**：从用户消息找出 CV（文件路径，或粘贴的大段简历文本）和 query（求职意向）。
   - 只有 query 没 CV → 追问 CV。

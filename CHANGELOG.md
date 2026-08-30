@@ -9,6 +9,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A non-blocking startup version check that compares the local semantic version and Git revision with GitHub `main`, caches public metadata for 24 hours, and never auto-updates local files.
 - Runtime metrics schema v5 with one PII-safe pipeline `run_id`, `run_start`/`run_finish` lifecycle events, Web Search page metrics, optional subagent token/cost fields, and explicit completeness reporting.
 - A run-scoped metrics contract that pre-registers privacy rules and A/B quality/cost/latency gates before any further optimization claim.
 - A bounded, count-only interleaved ATS HTTP-compression A/B harness with content-equivalence, request-count, job-count, and minimum wire-reduction gates.

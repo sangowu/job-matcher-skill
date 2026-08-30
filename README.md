@@ -2,7 +2,7 @@
 
 [English](README.en.md) | **中文**
 
-版本文档：[更新记录](CHANGELOG.md) · [v2.3.0 发布说明](docs/releases/v2.3.0.md) · [v2.2.0 发布说明](docs/releases/v2.2.0.md) · [v2.1.0 发布说明](docs/releases/v2.1.0.md) · [v2.0.0 发布说明](docs/releases/v2.0.0.md)
+版本文档：[更新记录](CHANGELOG.md) · [v2.4.0 发布说明](docs/releases/v2.4.0.md) · [v2.3.0 发布说明](docs/releases/v2.3.0.md) · [v2.2.0 发布说明](docs/releases/v2.2.0.md) · [v2.1.0 发布说明](docs/releases/v2.1.0.md) · [v2.0.0 发布说明](docs/releases/v2.0.0.md)
 
 > 一个 **agent skill（Claude Code 与 Codex 通用）**：输入**简历(CV) + 求职意向**，自动抽取简历字段、用 **web 搜索实时检索**匹配职位，生成一份**可交互的 HTML 报告**。
 

@@ -7,6 +7,10 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-08-30
+
+Detailed release notes: [docs/releases/v2.4.0.md](docs/releases/v2.4.0.md).
+
 ### Added
 
 - A non-blocking startup version check that compares the local semantic version and Git revision with GitHub `main`, caches public metadata for 24 hours, and never auto-updates local files.

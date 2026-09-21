@@ -39,7 +39,11 @@
 |------|------|------|------|
 | `extract_cv.py` | `python scripts/extract_cv.py <file>` | CV 文件路径 | `{ok, source_type, char_count, cv_hash, text_path, cache_hit, cached_profile_path?, warnings}` |
 | `validate_profile.py` | `python scripts/validate_profile.py`（stdin） | LLM 抽取的 CVProfile JSON | `{ok, profile, notes}` |
-| `merge_jobs.py merge` | `… merge --cv-hash H --cp-hash H`（stdin） | 候选职位数组 | `{to_analyze, to_score_only, in_evaluation, cached, eval_run, stats, metrics_recorded}` |
+| `market_plan.py` | `… validate` / `… plan`（stdin） | 四市场配置；或 `{cv_profile,user_intent}` | 配置校验；或确定性 `{target_markets,target_locations,report_language,search_languages,search_plan,...}` |
+| `source_registry.py` | `… validate/init/apply/plan/rollback-legacy` | 公开来源种子、PII-safe 来源提案/健康事件 | 原子维护 `data/source_registry.json`；输出确定性 eligible 来源 ID 或迁移/回滚摘要 |
+| `candidate_contract.py` | `python scripts/candidate_contract.py`（stdin） | Phase C CandidateEnvelope 数组 | 严格校验、边界归一化后的候选数组；不接收 JD/评分字段 |
+| `candidate_handoff.py` | `… --cv-hash H --cp-hash H [--metrics-run-id R]`（stdin） | 同一 `batch_id` 的市场/来源计划、双 route 回报和来源更新 | merge-first 的幂等提交摘要；中断后按 manifest 续跑，不输出候选/JD 正文 |
+| `merge_jobs.py merge` | `… merge --cv-hash H --cp-hash H [--batch-id B]`（stdin） | 旧候选数组或严格 CandidateEnvelope 数组 | `{idempotent,to_analyze,to_score_only,in_evaluation,cached,eval_run,stats,metrics_recorded}` |
 | `merge_jobs.py update` | `… update --cv-hash H --cp-hash H --run-id R`（stdin） | 带快照元数据的打分结果数组 | `{ok, updated, rebased, rejected, conflicts, released, duration_ms, metrics_recorded}` |
 | `summarize_metrics.py` | `… [--days N] [--format json\|markdown] [--fail-on-breach]` | `data/metrics.jsonl` + 活跃 eval runs | 健康状态、比率、p50/p95/p99、积压与阈值违规 |
 | `search_metrics.py` | `… --ok --run-id R --query-slot qN …` | Web Search 页级计数，不接收 query/URL | 写入一次 PII-safe `search` 事件 |
@@ -79,11 +83,41 @@
   - 若判定输入不是简历 → 提示用户。
 
 ### 3. 构建检索条件（你来做，读 `references/search_playbook.md`）
-- 融合 CVProfile + query → `search_plan`(≤5) + `candidate_profile`。
+- 对明确使用多地区规划的请求，把 CVProfile + 本轮用户目标写成
+  `{cv_profile,user_intent}`，调用 `python scripts/market_plan.py plan`。它只读并输出
+  `search_plan`，不会搜索或写主表；未显式采用该入口时，旧单地区 Web Search 流程保持兼容。
+  `multi_region_enabled` 默认 `false`，是接入默认编排前的 opt-in 门；只有编排者明确采用下述
+  Phase C 双 route handoff 时才执行地区来源。
+- Phase B 来源维护是独立控制面：`python scripts/source_registry.py validate` 校验
+  `references/source_seeds.json`；`init` 在持锁后原子合并种子到已忽略的
+  `data/source_registry.json`。若旧 `data/ats_companies.json` 存在，只读导入一次并记录
+  `ats_companies_v1` marker，不修改或删除旧文件；`rollback-legacy` 只移除 marker 记录的迁移行。
+  Worker 只能提交不含 URL/query/JD/CV/职位信息的 proposal/event batch，由主编排器调用
+  `apply` 串行提交；重复 `batch_id` 幂等。`plan --markets ...` 只列出
+  `enabled + verified + TTL 未过期` 的来源，candidate 不自动启用、全局来源跨市场只列一次。
+- `user_intent.locations` 覆盖 CV 默认地点；没有用户地点时才依次回退
+  `target_locations`、旧 `preferred_locations`、最后的 `current_location`。无法识别的明确地点
+  返回 `needs_user_input=true`，不能回退到 CV 地点或猜国家。
+- `report_language` 只控制报告与解释；`search_languages` 由目标市场决定。内部只使用
+  `en`、`de`、`zh-Hans`，边界输入 `zh`/`zh-CN` 规范化为 `zh-Hans`。
+- 融合 CVProfile + query → `search_plan`（全局 Web Search 上限仍为 6）+ `candidate_profile`。
 - **缺目标职位 或 地点完全缺失 → 停下追问用户**。
 - 算 `candidate_profile_hash`：把 candidate_profile JSON 喂给 `python scripts/cp_hash.py`（它规范化后再 hash，**保证同语义同 hash、不每轮分裂**），取返回的 `cp_hash`。后续 `merge_jobs` / `render_html` 的 `--cp-hash` **全部用它**（不要自己另编 hash）。
 
 ### 4. 检索职位（web 搜索 + 脚本，自适应分批）
+- **Phase C 显式多地区入口**：从同一 market/source plan 在同一条编排消息中同时启动
+  `regional_registry` 与 `agent_web_search` worker。两者只能回传 immutable route batch，不能写
+  主表、评估快照、来源注册表或指标。每条 route 必须回报 `succeeded/failed/skipped`；失败 route
+  候选必须为空，但不能阻断另一 route 的有效候选。
+- 两条 route 都返回后，编排者把同一 `batch_id`、market/source plan、route batches 和可选来源
+  proposal/event 一次性送入 `candidate_handoff.py`。它对所有候选执行严格 CandidateEnvelope 校验，
+  先以 `merge_jobs.py merge --batch-id B` 串行写职位/评估快照，再串行写 source registry。
+  重复同一 batch 不增加 `seen_count` 或评估任务；merge 后 registry 失败时按
+  `data/candidate_runs/<batch_id>.json` 重试，仅补 registry 提交。不得交换提交顺序。
+- Phase C CandidateEnvelope 的正式结构见 `references/candidate_envelope.schema.json`；
+  `raw_sources[]` 是 provenance 唯一事实源。`market_id` 只作元数据，不能参与职位身份。
+  老候选没有 `discovery_route` 时仍走兼容路径；老表缺市场/来源字段在下一次 merge 时惰性补为
+  `unknown`，不做破坏性迁移。
 - 按 search_playbook 自适应分批：每批执行若干条 query 的 **web 搜索**（有子代理则用 `search` profile 并行委派、各 1 次搜索；否则你逐条搜），按 search_playbook「搜索职责」解析+三维初筛，得结构化职位数组。
 - Web 搜索“结果翻页”视为下一次独立搜索调用；仅在上一页仍有高相关未覆盖结果时继续，且每一页都计入 `max_websearch_calls`。不要假定一次搜索调用会自动替你翻完全部结果页。
 - Web Search 发现公司招聘列表但职位链接不完整时，可把该列表交给 browser worker 做网站内翻页；同一网站第 1→N 页必须串行，不同网站可在 `browser_max_concurrency` 内并行。
@@ -112,8 +146,38 @@
 - 同一 run 可增量提交多个 worker 结果；单个任务完成或冲突时立即清除其快照正文，全部任务结束后 `released:true` 并删除快照，只在 `data/eval_runs/history.jsonl` 留一条不含 CV/JD 正文的运行摘要。ATS 正文 hash 变化会清除旧 `jd_profile`/评分并要求重评；冲突职位由后续 `merge` 重新建立新快照。
 
 ### 6. 生成报告（脚本）
-- 写 `data/run_meta.json`：`{profile_summary, new_count, cached_count, lang}`（lang = CVProfile.search_language）。
+- 写 `data/run_meta.json`。旧流程可继续只传
+  `{profile_summary,new_count,cached_count,lang}`；Phase D1 多地区报告再传
+  `report_language`、`target_markets`、`search_languages`、UTC `run_time`，以及
+  `candidate_handoff.py` 返回的 PII-safe `route_summaries`。也可直接传已经聚合的
+  `market_coverage[]`（每市场 `status`、计划/成功/失败/跳过来源数和增量候选数）。
+  `status` 只接受 `executed/partial/failed/skipped/not_collected/unknown`。
+  多地区计划中 `lang = market_plan.report_language`；旧流程继续回退
+  `CVProfile.search_language`。报告会把失败、跳过、未收集和未知与“已执行但本轮未观察到候选”
+  分开显示，不能把前四者写成 0 个职位。
 - `python scripts/render_html.py --cv-hash H --cp-hash H --meta-file data/run_meta.json` → 生成并**自动打开报告**。
+- Phase D1 报告顶部展示目标市场、搜索语言、报告语言、运行时间和市场覆盖卡；职位详情展示
+  每条 provenance 的来源类型、route、规范地点、搜索语言和链接状态；市场/来源类型/验证状态
+  均可筛选。同一 canonical job 只有一张卡，多条 `raw_sources` 显示“多来源”。原始标题、公司、
+  薪资和地点保持来源文本，不翻译后再展示或去重。
+- **Phase D2 仅显式 smoke**：需要来源诊断时才运行
+  `python scripts/multi_region_smoke.py --live --output <count-only.json>`。计划固定在
+  `references/multi_region_smoke_plan.json`；每来源最多两次同站 HTTPS GET，单响应 512 KiB、
+  8 秒超时、最多两次重定向。登录/验证码立即停止，`automation_allowed=false` 的 China 来源
+  必须零请求并记录 `skipped_policy`。产物只能保留状态、失败类别和计数，不得保留公司、标题、
+  URL、query、页面或 JD 正文；外部失败不得当作 pytest 回归。不得把本次小样本解释为市场召回率，
+  也不得据此默认启用来源。
+- **Phase E shadow 门**：shadow 编排不得把地区来源候选写入正式报告或改变排序；新运行使用
+  `references/shadow_compare_v2.schema.json` 临时输入，经 `shadow_compare.py` 在内存按强身份合并并
+  计算 route 新增、交集、JD/链接覆盖和潜在 Top-N。正式 baseline 在同分时优先，跨 route 新职位
+  由 `regional_registry` 优先归因；输出不得含身份键或业务正文。只有这个 count-only 输出才能交给
+  `shadow_gate.py record`。`status` 按市场要求
+  至少 3 次成功 run、跨 2 个 UTC 日期、确定性验收通过、双 route 成功且 live smoke 为
+  `sufficient`；还必须有至少 3 次跨 2 日的 v2 已完成非空同 CV/市场旧流程 Top-N 基线，
+  以及至少 1 个同时具备可用 JD 和有效链接的增量候选。v1 历史记录可读但不能满足新门槛；
+  未执行基线必须写 `unavailable`，不能把空数组冒充完成。`preliminary/inconclusive` 一律阻止 `default`。`multi_region_rollout` 只能逐市场设为
+  `off/shadow/opt_in/default`；总开关为 false 时有效模式全部为 off，未过门禁的 default 配置无效。
+  不得用离线 fixture 或同一天重复执行冒充真实 shadow 覆盖。
 - 渲染时自动计算并嵌入最近 7/30 天运行健康静态快照；顶部状态入口可查看关键指标和阈值告警。监控计算失败只显示 `unavailable`，不阻断职位报告。
 - ⚠ 每轮**只在这里 render 一次**；返回的 `opened: true` 表示报告**已自动打开**，**不要再手动打开报告**（os.startfile / 浏览器 / 重复 render 都不要），否则会打开多次。
 - 把 `report_path` 告诉用户。
@@ -147,7 +211,7 @@
 
 ### ATS 增强协议
 
-生产路由默认由 `ats_enabled: false` 显式关闭；启用是用户/本地配置选择。`ats_pipeline.py` 只允许官方公开 HTTPS GET，不需要 API key，不调用申请、Harvest、Hire 或 Partner API。客户端默认请求 gzip；压缩响应的 wire bytes 与解压后 payload 都必须独立受 25 MB 上限约束，未知或损坏的编码按该 board 的安全失败处理。Greenhouse 标识发现同时接受 `job-boards.greenhouse.io` 与 `job-boards.eu.greenhouse.io` 的公开职位页，但两者都调用官方 `boards-api.greenhouse.io` 公共 Job Board API；不要虚构 EU API host。它在内存中规范化并按 CV 的 title/location/remote/seniority 做确定性初筛：单独的 `AI` 产品或团队后缀是低信息量 token，不能独立触发岗位匹配；`AI evaluation`、`AI systems`、`agent systems` 等明确岗位短语仍可匹配。最多输出 `top_n + precise_buffer` 个候选，再进入统一强身份 merge。可用正文会清洗为纯文本并截断到 50,000 字符，随后只经本地评估快照临时交给 worker；主表只留 hash，状态/指标/benchmark 报告只留计数。若 Greenhouse `content=true` 响应超过 25 MB，可在同一全局请求预算内额外重试一次不含正文的列表；该 board 的任务继续走网页抓取回退。记录的 `response_bytes` 是网络传输字节数；另记录正文交接计数与 `content_fallback`，预算不足则按失败降级。`data/ats_companies.json` 保存 board 控制标识，`data/ats_sync_state.json` 和 `ats` 指标只保存低基数状态/计数，不保存职位名、URL、JD、CV、token 或异常全文。连续三次 404/410 才标记 unavailable；429、超时和网络失败保留可重试状态。`benchmark_ats.py` 复用同一生产解析器做公开小样本回归，但其脱敏报告不进入职位主表；`benchmark_ats_e2e.py` 只在显式提供固定 Web 候选与本地 profile 时做受限 discovery-to-merge A/B，仍不得突破生产硬上限。
+生产路由默认由 `ats_enabled: false` 显式关闭；启用是用户/本地配置选择。`ats_pipeline.py` 只允许官方公开 HTTPS GET，不需要 API key，不调用申请、Harvest、Hire 或 Partner API。客户端默认请求 gzip；压缩响应的 wire bytes 与解压后 payload 都必须独立受 25 MB 上限约束，未知或损坏的编码按该 board 的安全失败处理。Greenhouse 标识发现同时接受 `job-boards.greenhouse.io` 与 `job-boards.eu.greenhouse.io` 的公开职位页，但两者都调用官方 `boards-api.greenhouse.io` 公共 Job Board API；不要虚构 EU API host。它在内存中规范化并按 CV 的 title/location/remote/seniority 做确定性初筛：单独的 `AI` 产品或团队后缀是低信息量 token，不能独立触发岗位匹配；`AI evaluation`、`AI systems`、`agent systems` 等明确岗位短语仍可匹配。最多输出 `top_n + precise_buffer` 个候选，再进入统一强身份 merge。可用正文会清洗为纯文本并截断到 50,000 字符，随后只经本地评估快照临时交给 worker；主表只留 hash，状态/指标/benchmark 报告只留计数。若 Greenhouse `content=true` 响应超过 25 MB，可在同一全局请求预算内额外重试一次不含正文的列表；该 board 的任务继续走网页抓取回退。记录的 `response_bytes` 是网络传输字节数；另记录正文交接计数与 `content_fallback`，预算不足则按失败降级。通用 `data/source_registry.json` 存在时，`ats_pipeline.py` 只写该文件，旧 `data/ats_companies.json` 保持只读；通用 registry 不存在时才回退旧文件。`data/ats_sync_state.json` 和 `ats` 指标只保存低基数状态/计数，不保存职位名、URL、JD、CV、token 或异常全文。连续三次 404/410 才标记 unavailable；429、超时和网络失败保留可重试状态。`benchmark_ats.py` 复用同一生产解析器做公开小样本回归，但其脱敏报告不进入职位主表；`benchmark_ats_e2e.py` 只在显式提供固定 Web 候选与本地 profile 时做受限 discovery-to-merge A/B，仍不得突破生产硬上限。
 
 ## 护栏
 - 抓取**不绕验证码、不模拟登录、不抓需付费/登录内容、尊重 robots/ToS**。

@@ -7,6 +7,33 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Versioned `ie`/`uk`/`cn`/`de` market metadata, English/German/Simplified-Chinese role taxonomy, and a deterministic opt-in market planner with city/country/remote-scope normalization.
+- Synthetic ten-observation-per-market offline fixtures and fixed strong-identity/routing ground truth for the four initial markets.
+- A validated public source seed catalog with three local entry points and ten global company portals per initial market.
+- A PII-safe, single-writer source registry with deterministic eligibility planning, TTL revalidation, idempotent proposal/event batches, and atomic legacy ATS import/rollback.
+- A strict JSON/Python `CandidateEnvelope` contract and an opt-in dual-route handoff that serializes regional-registry and Agent Web Search candidates through the existing canonical merge writer.
+- Batch-idempotent canonical merges, additive legacy provenance normalization, route/source/market discovery metrics, and retry manifests for merge-before-registry interruption recovery.
+- Offline Phase D1 report evidence: market/source/verification filters, per-observation provenance, multi-source badges, market coverage cards, and explicit failed/skipped/not-collected/unknown empty states.
+- An explicit Phase D2 four-market public-source smoke harness with fixed request/body/timeout/redirect limits, policy-enforced China skip behavior, count-only evidence, and a bounded 2026-09-18 run artifact.
+- A strict count-only Phase E shadow-run contract, idempotent atomic evidence ledger, live-evidence-aware per-market rollout gate, and explicit off/shadow/opt-in/default market configuration that leaves every market off by default.
+- A read-only Phase E shadow comparator that joins shared strong identities in memory, attributes regional/Web incremental contribution deterministically, computes JD/link and potential Top-N counts, and emits no candidate identities or business content.
+
+### Changed
+
+- Report language and market search languages are separate in the new planning boundary; `zh` and `zh-CN` normalize to internal `zh-Hans`, while the existing single-region Web Search path remains available.
+- `markets.json` now references stable Phase B source IDs, while `multi_region_enabled: false` continues to prevent the new source plan from changing the production discovery path.
+- Once the generic registry is initialized, the existing ATS pipeline reads and writes its ATS-board view there; without it, the legacy `ats_companies.json` path remains the compatibility fallback.
+- Runtime metrics schema v6 adds low-cardinality Phase C discovery counts and merge provenance/idempotency fields without recording queries, titles, companies, URLs, CVs, or JDs.
+- Legacy candidate arrays remain accepted by `merge_jobs.py`; strict discovery validation is activated by the Phase C `discovery_route` boundary, while `candidate_handoff.py` always validates the full envelope.
+- Multi-region run metadata is additive: old `{profile_summary,new_count,cached_count,lang}` files still render, while new metadata can provide target markets, search/report languages, run time, and count-only route summaries.
+
+### Fixed
+
+- Phase E no longer treats missing real-CV Top-N baselines or repeated zero-useful-candidate runs as default-enable evidence; v2 count-only shadow records carry explicit baseline status while historical v1 ledger hashes remain readable.
+- The legacy-table migration regression now uses a fixed clock, preventing its fixture from becoming stale as the real 30-day archive TTL advances.
+
 ## [2.4.0] - 2026-08-30
 
 Detailed release notes: [docs/releases/v2.4.0.md](docs/releases/v2.4.0.md).

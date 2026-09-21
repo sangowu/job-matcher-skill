@@ -18,7 +18,7 @@ A lightweight take on [JobRadar](https://github.com/sangowu/JobRadar) — agent-
 - 🎯 **5-dimension scoring**: title / seniority / skills / location / must-have, with a five-tier recommendation (strong apply → skip). Deterministic seniority caps and contract validation catch scoring drift.
 - 🗂️ **Incremental cache**: three-layer cache (CV / JD / match score); multi-source same-job aggregation with exact job-id matching on regional platforms; auto re-score when the query changes.
 - 🛡️ **Untrusted input isolation**: search results and JD text are treated as data and their embedded instructions ignored; report JSON is escaped and links are restricted to http(s).
-- 📊 **Interactive report**: two-column layout (job list 30% + detail 70%) + score badges + dark mode + sort/filter/search + 7/30-day runtime health snapshots + zh/en i18n, a self-contained single-file HTML.
+- 📊 **Interactive report**: two-column layout (job list 30% + detail 70%) + score badges + dark mode + sort/search + market/source/verification filters + multi-source discovery evidence + 7/30-day runtime health snapshots + zh/en i18n, a self-contained single-file HTML.
 - 🌐 **Optional isolated browser**: Kernel BYOK as the final fetch fallback, with bounded listing pagination, visual controls, and Live View handoff; disabled by default, with a Fake Provider in CI.
 
 ## 🏗️ Architecture
@@ -55,11 +55,25 @@ job-matcher/
 │   ├── cv_schema.md          # CV extraction rules
 │   ├── scoring_rubric.md     # 5-dim scoring + tier thresholds
 │   ├── search_playbook.md    # fan-out / per-market / adaptive batching
+│   ├── markets.json          # ie/uk/cn/de locations, languages, and query templates
+│   ├── role_taxonomy.json    # stable English/German/Chinese role families
+│   ├── source_seeds.json     # verified four-market public seeds (no credentials)
+│   ├── multi_region_smoke_plan.json # Phase D2 fixed sources and request limits
+│   ├── shadow_run.schema.json # Phase E count-only shadow evidence contract
+│   ├── shadow_compare.schema.json # ephemeral Phase E comparison input
+│   ├── candidate_envelope.schema.json # Phase C discovery candidate contract
 │   ├── ats_phase1_boards.json # public-company sample for the ATS baseline
 │   └── ats_phase5_quality_boards.json # three-provider quality sample
 ├── scripts/              # deterministic Python scripts
 │   ├── extract_cv.py         # parse CV → text + hash
 │   ├── validate_profile.py   # validate + seniority→levels mapping
+│   ├── market_plan.py        # validate resources and build deterministic market plans
+│   ├── source_registry.py    # seed validation, health state, migration, and source plans
+│   ├── candidate_contract.py # strict Phase C CandidateEnvelope validation
+│   ├── candidate_handoff.py  # serialize dual discovery routes into the canonical writers
+│   ├── multi_region_smoke.py # explicit count-only four-market public-source smoke
+│   ├── shadow_gate.py        # idempotent Phase E ledger and per-market gate
+│   ├── shadow_compare.py     # read-only incremental/overlap/JD/Top-N comparison
 │   ├── analysis_contract.py  # validate JDProfile/MatchScore worker output
 │   ├── merge_jobs.py         # single writer: dedup/cache/eval snapshots/conditional commit
 │   ├── runtime_metrics.py    # PII-safe JSONL events and health calculations
@@ -87,6 +101,37 @@ job-matcher/
 ├── assets/template.html  # static report template (Tailwind + vanilla JS)
 └── data/                 # runtime data (.gitignored, contains PII)
 ```
+
+Multi-region Phase A/B/C remains an explicit entry point.
+`python scripts/market_plan.py validate` checks the versioned market and role
+resources; `python scripts/market_plan.py plan` accepts `{cv_profile,user_intent}`
+on stdin and produces market, language, location, and Web-query plans for
+Ireland, the UK, China, and Germany. It neither searches nor mutates the job
+table. `python scripts/source_registry.py validate` checks public seeds; `init`
+atomically merges them into `data/source_registry.json` and read-only imports a
+legacy `data/ats_companies.json` when present; `plan --markets ie uk` returns
+only enabled, verified, unexpired sources and emits a global source once. None
+of these commands executes a search, so the existing single-region
+Web Search/ATS/merge/report path stays compatible. In Phase C the orchestrator
+may start `regional_registry` and `agent_web_search` together, wait for both
+routes to report success, failure, or skip, then submit their strict
+CandidateEnvelope batches under one `batch_id` to `candidate_handoff.py`. The
+handoff commits jobs/evaluation tasks through the sole `merge_jobs.py` writer
+before applying source-state updates idempotently. See
+[`docs/multi-region-phase0-baseline.md`](docs/multi-region-phase0-baseline.md)
+[`docs/source-registry-phase-b.md`](docs/source-registry-phase-b.md), and
+[`docs/multi-region-phase-c.md`](docs/multi-region-phase-c.md).
+The offline Phase D1 report contract is documented in
+[`docs/multi-region-phase-d1.md`](docs/multi-region-phase-d1.md).
+The bounded Phase D2 public-source smoke, privacy boundary, and observed evidence
+are documented in [`docs/multi-region-phase-d2.md`](docs/multi-region-phase-d2.md).
+It requires an explicit `--live` flag and is not part of default CI or production
+discovery.
+The count-only Phase E shadow contract, per-market thresholds, and current
+ineligible state are documented in
+[`docs/multi-region-phase-e.md`](docs/multi-region-phase-e.md).
+`multi_region_enabled` defaults to `false`; regional source execution remains
+opt-in and does not replace the existing single-region flow automatically.
 
 ## 🚀 Usage
 
@@ -119,6 +164,8 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `max_parallel_subagents` | 3 | per-batch parallelism cap |
 | `subagent_profiles` | see config | requested model, reasoning effort, and context isolation per role |
 | `max_websearch_calls` | 6 | total web-search call cap |
+| `multi_region_enabled` | false | master multi-region source flag; all effective market modes are off while false |
+| `multi_region_rollout` | all four off | independent off / shadow / opt_in / default mode per market; default requires the Phase E gate |
 | `stop_threshold` | 12 | stop once enough net-valid jobs found |
 | `consecutive_empty_stop` | 2 | stop after N consecutive empty batches |
 | `ats_enabled` | false | enable the public ATS enhancement pipeline; explicitly off by default |
@@ -188,7 +235,7 @@ The summary reports p50/p95 per mode plus `overlap_saving_pct`, which stays `n/a
 
 Release regressions use a fixed 15-job cold dataset and 10 Fake sessions: `python scripts/benchmark_pipeline.py --output <json> --baseline docs/performance/v2.2.0-small-baseline.json`. The artifact contains raw iterations, p50/p95, absolute and relative changes, with no real web search or cloud-provider calls; it also verifies that all three Fake ATS JDs reach temporary tasks while the canonical table contains zero raw JDs. See [`docs/performance/strong-job-identity-baseline.md`](docs/performance/strong-job-identity-baseline.md) for the identity-migration run, [`docs/performance/ats-phase2-fake-baseline.md`](docs/performance/ats-phase2-fake-baseline.md) for the three-provider offline ATS run, [`docs/performance/ats-phase4-jd-handoff.md`](docs/performance/ats-phase4-jd-handoff.md) for the Phase 4 handoff measurement, and [`docs/performance/ats-phase4-live-quality.md`](docs/performance/ats-phase4-live-quality.md) for the three-JD live quality audit. A controlled discovery-to-merge A/B with fixed Web candidates and bounded live ATS calls uses `python scripts/benchmark_ats_e2e.py --web-candidates <json> --profile <json> --output <json>`; it makes public ATS requests, requires explicit local inputs, and enforces production hard caps. See [`docs/performance/ats-phase3-controlled-e2e.md`](docs/performance/ats-phase3-controlled-e2e.md) for the result and limitations. The three-provider JD review uses `python scripts/benchmark_ats_quality.py collect ...` to create an uncommitted local sample and then `audit` to emit a count-only gate report; see [`docs/performance/ats-phase5-multiprovider-quality.md`](docs/performance/ats-phase5-multiprovider-quality.md) for this small-sample result and its limits. HTTP compression can be checked with the same-result interleaved A/B in `python scripts/benchmark_ats_compression.py --output <json> --pairs 3`; the bounded three-provider run cut median wire bytes by 79.31% with identical content fingerprints, job counts, and request counts. See [`docs/performance/ats-http-compression-ab.md`](docs/performance/ats-http-compression-ab.md).
 
-ATS Phase 2 provides an optional production enhancement pipeline and remains off by default through `ats_enabled: false`. Official Ashby/Greenhouse/Lever URLs found by Web Search can be added to the local registry with `python scripts/ats_pipeline.py discover`. Greenhouse discovery also recognizes public pages on `job-boards.eu.greenhouse.io`, while the public API still uses the official `boards-api.greenhouse.io` endpoint. Once enabled, `sync --profile <cv-profile.json>` syncs due boards, while `run --profile ...` combines discovery and sync. The pipeline uses public GET only, requests gzip by default with independent compressed and decompressed size limits, and performs deterministic title/location/seniority prefiltering. A standalone `AI` product or team suffix is not a valid role match; explicit phrases such as `AI evaluation`, `AI systems`, and `agent systems` remain AI-role signals. Phase 4 cleans ATS-provided JD text, caps it at 50,000 characters, and hands it to the ranking worker through the same `merge_jobs.py` local run snapshot. Tasks with text skip page fetching; tasks without it use the existing fallback ladder. Web and ATS still share the canonical job table and analysis cache, the table stores only the JD hash, and ATS control state stays separate in `data/ats_companies.json` and `data/ats_sync_state.json`. ATS budgets are independent from Web Search; boards may run concurrently, while one Lever board paginates sequentially. If a Greenhouse `content=true` response exceeds 25 MB, one content-free listing retry may run within the same global request budget and records `content_fallback`. The PII-safe public regression remains `python scripts/benchmark_ats.py --output <json> --page-size 50 --max-pages 10` and stores no job descriptions, titles, or URLs. See [`docs/ats-provider-phase1.md`](docs/ats-provider-phase1.md).
+ATS Phase 2 provides an optional production enhancement pipeline and remains off by default through `ats_enabled: false`. Official Ashby/Greenhouse/Lever URLs found by Web Search can be added to the local registry with `python scripts/ats_pipeline.py discover`. Greenhouse discovery also recognizes public pages on `job-boards.eu.greenhouse.io`, while the public API still uses the official `boards-api.greenhouse.io` endpoint. Once enabled, `sync --profile <cv-profile.json>` syncs due boards, while `run --profile ...` combines discovery and sync. The pipeline uses public GET only, requests gzip by default with independent compressed and decompressed size limits, and performs deterministic title/location/seniority prefiltering. A standalone `AI` product or team suffix is not a valid role match; explicit phrases such as `AI evaluation`, `AI systems`, and `agent systems` remain AI-role signals. Phase 4 cleans ATS-provided JD text, caps it at 50,000 characters, and hands it to the ranking worker through the same `merge_jobs.py` local run snapshot. Tasks with text skip page fetching; tasks without it use the existing fallback ladder. Web and ATS still share the canonical job table and analysis cache, and the table stores only the JD hash. Once Phase B initializes `data/source_registry.json`, ATS control writes go only to the generic registry and legacy `data/ats_companies.json` stays read-only; the old file remains the fallback when no generic registry exists. `data/ats_sync_state.json` continues to hold low-sensitivity sync summaries. ATS budgets are independent from Web Search; boards may run concurrently, while one Lever board paginates sequentially. If a Greenhouse `content=true` response exceeds 25 MB, one content-free listing retry may run within the same global request budget and records `content_fallback`. The PII-safe public regression remains `python scripts/benchmark_ats.py --output <json> --page-size 50 --max-pages 10` and stores no job descriptions, titles, or URLs. See [`docs/ats-provider-phase1.md`](docs/ats-provider-phase1.md).
 
 ## 🔧 Dependencies
 

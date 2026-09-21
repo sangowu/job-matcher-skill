@@ -2,7 +2,7 @@
 
 Job Matcher 是本地 CLI skill，不需要常驻 Prometheus 服务。运行监控采用两个低依赖组件：
 
-- `data/metrics.jsonl`：每次 `run_start` / `search` / `merge` / `update` / `subagent` / `browser` / `ats` / `round` / `run_finish` 的结构化事件。
+- `data/metrics.jsonl`：每次 `run_start` / `search` / `discovery` / `merge` / `update` / `subagent` / `browser` / `ats` / `round` / `run_finish` 的结构化事件。
 - `scripts/summarize_metrics.py`：按时间窗口汇总健康状态、比率、分位数和队列积压。
 - `scripts/render_html.py`：每次生成职位报告时自动计算 7/30 天快照并嵌入 HTML。
 
@@ -42,22 +42,24 @@ python scripts/search_metrics.py --ok --run-id <R> --query-slot q1 \
 
 | 字段 | 说明 |
 |---|---|
-| `schema_version` | 指标事件 schema 版本，当前为 5；汇总仍兼容已有 v1–v4 事件 |
+| `schema_version` | 指标事件 schema 版本，当前为 6；汇总仍兼容已有历史事件 |
 | `timestamp` | UTC ISO-8601 时间 |
-| `operation` | `run_start`、`search`、`merge`、`update`、`subagent`、`browser`、`ats`、`round` 或 `run_finish` |
+| `operation` | `run_start`、`search`、`discovery`、`merge`、`update`、`subagent`、`browser`、`ats`、`round` 或 `run_finish` |
 | `ok` | 操作是否成功 |
 | `run_id` | `round_timer.py start` 生成的随机流水线标识；与评估快照 ID 无关 |
 | `duration_ms` | 命令端到端耗时 |
 | `lock_wait_ms` | 等待职位主表锁的时间 |
 | `stale_lock_recoveries` | 本次回收异常遗留主表锁次数 |
 
-`merge` 事件还记录候选输入、批内去重、本轮新增、缓存命中、待评估、评估中、归档、主表大小、新建评估任务数，以及旧记录身份迁移数、强身份记录数、阻止的强身份冲突/歧义弱匹配数。`jd_handoffs` 与 `jd_handoff_chars` 只记录交接任务数和字符总数，不含正文或 hash。
+`merge` 事件还记录候选输入、批内去重、本轮新增、缓存命中、待评估、评估中、归档、主表大小、新建评估任务数，以及旧记录身份/来源迁移数、批次是否幂等重放、强身份记录数、阻止的强身份冲突/歧义弱匹配数。`jd_handoffs` 与 `jd_handoff_chars` 只记录交接任务数和字符总数，不含正文或 hash。
 
 `update` 事件还记录输入结果、成功更新、安全 rebase、幂等重试、拒绝、冲突、run 释放、任务状态数量和旧记录身份迁移数。
 
 `run_start` 记录 skill 版本、可用时的 Git 短 revision、工作树是否有已跟踪改动，以及不含密钥的 `config.json` 指纹。`run_finish` 只记录期望/观测/缺失的低基数 operation 名称和计数。默认期望 `run_start/search/merge/round`；`evaluations > 0` 时自动期望 `update`，使用子代理、ATS 或浏览器时由编排者重复传入 `--expect` 声明。
 
 `search` 事件记录 query 槽位（如 `q1`）、搜索结果页、调用数、原始/初筛/去重/新增/缓存候选数、总耗时及可用时的首结果耗时，不接收 query、职位名、公司或 URL。
+
+`discovery` 事件按 route batch 记录市场、来源类型、发现路径、搜索语言，计划/成功/失败来源数，以及 raw/prefiltered/unique/incremental、跨管道重复、JD 交接、在线验证和 Top-N 贡献计数。它不接收 `source_id`、query、职位名、公司或 URL。
 
 `subagent` 事件记录角色、请求/实际模型、请求/实际 reasoning effort、是否发生继承回退、耗时及输入/输出/有效/拒绝条数。若运行时提供 usage，还记录 input/output/cached/reasoning token 与实际或估算成本；不提供时字段为 `null`，汇总先报告覆盖率再给总量。
 

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sangowu/job-matcher-skill/references/candidate_envelope.schema.json",
+  "title": "Job Matcher CandidateEnvelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "title",
+    "company",
+    "url",
+    "source_id",
+    "source_type",
+    "discovery_route",
+    "search_language",
+    "observed_at",
+    "identity_keys",
+    "link_verification_status",
+    "location_normalized"
+  ],
+  "properties": {
+    "title": {"type": "string", "minLength": 1, "maxLength": 300},
+    "company": {"type": "string", "minLength": 1, "maxLength": 200},
+    "location": {"type": "string", "maxLength": 300},
+    "location_normalized": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["market_id", "city_id", "remote_scope", "confidence"],
+      "properties": {
+        "market_id": {"type": ["string", "null"], "enum": ["ie", "uk", "cn", "de", null]},
+        "city_id": {"type": ["string", "null"], "maxLength": 100},
+        "remote_scope": {"type": ["string", "null"], "maxLength": 40},
+        "confidence": {"enum": ["exact", "country", "scope", "unknown"]}
+      }
+    },
+    "url": {"type": "string", "minLength": 1, "maxLength": 2000, "pattern": "^https?://"},
+    "snippet": {"type": "string", "maxLength": 5000},
+    "date_posted": {"type": "string", "maxLength": 40},
+    "salary": {"type": "string", "maxLength": 300},
+    "source": {"type": "string", "maxLength": 100},
+    "source_id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{2,99}$"},
+    "source_type": {
+      "enum": ["ats_board", "company_careers", "local_job_board", "public_sector_portal", "web_query_template"]
+    },
+    "discovery_route": {
+      "enum": ["regional_registry", "agent_web_search", "ats_expansion", "company_careers"]
+    },
+    "search_language": {"enum": ["en", "de", "zh-Hans"]},
+    "observed_at": {"type": "string", "format": "date-time", "maxLength": 40},
+    "identity_keys": {
+      "type": "array",
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 200}
+    },
+    "link_verification_status": {
+      "enum": ["unknown", "alive", "dead", "possibly_closed"]
+    }
+  }
+}

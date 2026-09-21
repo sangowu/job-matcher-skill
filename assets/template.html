@@ -33,6 +33,8 @@
     </div>
   </div>
   <p id="profile-line" class="text-xs text-gray-400 dark:text-gray-500 mt-1"></p>
+  <div id="run-context" class="mt-2 flex flex-wrap gap-1.5"></div>
+  <div id="coverage-summary" class="mt-2 hidden grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4"></div>
 </header>
 
 <!-- 两栏：左列表 30% + 右详情 70% -->
@@ -47,6 +49,11 @@
         <select id="score-filter" class="flex-shrink-0 text-sm px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700"></select>
       </div>
       <div id="date-filter" class="flex gap-1"></div>
+      <div class="grid grid-cols-1 gap-1.5 xl:grid-cols-3">
+        <select id="market-filter" class="min-w-0 text-xs px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700"></select>
+        <select id="source-type-filter" class="min-w-0 text-xs px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700"></select>
+        <select id="verification-filter" class="min-w-0 text-xs px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700"></select>
+      </div>
     </div>
     <!-- 列表滚动区 -->
     <div class="flex-1 overflow-y-auto p-3 space-y-4">
@@ -141,6 +148,26 @@ const I18N = {
     health_metric_oldest_pending_age_minutes: "最旧待处理时长", health_metric_failed_events: "失败事件",
     health_metric_write_failures: "写入失败", health_metric_malformed_events: "格式错误事件",
     health_metric_malformed_manifests: "格式错误清单",
+    context_market: "目标市场：{0}", context_search_languages: "搜索语言：{0}",
+    context_report_language: "报告语言：{0}", context_run_time: "运行时间：{0}",
+    filter_market_all: "全部市场", filter_source_all: "全部来源类型", filter_verification_all: "全部验证状态",
+    market_ie: "爱尔兰", market_uk: "英国", market_cn: "中国", market_de: "德国", market_unknown: "未知市场",
+    source_type_ats_board: "ATS", source_type_company_careers: "公司招聘站", source_type_local_job_board: "当地招聘平台",
+    source_type_public_sector_portal: "公共部门门户", source_type_web_query_template: "Web 搜索", source_type_open_web: "开放 Web",
+    source_type_unknown: "未知来源",
+    route_regional_registry: "地区来源", route_agent_web_search: "Agent Web 搜索", route_ats_expansion: "ATS 扩展",
+    route_company_careers: "公司招聘站", route_unknown: "未知路径",
+    verification_alive: "已验证在线", verification_live: "已验证在线", verification_dead: "链接失效",
+    verification_closed: "已关闭", verification_possibly_closed: "疑似关闭", verification_unverified: "未验证", verification_unknown: "验证未知",
+    coverage_executed: "已执行", coverage_partial: "覆盖有限", coverage_failed: "来源失败",
+    coverage_skipped: "已跳过", coverage_not_collected: "未收集", coverage_unknown: "状态未知",
+    coverage_counts: "来源成功 {0}/{1} · 失败 {2} · 跳过 {3} · 增量候选 {4}",
+    multi_source: "多来源", provenance: "发现证据", normalized_location: "规范地点",
+    discovery_route: "发现路径", link_status: "链接状态", search_language: "搜索语言",
+    empty_filtered: "没有职位符合当前筛选条件",
+    empty_source_failed: "本轮没有可展示候选，且部分来源失败；这是覆盖有限，不代表市场没有职位。",
+    empty_not_collected: "本轮来源未执行、已跳过或状态未知，不能把结果解释为 0 个职位。",
+    empty_executed_zero: "已执行来源中未观察到候选；这是本轮的初步结果，不代表市场长期没有职位。",
     na: "暂无",
   },
   en: {
@@ -179,6 +206,26 @@ const I18N = {
     health_metric_oldest_pending_age_minutes: "Oldest pending age", health_metric_failed_events: "Failed events",
     health_metric_write_failures: "Write failures", health_metric_malformed_events: "Malformed events",
     health_metric_malformed_manifests: "Malformed manifests",
+    context_market: "Target markets: {0}", context_search_languages: "Search languages: {0}",
+    context_report_language: "Report language: {0}", context_run_time: "Run time: {0}",
+    filter_market_all: "All markets", filter_source_all: "All source types", filter_verification_all: "All verification states",
+    market_ie: "Ireland", market_uk: "United Kingdom", market_cn: "China", market_de: "Germany", market_unknown: "Unknown market",
+    source_type_ats_board: "ATS", source_type_company_careers: "Company careers", source_type_local_job_board: "Local job board",
+    source_type_public_sector_portal: "Public-sector portal", source_type_web_query_template: "Web Search", source_type_open_web: "Open Web",
+    source_type_unknown: "Unknown source",
+    route_regional_registry: "Regional source", route_agent_web_search: "Agent Web Search", route_ats_expansion: "ATS expansion",
+    route_company_careers: "Company careers", route_unknown: "Unknown route",
+    verification_alive: "Verified live", verification_live: "Verified live", verification_dead: "Dead link",
+    verification_closed: "Closed", verification_possibly_closed: "Possibly closed", verification_unverified: "Unverified", verification_unknown: "Verification unknown",
+    coverage_executed: "Executed", coverage_partial: "Limited coverage", coverage_failed: "Source failure",
+    coverage_skipped: "Skipped", coverage_not_collected: "Not collected", coverage_unknown: "Status unknown",
+    coverage_counts: "Sources {0}/{1} succeeded · {2} failed · {3} skipped · {4} incremental candidates",
+    multi_source: "Multiple sources", provenance: "Discovery evidence", normalized_location: "Normalized location",
+    discovery_route: "Discovery route", link_status: "Link status", search_language: "Search language",
+    empty_filtered: "No jobs match the current filters",
+    empty_source_failed: "No candidates are shown and one or more sources failed. Coverage is limited; this is not evidence that the market has no jobs.",
+    empty_not_collected: "Sources were not run, were skipped, or have unknown status. This result must not be interpreted as zero jobs.",
+    empty_executed_zero: "No candidates were observed in the executed sources. This is a preliminary run result, not evidence of a lasting absence of jobs.",
     na: "N/A",
   },
 };
@@ -190,6 +237,7 @@ function t(key, ...args) {
 
 // ── 状态 ───────────────────────────────────────────────────────────────────────
 let sortMode = "score", scoreMin = null, dateRange = "all", searchText = "", histExpanded = false;
+let marketFilter = "all", sourceTypeFilter = "all", verificationFilter = "all";
 let selectedIdx = null;
 let healthWindow = "7d";
 const HIST_LIMIT = 20;
@@ -221,6 +269,48 @@ function chip(text, cls) { return `<span class="text-xs px-1.5 py-0.5 rounded ${
 function bullets(arr) {
   if (!arr || !arr.length) return `<p class="text-xs text-gray-400">${t("na")}</p>`;
   return `<ul class="text-xs space-y-1 list-disc list-inside">${arr.map(x => `<li>${esc(x)}</li>`).join("")}</ul>`;
+}
+function categoryLabel(prefix, value) {
+  return t(`${prefix}_${value || "unknown"}`);
+}
+function formatRunTime(value) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? String(value || "–") : parsed.toLocaleString(LANG === "zh" ? "zh-CN" : "en-IE");
+}
+function renderRunContext() {
+  const items = [];
+  const markets = (META.target_markets || []).map(value => categoryLabel("market", value));
+  if (markets.length) items.push(t("context_market", markets.join(", ")));
+  if ((META.search_languages || []).length) items.push(t("context_search_languages", META.search_languages.join(", ")));
+  items.push(t("context_report_language", META.report_language === "zh" ? "zh-Hans" : "en"));
+  if (META.run_time) items.push(t("context_run_time", formatRunTime(META.run_time)));
+  document.getElementById("run-context").innerHTML = items.map(value =>
+    `<span class="rounded-md bg-gray-100 dark:bg-gray-700 px-2 py-1 text-[11px] text-gray-600 dark:text-gray-300">${esc(value)}</span>`
+  ).join("");
+}
+function coverageStyle(status) {
+  return {
+    executed: "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20",
+    partial: "border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20",
+    failed: "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20",
+    skipped: "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800",
+    not_collected: "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800",
+    unknown: "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800",
+  }[status] || coverageStyle("unknown");
+}
+function renderCoverage() {
+  const rows = Array.isArray(META.market_coverage) ? META.market_coverage : [];
+  const container = document.getElementById("coverage-summary");
+  if (!rows.length) { container.classList.add("hidden"); return; }
+  container.classList.remove("hidden");
+  container.classList.add("grid");
+  container.innerHTML = rows.map(row => {
+    const candidateCount = ["failed", "skipped"].includes(row.status) ? "–" : (row.candidates_incremental ?? 0);
+    const counts = row.status === "not_collected" || row.status === "unknown"
+      ? ""
+      : `<p class="mt-1 text-[10px] text-gray-500 dark:text-gray-400">${esc(t("coverage_counts", row.sources_succeeded ?? 0, row.sources_planned ?? 0, row.sources_failed ?? 0, row.sources_skipped ?? 0, candidateCount))}</p>`;
+    return `<div class="rounded-lg border px-2.5 py-2 ${coverageStyle(row.status)}"><div class="flex items-center justify-between gap-2"><strong class="text-xs">${esc(categoryLabel("market", row.market_id))}</strong><span class="text-[10px] font-semibold">${esc(t("coverage_" + row.status))}</span></div>${counts}</div>`;
+  }).join("");
 }
 
 // ── 运行健康快照 ────────────────────────────────────────────────────────────────
@@ -339,6 +429,12 @@ function matches(job) {
   }
   if (scoreMin != null && (job.score ?? -1) < scoreMin) return false;
   if (!withinDate(job)) return false;
+  if (marketFilter !== "all") {
+    const markets = job.market_ids || [];
+    if (marketFilter === "unknown" ? markets.length : !markets.includes(marketFilter)) return false;
+  }
+  if (sourceTypeFilter !== "all" && !(job.source_types || []).includes(sourceTypeFilter)) return false;
+  if (verificationFilter !== "all" && !(job.verification_statuses || []).includes(verificationFilter)) return false;
   return true;
 }
 function sortJobs(list) {
@@ -368,6 +464,7 @@ function card(job, idx) {
         <div class="flex items-center gap-1.5 flex-wrap">
           <span class="font-medium text-sm truncate">${esc(job.title)}</span>
           ${isNew ? `<span class="text-[10px] font-semibold px-1 py-0.5 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 rounded">NEW</span>` : ""}
+          ${job.multi_source ? `<span class="text-[10px] font-semibold px-1 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 rounded">${t("multi_source")}</span>` : ""}
         </div>
         <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">${esc(job.company)}${job.location ? " · " + esc(job.location) : ""}</div>
         <div class="mt-1">${recBadge(job.recommendation)}</div>
@@ -385,13 +482,21 @@ function renderDetail(job) {
   }
   const jd = job.jd || {};
   const dim = (k, v) => `<div class="flex justify-between"><span class="text-gray-500">${t("dim_" + k)}</span><span class="font-mono">${v == null ? "–" : Math.round(v)}</span></div>`;
-  const sourceLinks = (job.source_urls || []).map(su =>
-    `<a href="${esc(su.url)}" target="_blank" class="text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-blue-600 dark:text-blue-400 hover:underline">${esc(su.source)}</a>`).join(" ");
+  const sourceLinks = (job.source_urls || []).map(su => su.url
+    ? `<a href="${esc(su.url)}" target="_blank" rel="noopener noreferrer" class="text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-blue-600 dark:text-blue-400 hover:underline">${esc(su.source)}</a>`
+    : `<span class="text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500">${esc(su.source)}</span>`).join(" ");
+  const provenance = (job.provenance || []).map(row => {
+    const normalized = row.location_normalized || {};
+    const market = normalized.market_id ? categoryLabel("market", normalized.market_id) : categoryLabel("market", "unknown");
+    const location = [market, normalized.city_id, normalized.remote_scope].filter(Boolean).join(" · ");
+    return `<div class="rounded-lg border border-gray-200 dark:border-gray-700 p-3"><div class="flex flex-wrap items-center gap-1.5">${chip(row.source, "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300")}${chip(categoryLabel("source_type", row.source_type), "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300")}${chip(categoryLabel("route", row.discovery_route), "bg-violet-50 dark:bg-violet-900/30 text-violet-600 dark:text-violet-300")}${chip(categoryLabel("verification", row.link_verification_status), "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-300")}</div><dl class="mt-2 grid grid-cols-1 gap-1 text-[11px] text-gray-500 dark:text-gray-400 sm:grid-cols-3"><div><dt class="font-semibold">${t("normalized_location")}</dt><dd>${esc(location || t("na"))}</dd></div><div><dt class="font-semibold">${t("search_language")}</dt><dd>${esc(row.search_language || t("na"))}</dd></div><div><dt class="font-semibold">${t("link_status")}</dt><dd>${esc(categoryLabel("verification", row.link_verification_status))}</dd></div></dl></div>`;
+  }).join("");
   const flags = [];
   if (job.verified === "unverified") flags.push(chip(t("unverified"), "bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400"));
   if (job.scored_from === "snippet") flags.push(chip(t("from_snippet"), "bg-gray-100 dark:bg-gray-700 text-gray-500"));
   if (job.possibly_closed) flags.push(chip(t("closed"), "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"));
   if (job.stale_score && job.score == null) flags.push(chip(t("stale_score"), "bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400"));
+  if (job.multi_source) flags.push(chip(t("multi_source"), "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300"));
 
   pane.innerHTML = `
     <div class="max-w-3xl card-enter">
@@ -431,9 +536,14 @@ function renderDetail(job) {
         <div><h4 class="text-xs font-bold text-gray-500 mb-1.5">${t("d_good")}</h4>${bullets(jd.good_to_have)}</div>
       </div>
 
+      <section class="mt-4">
+        <h4 class="text-xs font-bold text-gray-500 mb-2">${t("provenance")}</h4>
+        <div class="space-y-2">${provenance || `<p class="text-xs text-gray-400">${t("na")}</p>`}</div>
+      </section>
+
       <div class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-700 flex items-center gap-2 flex-wrap">
         <span class="text-xs text-gray-400">${t("sources")}:</span> ${sourceLinks}
-        <a href="${esc(job.url)}" target="_blank" class="ml-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg">${t("apply")}</a>
+        ${job.url ? `<a href="${esc(job.url)}" target="_blank" rel="noopener noreferrer" class="ml-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg">${t("apply")}</a>` : ""}
       </div>
     </div>`;
 }
@@ -450,6 +560,11 @@ function selectJob(idx) {
   renderDetail(idx == null ? null : JOBS[idx]);
 }
 
+function emptyStateText(filteredCount) {
+  if (filteredCount === 0 && JOBS.length) return t("empty_filtered");
+  return t("empty_" + (META.empty_state_reason || "not_collected"));
+}
+
 // ── 渲染列表 ────────────────────────────────────────────────────────────────────
 function renderList() {
   const filtered = sortJobs(JOBS.filter(matches));
@@ -462,7 +577,10 @@ function renderList() {
     newWrap.classList.remove("hidden");
     document.getElementById("new-title").textContent = t("new_title", news.length);
     document.getElementById("new-list").innerHTML = news.map(j => card(j, idxOf(j))).join("");
-  } else newWrap.classList.add("hidden");
+  } else {
+    newWrap.classList.add("hidden");
+    document.getElementById("new-list").innerHTML = "";
+  }
 
   document.getElementById("hist-title").textContent = t("hist_title", hist.length);
   const shown = histExpanded ? hist : hist.slice(0, HIST_LIMIT);
@@ -473,7 +591,9 @@ function renderList() {
     moreBtn.textContent = t("more", hist.length - HIST_LIMIT);
   } else moreBtn.classList.add("hidden");
 
-  document.getElementById("empty").classList.toggle("hidden", filtered.length > 0);
+  const empty = document.getElementById("empty");
+  empty.textContent = emptyStateText(filtered.length);
+  empty.classList.toggle("hidden", filtered.length > 0);
 
   // 选中：保持当前选中（若仍可见），否则选第一个
   const visible = filtered.map(idxOf);
@@ -489,6 +609,8 @@ function applyStaticLabels() {
   document.documentElement.lang = LANG;
   document.getElementById("summary").textContent = t("summary", META.new_count ?? 0, META.cached_count ?? 0, JOBS.length);
   document.getElementById("profile-line").textContent = META.profile_summary ? t("profile", META.profile_summary) : "";
+  renderRunContext();
+  renderCoverage();
   document.getElementById("search").placeholder = t("search_ph");
   document.getElementById("lang-btn").textContent = t("lang_btn");
   document.getElementById("dark-btn").textContent = document.documentElement.classList.contains("dark") ? t("dark_light") : t("dark_dark");
@@ -500,6 +622,18 @@ function applyStaticLabels() {
   const sf = document.getElementById("score-filter");
   sf.innerHTML = `<option value="">${t("score_all")}</option>` + [50, 70, 85].map(n => `<option value="${n}">${t("score_n", n)}</option>`).join("");
   sf.value = scoreMin ?? "";
+  const marketValues = [...new Set(JOBS.flatMap(job => (job.market_ids || []).length ? job.market_ids : ["unknown"]))].sort();
+  const marketSelect = document.getElementById("market-filter");
+  marketSelect.innerHTML = `<option value="all">${t("filter_market_all")}</option>` + marketValues.map(value => `<option value="${esc(value)}">${esc(categoryLabel("market", value))}</option>`).join("");
+  marketSelect.value = marketFilter;
+  const sourceValues = [...new Set(JOBS.flatMap(job => job.source_types || ["unknown"]))].sort();
+  const sourceSelect = document.getElementById("source-type-filter");
+  sourceSelect.innerHTML = `<option value="all">${t("filter_source_all")}</option>` + sourceValues.map(value => `<option value="${esc(value)}">${esc(categoryLabel("source_type", value))}</option>`).join("");
+  sourceSelect.value = sourceTypeFilter;
+  const verificationValues = [...new Set(JOBS.flatMap(job => job.verification_statuses || ["unknown"]))].sort();
+  const verificationSelect = document.getElementById("verification-filter");
+  verificationSelect.innerHTML = `<option value="all">${t("filter_verification_all")}</option>` + verificationValues.map(value => `<option value="${esc(value)}">${esc(categoryLabel("verification", value))}</option>`).join("");
+  verificationSelect.value = verificationFilter;
   renderHealthButton();
   if (!document.getElementById("health-overlay").classList.contains("hidden")) renderHealthOverlay();
 }
@@ -507,6 +641,9 @@ function bind() {
   document.getElementById("search").addEventListener("input", e => { searchText = e.target.value.trim(); renderList(); });
   document.getElementById("sort").addEventListener("change", e => { sortMode = e.target.value; renderList(); });
   document.getElementById("score-filter").addEventListener("change", e => { scoreMin = e.target.value ? +e.target.value : null; renderList(); });
+  document.getElementById("market-filter").addEventListener("change", e => { marketFilter = e.target.value; renderList(); });
+  document.getElementById("source-type-filter").addEventListener("change", e => { sourceTypeFilter = e.target.value; renderList(); });
+  document.getElementById("verification-filter").addEventListener("change", e => { verificationFilter = e.target.value; renderList(); });
   document.getElementById("date-filter").addEventListener("click", e => {
     const b = e.target.closest("[data-r]"); if (!b) return;
     dateRange = b.dataset.r; applyStaticLabels(); renderList();

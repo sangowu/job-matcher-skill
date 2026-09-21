@@ -16,13 +16,17 @@
 | `skills` | string[] | 技能，**归一化**（见下表） |
 | `years_of_experience` | number 或 null | **与目标方向相关**的经历年限（见规则） |
 | `seniority` | string | **只输出六档之一**：`intern` / `new_grad` / `junior` / `mid` / `senior` / `lead`。不要输出 levels 列表（脚本会补） |
-| `preferred_locations` | string[] | 求职城市（含现居地，见规则） |
+| `target_locations` | string[] | CV 明确写出的目标求职地点；没有就留空 |
+| `current_location` | string | CV 明确写出的现居地；不是目标地点，只作最后回退 |
+| `preferred_locations` | string[] | 旧版兼容字段；新抽取优先写 `target_locations` / `current_location` |
 | `open_to_remote` | bool | CV 是否表达可接受远程 |
 | `languages` | object[] | `[{name, code, level}]`，如 `{"name":"中文","code":"zh","level":"母语"}` |
 | `industries` | string[] | 行业（如 互联网、金融科技） |
 | `education_level` | string | 最高学历（如 本科、硕士） |
 | `current_title` | string | 最近/当前职位头衔 |
-| `search_language` | string | **= CV 本身的语言**（CV 是中文→`zh`，英文→`en`） |
+| `cv_language` | string | CV 正文主语言，内部使用 `en` / `de` / `zh-Hans` |
+| `report_language` | string | 报告语言；未指定时等于 `cv_language` |
+| `search_language` | string | 旧版兼容别名，等于 `cv_language`；不得再作为市场搜索语言来源 |
 | `missing` | string[] | 抽不到的字段名清单 |
 
 ## 抽取规则
@@ -37,9 +41,11 @@
 - 例：CV 写"高级工程师"但只有 2 年、职责偏执行 → `seniority` 填 `junior`/`mid`，不盲从头衔。
 - 判不准则填合理估计；六档关键词对照：intern(实习)/new_grad(应届)/junior(初级)/mid(中级)/senior(高级·资深)/lead(架构/principal/staff/manager/总监)。
 
-### 3. 地点 → 现居地当期望地
-- 抽 CV 里明确的求职地点；**若只有现居地址、没写期望工作地，把现居城市当作期望地**填入 `preferred_locations`。
-- CV 完全没有任何地点信息 → `preferred_locations` 留空（编排者会追问）。
+### 3. 地点 → 拆分目标地点与现居地
+- 明确求职地点写入 `target_locations`；现居地址单独写入 `current_location`。
+- 只有现居地址时不要把它改写成目标地点；market plan 仅把它作为最后回退。
+- CV 完全没有地点 → 两者留空（编排者会追问）。旧输入仍可保留
+  `preferred_locations`，但用户本轮明确地点始终覆盖它。
 
 ### 4. 技能归一化
 统一常见别名，便于后续匹配：
@@ -57,8 +63,10 @@
 
 （其余技能照写规范名。）
 
-### 5. search_language = CV 语言
-判断 CV 正文主要语言，填语言码（`zh`/`en`/`ja`/…）。这决定后续搜索词语言和报告语言。
+### 5. 报告语言与搜索语言分离
+判断 CV 正文主要语言并写 `cv_language`；中文边界输入 `zh`/`zh-CN` 校验后统一为
+`zh-Hans`。`report_language` 默认等于它。市场搜索语言由 `market_plan.py` 根据目标市场
+生成，不再直接等于 CV 语言。保留 `search_language` 仅供旧流程兼容。
 
 ### 6. 不臆造
 - CV 没有的信息**不要编造**（尤其薪资、不存在的技能、虚构经历）。
@@ -75,13 +83,17 @@
   "skills": ["Python", "Go", "PostgreSQL", "Kubernetes"],
   "years_of_experience": 5,
   "seniority": "senior",
-  "preferred_locations": ["上海"],
+  "target_locations": ["上海"],
+  "current_location": "杭州",
+  "preferred_locations": [],
   "open_to_remote": true,
   "languages": [{"name": "中文", "code": "zh", "level": "母语"}, {"name": "英文", "code": "en", "level": "流利"}],
   "industries": ["互联网"],
   "education_level": "本科",
   "current_title": "高级后端工程师",
-  "search_language": "zh",
+  "cv_language": "zh-Hans",
+  "report_language": "zh-Hans",
+  "search_language": "zh-Hans",
   "missing": []
 }
 ```

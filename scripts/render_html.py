@@ -8,7 +8,8 @@ PII-safe 运行健康快照，输出自包含 HTML 并自动打开。
 用法:
   python render_html.py --cv-hash H --cp-hash H [--meta-file F] [--no-open]
 
-meta-file(可选 JSON): {profile_summary, new_count, cached_count, lang}
+meta-file(可选 JSON): {profile_summary, new_count, cached_count, lang,
+  report_language?, target_markets?, search_languages?, run_time?, route_summaries?}
 输出: {"ok": true, "report_path": "...", "job_count": N, "health_status": "..."}
 """
 from __future__ import annotations
@@ -31,6 +32,9 @@ TEMPLATE_PATH = SKILL_ROOT / "assets" / "template.html"
 REPORTS_DIR = DATA_DIR / "reports"
 METRICS_PATH = DATA_DIR / "metrics.jsonl"
 EVAL_RUNS_DIR = DATA_DIR / "eval_runs"
+SUPPORTED_MARKETS = {"ie", "uk", "cn", "de"}
+INTERNAL_LANGUAGES = {"en", "de", "zh-Hans"}
+COVERAGE_STATUSES = {"executed", "partial", "failed", "skipped", "not_collected", "unknown"}
 
 
 def _unavailable_summary(days: int, thresholds: dict) -> dict:
@@ -90,12 +94,185 @@ def _safe_url(url: str) -> str:
     return ""
 
 
+def _unique_strings(values: object, allowed: set[str] | None = None) -> list[str]:
+    output: list[str] = []
+    if not isinstance(values, list):
+        return output
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        normalized = value.strip()
+        if not normalized or (allowed is not None and normalized not in allowed):
+            continue
+        if normalized not in output:
+            output.append(normalized)
+    return output
+
+
+def _count(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+
+def _coverage_from_routes(target_markets: list[str], rows: object) -> list[dict]:
+    route_rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    coverage: list[dict] = []
+    for market_id in target_markets:
+        market_rows = [row for row in route_rows if row.get("market_id") == market_id]
+        statuses = [row.get("status") for row in market_rows]
+        if not market_rows:
+            status = "not_collected"
+        elif all(value == "skipped" for value in statuses):
+            status = "skipped"
+        elif all(value == "failed" for value in statuses):
+            status = "failed"
+        elif any(value in {"failed", "skipped"} for value in statuses):
+            status = "partial"
+        elif all(value == "succeeded" for value in statuses):
+            status = "executed"
+        else:
+            status = "unknown"
+        coverage.append(
+            {
+                "market_id": market_id,
+                "status": status,
+                "sources_planned": sum(_count(row.get("sources_planned")) for row in market_rows),
+                "sources_succeeded": sum(_count(row.get("sources_succeeded")) for row in market_rows),
+                "sources_failed": sum(_count(row.get("sources_failed")) for row in market_rows),
+                "sources_skipped": sum(
+                    _count(row.get("sources_planned"))
+                    for row in market_rows
+                    if row.get("status") == "skipped"
+                ),
+                "candidates_incremental": sum(
+                    _count(row.get("candidates_incremental")) for row in market_rows
+                ),
+            }
+        )
+    return coverage
+
+
+def _normalize_coverage(target_markets: list[str], meta: dict) -> list[dict]:
+    explicit = meta.get("market_coverage")
+    if not isinstance(explicit, list):
+        return _coverage_from_routes(target_markets, meta.get("route_summaries"))
+    by_market = {
+        row.get("market_id"): row
+        for row in explicit
+        if isinstance(row, dict) and row.get("market_id") in SUPPORTED_MARKETS
+    }
+    output: list[dict] = []
+    for market_id in target_markets:
+        row = by_market.get(market_id, {})
+        status = row.get("status") if isinstance(row, dict) else None
+        output.append(
+            {
+                "market_id": market_id,
+                "status": status if status in COVERAGE_STATUSES else "unknown",
+                "sources_planned": _count(row.get("sources_planned")),
+                "sources_succeeded": _count(row.get("sources_succeeded")),
+                "sources_failed": _count(row.get("sources_failed")),
+                "sources_skipped": _count(row.get("sources_skipped")),
+                "candidates_incremental": _count(row.get("candidates_incremental")),
+            }
+        )
+    return output
+
+
+def normalize_report_meta(meta: object, *, now: datetime | None = None) -> dict:
+    raw = dict(meta) if isinstance(meta, dict) else {}
+    report_language = raw.get("report_language") or raw.get("lang") or "en"
+    report_language = "zh" if report_language in {"zh", "zh-CN", "zh-Hans"} else "en"
+    target_markets = _unique_strings(raw.get("target_markets"), SUPPORTED_MARKETS)
+    if not target_markets:
+        coverage_rows = raw.get("market_coverage") or raw.get("route_summaries")
+        if isinstance(coverage_rows, list):
+            target_markets = _unique_strings(
+                [row.get("market_id") for row in coverage_rows if isinstance(row, dict)],
+                SUPPORTED_MARKETS,
+            )
+    search_languages = _unique_strings(raw.get("search_languages"), INTERNAL_LANGUAGES)
+    if not search_languages and isinstance(raw.get("route_summaries"), list):
+        search_languages = _unique_strings(
+            [
+                row.get("search_language")
+                for row in raw["route_summaries"]
+                if isinstance(row, dict)
+            ],
+            INTERNAL_LANGUAGES,
+        )
+    generated = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
+    run_time = raw.get("run_time") or raw.get("generated_at") or generated
+    if not isinstance(run_time, str) or len(run_time) > 80:
+        run_time = generated
+    coverage = _normalize_coverage(target_markets, raw)
+    if any(row["status"] in {"failed", "partial"} for row in coverage):
+        empty_state_reason = "source_failed"
+    elif not coverage or any(
+        row["status"] in {"not_collected", "skipped", "unknown"} for row in coverage
+    ):
+        empty_state_reason = "not_collected"
+    else:
+        empty_state_reason = "executed_zero"
+    raw.update(
+        {
+            "lang": report_language,
+            "report_language": report_language,
+            "target_markets": target_markets,
+            "search_languages": search_languages,
+            "run_time": run_time,
+            "market_coverage": coverage,
+            "empty_state_reason": empty_state_reason,
+        }
+    )
+    raw.pop("route_summaries", None)
+    return raw
+
+
 def flatten(job: dict, mk: str) -> dict:
     scores = job.get("match_scores") or {}
     # 只认当前 cv:cp 口径的评分。不回退其他 CV/求职意向的旧分：
     # 评分是 JD × CV × 意向的函数，跨口径展示会误导（stale_score 标记待重评）。
     ms = scores.get(mk) or {}
     stale = not ms and bool(scores)
+    raw_sources = [source for source in job.get("raw_sources", []) if isinstance(source, dict)]
+    provenance = []
+    for source in raw_sources:
+        normalized = source.get("location_normalized")
+        if not isinstance(normalized, dict):
+            normalized = {}
+        provenance.append(
+            {
+                "source": str(source.get("source") or source.get("source_id") or "unknown"),
+                "source_id": str(source.get("source_id") or "unknown"),
+                "source_type": str(source.get("source_type") or "unknown"),
+                "discovery_route": str(source.get("discovery_route") or "unknown"),
+                "search_language": str(source.get("search_language") or "unknown"),
+                "observed_at": source.get("observed_at"),
+                "link_verification_status": str(
+                    source.get("link_verification_status") or "unknown"
+                ),
+                "location_normalized": {
+                    "market_id": normalized.get("market_id"),
+                    "city_id": normalized.get("city_id"),
+                    "remote_scope": normalized.get("remote_scope"),
+                    "confidence": normalized.get("confidence") or "unknown",
+                },
+                "url": _safe_url(source.get("url", "")),
+            }
+        )
+    market_ids = _unique_strings(job.get("market_ids"), SUPPORTED_MARKETS)
+    if not market_ids:
+        market_ids = _unique_strings(
+            [row["location_normalized"].get("market_id") for row in provenance],
+            SUPPORTED_MARKETS,
+        )
+    source_types = _unique_strings([row["source_type"] for row in provenance])
+    discovery_routes = _unique_strings([row["discovery_route"] for row in provenance])
+    verification_statuses = _unique_strings(
+        [row["link_verification_status"] for row in provenance]
+    )
+    if not verification_statuses and job.get("verified"):
+        verification_statuses = [str(job["verified"])]
     return {
         "title": job.get("title", ""),
         "company": job.get("company", ""),
@@ -105,9 +282,18 @@ def flatten(job: dict, mk: str) -> dict:
         "date_posted": job.get("date_posted", ""),
         "first_seen": job.get("first_seen", ""),
         "status": job.get("status", "existing"),
-        "sources": [rs.get("source", "") for rs in job.get("raw_sources", [])],
-        "source_urls": [{"source": rs.get("source", ""), "url": _safe_url(rs.get("url", ""))}
-                        for rs in job.get("raw_sources", [])],
+        "sources": _unique_strings([row["source"] for row in provenance]),
+        "source_urls": [
+            {"source": row["source"], "url": row["url"]} for row in provenance
+        ],
+        "provenance": provenance,
+        "source_count": len(provenance),
+        "multi_source": len(provenance) > 1,
+        "source_types": source_types or ["unknown"],
+        "discovery_routes": discovery_routes or ["unknown"],
+        "verification_statuses": verification_statuses or ["unknown"],
+        "market_ids": market_ids,
+        "market_status": "known" if market_ids else "unknown",
         "possibly_closed": job.get("possibly_closed", False),
         "verified": job.get("verified"),
         "scored_from": job.get("scored_from"),
@@ -158,9 +344,8 @@ def main() -> None:
         except Exception:
             meta = {}
 
-    lang = meta.get("lang") or "en"
-    if lang not in ("zh", "en"):
-        lang = "en"
+    meta = normalize_report_meta(meta)
+    lang = meta["lang"]
 
     mk = f"{args.cv_hash}:{args.cp_hash}"
     jobs = [flatten(j, mk) for j in table.get("jobs", [])]

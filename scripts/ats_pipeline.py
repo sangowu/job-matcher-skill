@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 from _jobutil import load_config, normalize_company
 from ats_provider import AtsProvider, HttpAtsProvider, RequestBudget, fetch_board
 from runtime_metrics import record_metric, validate_run_id
+import source_registry
 
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -88,6 +89,48 @@ def _save_document(path: Path, payload: dict[str, Any]) -> None:
     finally:
         if temporary.exists():
             temporary.unlink()
+
+
+def _generic_registry_path() -> Path:
+    return REGISTRY_PATH.with_name("source_registry.json")
+
+
+def _load_ats_registry() -> dict[str, Any]:
+    generic_path = _generic_registry_path()
+    if not generic_path.exists():
+        return _load_document(REGISTRY_PATH, {"schema_version": 1, "boards": []})
+    try:
+        generic = source_registry.load_registry(generic_path)
+        marker = generic["migrations"].get("ats_companies_v1")
+        if (
+            isinstance(marker, dict)
+            and marker.get("status") == "rolled_back"
+            and REGISTRY_PATH.exists()
+        ):
+            return _load_document(REGISTRY_PATH, {"schema_version": 1, "boards": []})
+        return source_registry.ats_view_from_registry(generic)
+    except source_registry.SourceRegistryError as error:
+        raise AtsPipelineError("cannot read generic source registry") from error
+
+
+def _save_ats_registry(registry: dict[str, Any]) -> None:
+    generic_path = _generic_registry_path()
+    if not generic_path.exists():
+        _save_document(REGISTRY_PATH, registry)
+        return
+    try:
+        generic = source_registry.load_registry(generic_path)
+        marker = generic["migrations"].get("ats_companies_v1")
+        if isinstance(marker, dict) and marker.get("status") == "rolled_back":
+            # Rollback exposes the legacy file as a read-only compatibility view.
+            return
+        source_registry.commit_ats_view(
+            registry,
+            registry_path=generic_path,
+            lock_path=generic_path.with_name("source_registry.lock"),
+        )
+    except source_registry.SourceRegistryError as error:
+        raise AtsPipelineError("cannot write generic source registry") from error
 
 
 def _board_id(provider: str, token: str, instance: str) -> str:
@@ -418,7 +461,7 @@ def sync_registry(
         )
 
     registry["schema_version"] = 1
-    _save_document(REGISTRY_PATH, registry)
+    _save_ats_registry(registry)
     state = {
         "schema_version": 1,
         "boards": state_rows,
@@ -479,11 +522,11 @@ def main() -> int:
     run_parser.add_argument("--metrics-run-id", type=validate_run_id)
     args = parser.parse_args()
     try:
-        registry = _load_document(REGISTRY_PATH, {"schema_version": 1, "boards": []})
+        registry = _load_ats_registry()
         discovery = None
         if args.command in {"discover", "run"}:
             discovery = discover_candidates(_read_stdin_list(), registry)
-            _save_document(REGISTRY_PATH, registry)
+            _save_ats_registry(registry)
         if args.command == "discover":
             print(json.dumps({"ok": True, **(discovery or {})}, ensure_ascii=False))
             return 0

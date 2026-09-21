@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "thresholds": {
+    "successful_shadow_runs": 3,
+    "distinct_dates": 2
+  },
+  "privacy": {
+    "count_only": true,
+    "stores_queries": false,
+    "stores_urls": false,
+    "stores_titles": false,
+    "stores_companies": false,
+    "stores_cv_or_jd": false
+  },
+  "rollout": {
+    "master_enabled": false,
+    "global_default_enablement_supported": false,
+    "config_valid": true,
+    "config_violations": []
+  },
+  "eligible_markets": [],
+  "markets": [
+    {
+      "market_id": "ie",
+      "successful_shadow_runs": 0,
+      "distinct_dates": 0,
+      "live_smoke_status": "inconclusive",
+      "duplicate_intersection": 0,
+      "route_totals": {
+        "regional_registry": {
+          "candidates_incremental": 0,
+          "jd_handoff_count": 0,
+          "live_verified_count": 0,
+          "jd_checked": 0,
+          "jd_available": 0,
+          "jd_coverage_rate": null,
+          "potential_top_n_contribution": 0
+        },
+        "agent_web_search": {
+          "candidates_incremental": 0,
+          "jd_handoff_count": 0,
+          "live_verified_count": 0,
+          "jd_checked": 0,
+          "jd_available": 0,
+          "jd_coverage_rate": null,
+          "potential_top_n_contribution": 0
+        }
+      },
+      "default_enablement_eligible": false,
+      "blockers": [
+        "insufficient_successful_shadow_runs",
+        "insufficient_distinct_dates",
+        "live_smoke_inconclusive"
+      ],
+      "requested_mode": "off",
+      "effective_mode": "off"
+    },
+    {
+      "market_id": "uk",
+      "successful_shadow_runs": 0,
+      "distinct_dates": 0,
+      "live_smoke_status": "inconclusive",
+      "duplicate_intersection": 0,
+      "route_totals": {
+        "regional_registry": {
+          "candidates_incremental": 0,
+          "jd_handoff_count": 0,
+          "live_verified_count": 0,
+          "jd_checked": 0,
+          "jd_available": 0,
+          "jd_coverage_rate": null,
+          "potential_top_n_contribution": 0
+        },
+        "agent_web_search": {
+          "candidates_incremental": 0,
+          "jd_handoff_count": 0,
+          "live_verified_count": 0,
+          "jd_checked": 0,
+          "jd_available": 0,
+          "jd_coverage_rate": null,
+          "potential_top_n_contribution": 0
+        }
+      },
+      "default_enablement_eligible": false,
+      "blockers": [
+        "insufficient_successful_shadow_runs",
+        "insufficient_distinct_dates",
+        "live_smoke_inconclusive"
+      ],
+      "requested_mode": "off",
+      "effective_mode": "off"
+    },
+    {
+      "market_id": "cn",
+      "successful_shadow_runs": 0,
+      "distinct_dates": 0,
+      "live_smoke_status": "inconclusive",
+      "duplicate_intersection": 0,
+      "route_totals": {
+        "regional_registry": {
+          "candidates_incremental": 0,
+          "jd_handoff_count": 0,
+          "live_verified_count": 0,
+          "jd_checked": 0,
+          "jd_available": 0,
+          "jd_coverage_rate": null,
+          "potential_top_n_contribution": 0
+        },
+        "agent_web_search": {
+          "candidates_incremental": 0,
+          "jd_handoff_count": 0,
+          "live_verified_count": 0,
+          "jd_checked": 0,
+          "jd_available": 0,
+          "jd_coverage_rate": null,
+          "potential_top_n_contribution": 0
+        }
+      },
+      "default_enablement_eligible": false,
+      "blockers": [
+        "insufficient_successful_shadow_runs",
+        "insufficient_distinct_dates",
+        "live_smoke_inconclusive"
+      ],
+      "requested_mode": "off",
+      "effective_mode": "off"
+    },
+    {
+      "market_id": "de",
+      "successful_shadow_runs": 0,
+      "distinct_dates": 0,
+      "live_smoke_status": "inconclusive",
+      "duplicate_intersection": 0,
+      "route_totals": {
+        "regional_registry": {
+          "candidates_incremental": 0,
+          "jd_handoff_count": 0,
+          "live_verified_count": 0,
+          "jd_checked": 0,
+          "jd_available": 0,
+          "jd_coverage_rate": null,
+          "potential_top_n_contribution": 0
+        },
+        "agent_web_search": {
+          "candidates_incremental": 0,
+          "jd_handoff_count": 0,
+          "live_verified_count": 0,
+          "jd_checked": 0,
+          "jd_available": 0,
+          "jd_coverage_rate": null,
+          "potential_top_n_contribution": 0
+        }
+      },
+      "default_enablement_eligible": false,
+      "blockers": [
+        "insufficient_successful_shadow_runs",
+        "insufficient_distinct_dates",
+        "live_smoke_inconclusive"
+      ],
+      "requested_mode": "off",
+      "effective_mode": "off"
+    }
+  ]
+}

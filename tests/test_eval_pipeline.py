@@ -4,6 +4,7 @@ import io
 import json
 import sys
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -57,6 +58,33 @@ def candidate(index=1, **overrides):
         "snippet": "Build production AI systems",
         "source": "company",
         "date_posted": "2026-07-31",
+    }
+    item.update(overrides)
+    return item
+
+
+def phase_c_candidate(*, route, source_id, language, title, url, **overrides):
+    item = {
+        "title": title,
+        "company": "Acme GmbH",
+        "location": "Berlin",
+        "url": url,
+        "snippet": "Build production AI systems",
+        "source_id": source_id,
+        "source_type": (
+            "local_job_board" if route == "regional_registry" else "web_query_template"
+        ),
+        "discovery_route": route,
+        "search_language": language,
+        "observed_at": "2026-09-17T10:00:00Z",
+        "identity_keys": ["greenhouse:4567890"],
+        "link_verification_status": "alive",
+        "location_normalized": {
+            "market_id": "de",
+            "city_id": "berlin",
+            "remote_scope": None,
+            "confidence": "exact",
+        },
     }
     item.update(overrides)
     return item
@@ -432,7 +460,7 @@ def test_disjoint_ats_ids_with_same_weak_key_stay_separate(
     assert len({task["record_id"] for task in tasks}) == 2
     assert len({job["dedup_key"] for job in jobs}) == 1
     metric = json.loads((isolated_store / "metrics.jsonl").read_text(encoding="utf-8"))
-    assert metric["schema_version"] == 5
+    assert metric["schema_version"] == 6
     assert metric["strong_identity_conflicts_prevented"] == 1
     assert metric["strong_identity_records"] == 2
 
@@ -457,6 +485,108 @@ def test_same_strong_id_merges_even_when_title_changes(isolated_store, monkeypat
     assert output["stats"]["new"] == 1
     assert output["stats"]["deduped"] == 1
     assert job["identity_keys"] == ["greenhouse:4567890"]
+
+
+def test_phase_c_routes_merge_one_job_with_complete_provenance(
+    isolated_store, monkeypatch, capsys
+):
+    regional = phase_c_candidate(
+        route="regional_registry",
+        source_id="de-local-fixture",
+        language="de",
+        title="KI-Ingenieur",
+        url="https://boards.greenhouse.io/acme/jobs/4567890",
+    )
+    web = phase_c_candidate(
+        route="agent_web_search",
+        source_id="open-web-fixture",
+        language="en",
+        title="AI Engineer",
+        url="https://boards.greenhouse.io/acme/jobs/4567890?gh_src=web",
+        link_verification_status="unknown",
+    )
+
+    output = invoke(
+        monkeypatch,
+        capsys,
+        merge_jobs.cmd_merge,
+        [regional, web],
+        "cv",
+        "cp",
+        None,
+        "phase-c-cross-route",
+    )
+    job = load_table(isolated_store)["jobs"][0]
+
+    assert output["stats"]["new"] == 1
+    assert output["stats"]["deduped"] == 1
+    assert output["eval_run"]["task_count"] == 1
+    assert job["market_ids"] == ["de"]
+    assert job["market_status"] == "known"
+    assert {row["source_id"] for row in job["raw_sources"]} == {
+        "de-local-fixture",
+        "open-web-fixture",
+    }
+    assert {row["discovery_route"] for row in job["raw_sources"]} == {
+        "regional_registry",
+        "agent_web_search",
+    }
+
+
+def test_phase_c_batch_replay_does_not_increment_seen_or_create_another_run(
+    isolated_store, monkeypatch, capsys
+):
+    item = phase_c_candidate(
+        route="agent_web_search",
+        source_id="open-web-fixture",
+        language="de",
+        title="KI-Ingenieur",
+        url="https://boards.greenhouse.io/acme/jobs/4567890",
+    )
+    first = invoke(
+        monkeypatch,
+        capsys,
+        merge_jobs.cmd_merge,
+        [item],
+        "cv",
+        "cp",
+        None,
+        "phase-c-replay",
+    )
+    replay = invoke(
+        monkeypatch,
+        capsys,
+        merge_jobs.cmd_merge,
+        [item],
+        "cv",
+        "cp",
+        None,
+        "phase-c-replay",
+    )
+
+    table = load_table(isolated_store)
+    assert first["idempotent"] is False
+    assert replay["idempotent"] is True
+    assert replay["stats"]["idempotent"] is True
+    assert replay["to_analyze"] == []
+    assert table["jobs"][0]["seen_count"] == 1
+    assert len(table["applied_batches"]) == 1
+    assert len(list((isolated_store / "eval_runs").glob("*.json"))) == 1
+
+
+def test_legacy_candidate_fields_remain_backward_compatible(
+    isolated_store, monkeypatch, capsys
+):
+    output = invoke(
+        monkeypatch,
+        capsys,
+        merge_jobs.cmd_merge,
+        [candidate(verified="alive", scored_from="snippet")],
+        "cv",
+        "cp",
+    )
+
+    assert output["stats"]["new"] == 1
 
 
 def test_generic_web_result_can_absorb_one_ats_identity(isolated_store, monkeypatch, capsys):
@@ -577,6 +707,11 @@ def test_legacy_result_without_record_id_is_rejected_for_duplicate_weak_key(
 
 
 def test_legacy_table_is_migrated_in_place(isolated_store, monkeypatch, capsys):
+    monkeypatch.setattr(
+        merge_jobs,
+        "_now",
+        lambda: datetime(2026, 8, 15, tzinfo=timezone.utc),
+    )
     isolated_store.mkdir(parents=True, exist_ok=True)
     legacy_job = {
         "dedup_key": "acme|ai engineer",
@@ -602,8 +737,13 @@ def test_legacy_table_is_migrated_in_place(isolated_store, monkeypatch, capsys):
     migrated = load_table(isolated_store)["jobs"][0]
 
     assert output["stats"]["identity_records_migrated"] == 1
+    assert output["stats"]["provenance_records_migrated"] == 1
     assert migrated["record_id"].startswith("job_")
     assert migrated["identity_keys"] == ["greenhouse:4567890"]
+    assert migrated["market_ids"] == []
+    assert migrated["market_status"] == "unknown"
+    assert migrated["raw_sources"][0]["source_id"] == "legacy-web"
+    assert migrated["raw_sources"][0]["discovery_route"] == "unknown"
 
 
 def test_distinct_jobs_are_not_merged_by_aggregation(isolated_store, monkeypatch, capsys):

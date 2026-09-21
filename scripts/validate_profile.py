@@ -115,7 +115,9 @@ def default_blocked_levels(level: str) -> list[str]:
 # ── 语言 code 归一（精简自 JobRadar schemas._LANGUAGE_CODE_ALIASES）───────────────
 _LANG_ALIASES = {
     "en": "en", "english": "en", "英语": "en", "英文": "en",
-    "zh": "zh", "chinese": "zh", "中文": "zh", "汉语": "zh", "mandarin": "zh", "普通话": "zh",
+    "zh": "zh-Hans", "zh-cn": "zh-Hans", "zh_hans": "zh-Hans",
+    "zh-hans": "zh-Hans", "chinese": "zh-Hans", "中文": "zh-Hans",
+    "汉语": "zh-Hans", "mandarin": "zh-Hans", "普通话": "zh-Hans",
     "es": "es", "spanish": "es", "西班牙语": "es",
     "de": "de", "german": "de", "德语": "de",
     "fr": "fr", "french": "fr", "法语": "fr",
@@ -226,6 +228,12 @@ def main() -> None:
         missing.append("preferred_roles")
         notes.append("preferred_roles 缺失，将依赖 query 补全")
 
+    cv_language = normalize_lang_code(_as_str(
+        data.get("cv_language") or data.get("search_language")
+    ) or "en")
+    report_language = normalize_lang_code(
+        _as_str(data.get("report_language")) or cv_language
+    )
     profile = {
         "schema_version": SCHEMA_VERSION,
         "summary": _as_str(data.get("summary")),
@@ -237,12 +245,18 @@ def main() -> None:
         "stretch_levels": default_stretch_levels(seniority, mode),
         "blocked_levels": default_blocked_levels(seniority),
         "preferred_locations": dedupe_keep_order(data.get("preferred_locations") or []),
+        "target_locations": dedupe_keep_order(data.get("target_locations") or []),
+        "current_location": _as_str(data.get("current_location")),
         "open_to_remote": bool(data.get("open_to_remote", False)),
         "languages": languages,
         "industries": dedupe_keep_order(data.get("industries") or []),
         "education_level": _as_str(data.get("education_level")),
         "current_title": _as_str(data.get("current_title")),
-        "search_language": _as_str(data.get("search_language")) or "en",
+        "cv_language": cv_language,
+        "report_language": report_language,
+        # Deprecated compatibility alias. New planning derives search languages
+        # from the target market rather than this CV-language field.
+        "search_language": cv_language,
         "missing": missing,
     }
 

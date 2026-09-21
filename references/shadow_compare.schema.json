@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sangowu/job-matcher-skill/references/shadow_compare.schema.json",
+  "title": "Ephemeral multi-region shadow comparison input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "observed_at", "top_n", "markets"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "run_id": {
+      "type": "string",
+      "pattern": "^shadow-[0-9]{8}-[0-9]{6}-[a-f0-9]{6}$"
+    },
+    "observed_at": {"type": "string", "format": "date-time"},
+    "top_n": {"type": "integer", "minimum": 1, "maximum": 100},
+    "markets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": {"$ref": "#/$defs/marketInput"}
+    }
+  },
+  "$defs": {
+    "identityKeys": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 3, "maxLength": 200}
+    },
+    "baselineCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity_keys", "match_score"],
+      "properties": {
+        "identity_keys": {"$ref": "#/$defs/identityKeys"},
+        "match_score": {"type": "integer", "minimum": 0, "maximum": 100}
+      }
+    },
+    "shadowCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity_keys",
+        "match_score",
+        "jd_handoff",
+        "jd_checked",
+        "jd_available",
+        "live_verified"
+      ],
+      "properties": {
+        "identity_keys": {"$ref": "#/$defs/identityKeys"},
+        "match_score": {"type": "integer", "minimum": 0, "maximum": 100},
+        "jd_handoff": {"type": "boolean"},
+        "jd_checked": {"type": "boolean"},
+        "jd_available": {"type": "boolean"},
+        "live_verified": {"type": "boolean"}
+      }
+    },
+    "routeInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["discovery_route", "status", "failure_kind", "candidates"],
+      "properties": {
+        "discovery_route": {
+          "enum": ["regional_registry", "agent_web_search"]
+        },
+        "status": {"enum": ["succeeded", "failed", "skipped"]},
+        "failure_kind": {
+          "type": ["string", "null"],
+          "enum": [
+            null,
+            "network_error",
+            "http_error",
+            "timeout",
+            "access_blocked",
+            "source_unavailable",
+            "invalid_response",
+            "policy_skip",
+            "unknown"
+          ]
+        },
+        "candidates": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {"$ref": "#/$defs/shadowCandidate"}
+        }
+      }
+    },
+    "marketInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "market_id",
+        "deterministic_acceptance",
+        "baseline_top_n",
+        "routes"
+      ],
+      "properties": {
+        "market_id": {"enum": ["ie", "uk", "cn", "de"]},
+        "deterministic_acceptance": {"enum": ["passed", "failed"]},
+        "baseline_top_n": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {"$ref": "#/$defs/baselineCandidate"}
+        },
+        "routes": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/routeInput"}
+        }
+      }
+    }
+  }
+}

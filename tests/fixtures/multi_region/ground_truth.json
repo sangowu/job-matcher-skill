@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "evidence_boundary": "Synthetic offline routing and identity fixture only; it does not measure live-market recall or source quality.",
+  "markets": {
+    "ie": {"candidate_observations":10,"unique_strong_identities":8,"duplicate_groups":[["ie-01","ie-06"],["ie-02","ie-03"]],"distinct_same_title":[["ie-01","ie-07"]],"search_languages":["en"]},
+    "uk": {"candidate_observations":10,"unique_strong_identities":8,"duplicate_groups":[["uk-01","uk-06"],["uk-02","uk-03"]],"distinct_same_title":[["uk-01","uk-07"]],"search_languages":["en"]},
+    "cn": {"candidate_observations":10,"unique_strong_identities":8,"duplicate_groups":[["cn-01","cn-06"],["cn-02","cn-03"]],"distinct_same_title":[["cn-01","cn-07"]],"search_languages":["zh-Hans","en"]},
+    "de": {"candidate_observations":10,"unique_strong_identities":8,"duplicate_groups":[["de-01","de-06"],["de-02","de-03"]],"distinct_same_title":[["de-01","de-07"]],"search_languages":["de","en"]}
+  },
+  "required_routes": ["regional_registry","agent_web_search","ats_expansion","company_careers"],
+  "required_conditions": ["cross_route_duplicate","same_title_distinct_identity","closed_link","missing_location","remote","hybrid","local_and_english_for_cn_de"],
+  "prohibited_fields": ["jd_text","cv_text","candidate_name","email","phone"]
+}

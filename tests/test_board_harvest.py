@@ -344,3 +344,55 @@ def test_harvest_validates_seeds_against_the_markets_file_it_was_given(tmp_path)
     )
 
     assert summary["applied"] is True
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        # A careers portal usually redirects to the board root, not to one job.
+        ("https://boards.greenhouse.io/intercom", ("greenhouse", "intercom")),
+        ("https://job-boards.greenhouse.io/acme/", ("greenhouse", "acme")),
+        ("https://job-boards.eu.greenhouse.io/acme?src=portal", ("greenhouse", "acme")),
+        ("https://jobs.lever.co/shopback-2", ("lever", "shopback-2")),
+        ("https://jobs.ashbyhq.com/cohere", ("ashby", "cohere")),
+        # Platform-owned paths are not company board tokens.
+        ("https://boards.greenhouse.io/embed/job_app?for=acme", None),
+        ("https://jobs.lever.co/api", None),
+        # Still not an ATS host.
+        ("https://careers.example.com/", None),
+    ],
+)
+def test_board_identity_is_recovered_from_a_board_root(url, expected):
+    assert extract_board(url) == expected
+
+
+def test_a_board_root_never_becomes_a_job_identity():
+    """Recognising a board root must not make it look like a job posting."""
+    from _jobutil import all_identity_keys
+
+    root = "https://boards.greenhouse.io/intercom"
+    assert canonicalize_url(root) == "boards.greenhouse.io/intercom"
+    assert all_identity_keys({"url": root}) == []
+
+
+def test_a_portal_redirect_to_an_ats_board_is_registered_not_lost(tmp_path):
+    """The 2026-09-22 trial lost a public-sector source this way: it redirected
+    to a legitimate ATS host outside the task boundary and was skipped."""
+    registry_path, lock_path = _registry(tmp_path)
+
+    summary = board_harvest.harvest(
+        [{"url": "https://boards.greenhouse.io/newco"}],
+        registry_path=registry_path,
+        lock_path=lock_path,
+        batch_id="harvest-redirect",
+        provider_client=_client(["Dublin, Ireland"]),
+    )
+
+    assert summary["boards_proposed"] == 1
+    source = next(
+        item
+        for item in source_registry.load_registry(registry_path)["sources"]
+        if item["source_id"] == "newco-greenhouse"
+    )
+    assert source["status"] == "verified"
+    assert source["markets"] == ["ie"]

@@ -123,15 +123,29 @@ and a temporary merge store. Repository evidence contains counts, source class,
 route, and pass/fail boundaries but no title, company, job URL/ID, page text, or
 account metadata.
 
+## Full-CV production follow-up
+
+On 2026-09-22, a Dublin-first Ireland run closed the earlier production-table
+gate. A real local CV passed through three discovery waves, canonical production
+merge, two JD evaluations, and a two-job interactive HTML report. Every planned
+task reached a terminal state; blocked sites were recorded as explicit failures
+or skips rather than false zero-result successes.
+
+The trial also exposed a metrics boundary: direct BrowserOS Neo MCP actions do
+not yet emit the repository's `browser` runtime events, so run completeness and
+report health remained `unknown`. Counts, privacy boundaries, and failure
+classes are documented in
+[`browseros-neo-production-trial-2026-09-22.md`](browseros-neo-production-trial-2026-09-22.md).
+
 ## Remaining gate
 
-These runs prove the Neo-first path, authorized user-browser fallback, real
-login pause/resume, authenticated Jobs landing, bounded same-tab search, and a
-scoped live candidates through detail verification, contract validation, and
-isolated merge, including a three-candidate same-page batch. They do **not** yet
-prove additional-page pagination, other job-board layouts or languages,
-production-table integration in a full CV run,
-CAPTCHA/consent recovery, or rate-limit pause/resume. Those remain explicit
-live gates. A public Skill must continue to derive capability from the current
+Together, these runs prove the Neo-first path, authorized user-browser fallback,
+real login pause/resume, authenticated-session reuse, bounded search, scoped
+candidate extraction, contract validation, isolated merge, and one full
+single-market CV production run. They do **not** yet prove additional-page
+pagination, broad job-board/layout/language compatibility, host aliases outside
+the source boundary, ambiguous-consent recovery, custom-combobox compatibility,
+CAPTCHA recovery, rate-limit pause/resume, or local-browser runtime-metric
+completeness. A public Skill must continue to derive capability from the current
 Agent tool surface and degrade safely rather than treating installation or
 documentation as live evidence.

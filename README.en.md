@@ -174,13 +174,20 @@ A LinkedIn smoke also verified login pause, panel attention/resume,
 authenticated-session reuse, and a bounded same-tab search. Live candidate
 smoke then passed scoped main-content extraction, detail liveness,
 CandidateEnvelope validation, and a temporary-store merge; a three-candidate
-same-page batch also retained provenance 3/3. Additional-page pagination, other
-sites/languages, a full CV production run, CAPTCHA/consent
-recovery, and rate-limit recovery remain live gates. See
+same-page batch also retained provenance 3/3. On 2026-09-22, a real-CV,
+Dublin-first Ireland production run completed all three waves: 12 tasks reached
+terminal outcomes and two strong-identity candidates passed the production
+merge, JD evaluation, and HTML report. The run also showed that direct Neo MCP
+actions do not yet emit repository browser metrics, so report health correctly
+remains `unknown`. Host aliases, ambiguous consent, custom comboboxes,
+additional-page pagination, CAPTCHA recovery, and rate-limit recovery remain
+live gates. See
 [`docs/local-browser-phase4-smoke.md`](docs/local-browser-phase4-smoke.md).
 The deterministic first-wave Neo + Web Search smoke, consent pauses, and proof
 that the next wave was not dispatched are in
-[`docs/discovery-wave-live-smoke.md`](docs/discovery-wave-live-smoke.md).
+[`docs/discovery-wave-live-smoke.md`](docs/discovery-wave-live-smoke.md). The
+full production trial is documented in
+[`docs/browseros-neo-production-trial-2026-09-22.md`](docs/browseros-neo-production-trial-2026-09-22.md).
 
 ## 🚀 Usage
 

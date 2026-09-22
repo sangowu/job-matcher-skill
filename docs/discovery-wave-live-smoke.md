@@ -55,3 +55,19 @@ It contains no CV, query, candidate, URL, title, company, JD, Cookie, or account
 content. Because this run used a generic role/location probe rather than a user
 CV, it validates discovery orchestration and merge integrity only; it does not
 measure recall or prove that either job is CV-qualified.
+
+## Production follow-up
+
+On 2026-09-22, the same three-wave contract completed a real-CV production run
+instead of a temporary-store smoke. Twelve tasks reached terminal states, two
+strong-identity candidates entered the production table, both evaluation tasks
+completed from live JD pages, and the interactive report rendered two stretch
+applications. The run stopped with `plan_exhausted`.
+
+Unlike the generic smoke, this verifies the complete single-market path from CV
+and intent through discovery, canonical merge, evaluation, and report. It does
+not establish market recall: browser sources produced no qualifying candidate
+in this particular run, and several sites failed closed at login, host,
+consent, or semantic-control boundaries. See
+[`browseros-neo-production-trial-2026-09-22.md`](browseros-neo-production-trial-2026-09-22.md)
+for the count-only evidence and remaining gates.

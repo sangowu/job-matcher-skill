@@ -152,11 +152,15 @@ route/source/market/language 一致性，再把该波次所有通道候选一次
 2026-09-21 的有界运行时 smoke 已分别验证 BrowserOS Neo MCP 主路径和用户 Chrome 降级路径的
 专用标签页 create/navigate/read/close；当 Neo 可用时浏览器提供者会选择 Neo。LinkedIn 实测还验证了
 登录暂停、面板提醒/恢复、登录态复用和同标签页受限搜索；后续单候选 smoke 已通过受限主区域读取、
-详情存活验证、CandidateEnvelope 和临时 merge；三候选同页批次也完成 3/3 provenance 保留。跨页翻页、其他平台/语言、完整 CV 生产运行及
-CAPTCHA、歧义 consent 的人工恢复和限流恢复仍是 gate。证据边界见
+详情存活验证、CandidateEnvelope 和临时 merge；三候选同页批次也完成 3/3 provenance 保留。
+2026-09-22 又完成了一次真实 CV、Dublin-first Ireland 的三波生产运行：12 个任务全部到达终态，
+两个强身份候选进入正式 merge、JD 评分和 HTML 报告。该运行同时发现，Neo MCP 直接操作尚未写入
+仓库 browser 指标，因此报告健康状态会正确显示 `unknown`；站点 host alias、歧义 consent、
+自定义 combobox、跨页翻页、CAPTCHA 和限流恢复仍是 gate。证据边界见
 [`docs/local-browser-phase4-smoke.md`](docs/local-browser-phase4-smoke.md)。确定性首波的 Neo + Web Search
 联合 smoke、consent 暂停、三波继续/停止决策以及临时单写入 merge 的证据见
-[`docs/discovery-wave-live-smoke.md`](docs/discovery-wave-live-smoke.md)。
+[`docs/discovery-wave-live-smoke.md`](docs/discovery-wave-live-smoke.md)；完整生产试运行见
+[`docs/browseros-neo-production-trial-2026-09-22.md`](docs/browseros-neo-production-trial-2026-09-22.md)。
 
 ## 🚀 使用
 

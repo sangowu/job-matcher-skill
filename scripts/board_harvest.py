@@ -160,7 +160,7 @@ def harvest(
 ) -> dict[str, Any]:
     """反推、复验并提交新的 board。返回只含计数的摘要。"""
     registry = source_registry.load_registry(registry_path)
-    seeds = source_registry.load_seeds(seeds_path)
+    seeds = source_registry.load_seeds(seeds_path, markets_path=markets_path)
     aliases = _load_market_aliases(markets_path)
     known = _known_source_ids(registry, seeds)
 

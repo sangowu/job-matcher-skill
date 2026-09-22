@@ -553,6 +553,27 @@ def _registry_lock(
             pass
 
 
+BOARD_ENTRY_URLS = {
+    "greenhouse": "https://boards.greenhouse.io/{token}",
+    "ashby": "https://jobs.ashbyhq.com/{token}",
+    "lever": "https://jobs.lever.co/{token}",
+}
+
+
+def board_entry_url(provider: str, board_token: str) -> str | None:
+    """Public board page for an ATS source, or None when it cannot be derived.
+
+    The runtime registry never stores a URL, so promoting a harvested board into
+    the version-controlled seed catalog has to rebuild its entry_url from the
+    provider identity. A source whose URL cannot be rebuilt is not promotable.
+    """
+    template = BOARD_ENTRY_URLS.get(str(provider or "").strip().lower())
+    token = str(board_token or "").strip()
+    if template is None or not _TOKEN_PATTERN.fullmatch(token):
+        return None
+    return template.format(token=token)
+
+
 def board_source_id(provider: str, board_token: str) -> str:
     """Stable source_id for an ATS board, shared by seeding and harvesting.
 
@@ -817,6 +838,45 @@ def initialize_registry(
         "registry_size": len(result["sources"]),
         "changed": changed,
     }
+
+
+def adopt_sources_as_seeds(
+    source_ids: Iterable[str],
+    *,
+    registry_path: Path = REGISTRY_PATH,
+    lock_path: Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, int]:
+    """Re-origin promoted sources to `seed` so the seed catalog owns them.
+
+    Once a harvested source is written into `source_seeds.json`, the next
+    `merge_seeds()` would otherwise refuse it: a seed may not collide with an
+    `agent` source. Promotion is the explicit act that transfers ownership, so
+    the local record follows the catalog.
+    """
+    wanted = {str(source_id) for source_id in source_ids}
+    if not wanted:
+        return {"adopted": 0, "changed": 0}
+    actual_lock = lock_path or registry_path.with_name("source_registry.lock")
+    current_time = (now or _now()).astimezone(timezone.utc)
+    with _registry_lock(actual_lock):
+        registry = load_registry(registry_path)
+        result = copy.deepcopy(registry)
+        known = {source["source_id"] for source in result["sources"]}
+        missing = sorted(wanted - known)
+        if missing:
+            raise SourceValidationError(
+                f"cannot adopt unknown sources: {', '.join(missing)}"
+            )
+        changed = 0
+        for source in result["sources"]:
+            if source["source_id"] in wanted and source.get("origin") != "seed":
+                source["origin"] = "seed"
+                changed += 1
+        if changed:
+            validate_registry(result)
+            _save_registry(registry_path, result, now=current_time)
+    return {"adopted": len(wanted), "changed": changed}
 
 
 def ats_view_from_registry(registry: dict[str, Any]) -> dict[str, Any]:

@@ -313,3 +313,34 @@ def test_enable_can_be_withheld(tmp_path):
     )
     assert source["status"] == "verified"
     assert source["enabled"] is False
+
+
+def test_harvest_validates_seeds_against_the_markets_file_it_was_given(tmp_path):
+    """A custom seed catalog must be checked against its own markets.json."""
+    import shutil
+
+    seeds_path = tmp_path / "source_seeds.json"
+    markets_path = tmp_path / "markets.json"
+    shutil.copyfile(source_registry.SEEDS_PATH, seeds_path)
+    shutil.copyfile(source_registry.MARKETS_PATH, markets_path)
+    registry_path = tmp_path / "source_registry.json"
+    lock_path = tmp_path / "source_registry.lock"
+    source_registry.initialize_registry(
+        registry_path=registry_path,
+        seeds_path=seeds_path,
+        legacy_path=tmp_path / "ats_companies.json",
+        lock_path=lock_path,
+        now=NOW,
+    )
+
+    summary = board_harvest.harvest(
+        [_candidate("https://boards.greenhouse.io/newco/jobs/1000")],
+        registry_path=registry_path,
+        lock_path=lock_path,
+        seeds_path=seeds_path,
+        markets_path=markets_path,
+        batch_id="harvest-custom-catalog",
+        provider_client=_client(["Dublin, Ireland"]),
+    )
+
+    assert summary["applied"] is True

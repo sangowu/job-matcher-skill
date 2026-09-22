@@ -49,6 +49,7 @@
 | `cookie_consent.py` | `python scripts/cookie_consent.py`（stdin） | 当前 consent dialog 的有界 role/name/text 与语义 controls | 只返回唯一“仅必要/拒绝可选”按钮 ref 或 `pause`；不读取 Cookie、不点击页面、不接受 `Accept All` |
 | `source_registry.py` | `… validate/init/apply/plan/rollback-legacy` | 公开来源种子、PII-safe 来源提案/健康事件 | 原子维护 `data/source_registry.json`；输出确定性 eligible 来源 ID 或迁移/回滚摘要 |
 | `board_harvest.py` | `… --candidates C [--limit N] [--dry-run]` | 只读候选的 `url` 字段 | 反推公开 ATS board，实拉复验后经同一批次写入注册表；只输出计数 |
+| `seed_promotion.py` | `… [--limit N] [--dry-run]` | 运行时注册表中已复验的采集来源 | 追加进 `references/source_seeds.json` 并同步 `markets.json`；同时把本机记录改判为 seed 所有 |
 | `candidate_contract.py` | `python scripts/candidate_contract.py`（stdin） | Phase C CandidateEnvelope 数组 | 严格校验、边界归一化后的候选数组；不接收 JD/评分字段 |
 | `browser_candidate_smoke.py` | `python scripts/browser_candidate_smoke.py`（stdin） | 最多 20 条浏览器 CandidateEnvelope | 在系统临时目录执行真实 merge，输出 count-only provenance 结果并自动清理，不写正式职位表 |
 | `candidate_handoff.py` | `… --cv-hash H --cp-hash H [--metrics-run-id R]`（stdin） | 同一 `batch_id` 的市场/来源计划、双 route 回报和来源更新 | merge-first 的幂等提交摘要；中断后按 manifest 续跑，不输出候选/JD 正文 |
@@ -122,6 +123,7 @@
 
 ### 4. 检索职位（web 搜索 + 脚本，自适应分批）
 - **通道顺序按实测成本排**：结构化（公开 ATS API，单 board 一次请求、约 0.2–0.6 秒、自带 JD）与 Web Search 占据第一个波次；浏览器由 `browser_first_wave`（默认 2）推迟到后续波次。浏览器单任务是分钟级，且会在登录、模糊 consent 和自定义 combobox 上失败，因此它是兜底通道而不是主力。第一波产出已经足够时，既有的波次门禁根本不会放出浏览器任务。`browser_first_wave: 1` 可恢复三通道同时起跑的旧行为。
+- `data/source_registry.json` 在 `.gitignore` 内（与 CV、职位表、报告同目录，按 PII 规则整体屏蔽），所以 `board_harvest.py` 的积累只存在于本机：换机器或重装就清零，别的用户也享受不到。board token 是公开信息、不含 PII，只是被那条规则连坐。需要把积累固化进仓库时运行 `seed_promotion.py`：它只提升 `origin=agent`、`status=verified`、未过期，且能从 provider 身份确定性重建 `entry_url` 的来源（即公开 ATS board）；注册表按设计不存 URL，URL 无法重建的来源只记计数、不提升。提升是所有权转移——写入种子后本机记录的 origin 改为 `seed`，否则下一次 `merge_seeds()` 会因撞号报错。先用 `--dry-run` 查看将要提升的计数，再实际写入并按正常流程提 PR。
 - 一轮候选合并之后，可以用 `board_harvest.py --candidates <candidates.json>` 从候选 URL 反推公开 ATS board：Ashby/Greenhouse/Lever 的职位 URL 本身带着该公司 board 标识，一个职位即可换来整家公司的后续拉取。脚本只读候选的 `url` 字段，绝不把 URL、职位名、JD 或 CV 写入注册表。每个新 board 必须实拉复验一次才标 `verified`，市场归属由实际职位地点决定，不按公司总部推断；未应答、无职位或在受支持市场没有职位的 board 只记计数，不入库。单次运行的复验请求受 `--limit` 上限约束（默认 5），其余 board 留待下一轮。手工策展只负责冷启动，目录靠这条路径增长。
 - structured 任务按 provider 身份执行，不按 `entry_url` 抓取：`ats_board` 任务带 `provider`、`board_token`（Lever 另带 `instance`），直接交给 `ats_pipeline.py` / `ats_handoff.py` 的公开 API 路径。`entry_url` 只用于人工核对与报告展示。
 - 按 `discovery_plan.py` 输出的 `initial_wave_id` 只执行首个波次。当前波次内 browser、Web Search 和启用后的 structured 任务可以独立并发返回，但只能返回 CandidateEnvelope batch；都不得直接写主表或提前执行后续波次。浏览器来源按 local/public/global/company 类别优先保证首波多样性，再按健康计划 priority 分配到后续波次；Web Search 每条任务仍恰好调用一次。

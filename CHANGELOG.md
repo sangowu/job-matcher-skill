@@ -9,6 +9,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `seed_promotion.py`: harvested boards accumulate in `data/source_registry.json`, which is gitignored along with the rest of `data/`, so the growth never left one machine. Promotion appends verified, unexpired, URL-rebuildable sources to `references/source_seeds.json`, keeps `markets.json` in step, and re-origins the local record to `seed` so the next `merge_seeds()` does not reject its own catalog.
 - `board_harvest.py`: an Ashby/Greenhouse/Lever job URL already carries its company's board identity, so one observed candidate now teaches the registry an entire employer. Each recovered board is probed once through the existing read-only adapter before it is trusted, its markets come from the locations seen in that probe, and only provider, token, markets, and counts are written -- never the URL, job title, JD, or CV.
 - A verified public ATS board catalog: 18 Ashby/Greenhouse boards covering Ireland, the UK, and Germany, each confirmed by a read-only board fetch whose observed job locations determined its markets. Counts and rejection reasons are in [docs/ats-source-catalog.md](docs/ats-source-catalog.md).
 - Deterministic cross-channel discovery waves: the plan owns remaining-task availability, the Agent executes only the current wave, and `discovery_batch.py` exposes a next wave only after canonical merge yield checks pass.
@@ -58,6 +59,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `board_harvest.py` validated a custom seed catalog against the default `markets.json` rather than the one it was given, so a promoted catalog would fail its own consistency check on the next harvest.
 - Seeded ATS boards reach the pipeline with their identity intact: seed-to-registry conversion dropped `board_token`, so every `ats_board` seed became a tokenless record that `ats_view_from_registry()` silently skipped, leaving the structured channel empty no matter how the catalog was curated.
 - Seed validation now rejects an `ats_board` without a `board_token`, and rejects `ats_public_api` access for a provider that has no adapter, instead of planning a structured task that can never be fetched.
 - Teamtailor job URLs now produce provider-owned `teamtailor:<job-id>` strong identities, allowing valid Web Search candidates to pass the shared CandidateEnvelope and canonical deduplication boundary.

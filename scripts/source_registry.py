@@ -607,8 +607,13 @@ def _source_record_from_seed(seed: dict[str, Any]) -> dict[str, Any]:
         "priority": seed["priority"],
         "first_seen_at": seed["verified_at"],
         "last_seen_at": seed["verified_at"],
-        "last_attempt_at": verified_at,
-        "last_success_at": verified_at,
+        # A seed's verified_at says the source was confirmed to exist, not that
+        # this installation has ever fetched it. Copying it into the attempt and
+        # success timestamps made a freshly seeded board look as if it had just
+        # been synced, so the ATS pipeline's TTL check skipped every one of them
+        # until the TTL expired -- a newly seeded catalog produced nothing.
+        "last_attempt_at": None,
+        "last_success_at": None,
         "definitive_failures": 0,
         "transient_failures": 0,
         "origin": "seed",

@@ -111,3 +111,29 @@ def test_discovery_plan_accepts_the_shipped_config():
     result = discovery_plan.build_discovery_plan(request, seeds=seeds, config=config)
 
     assert result["channels"]
+
+
+def test_a_freshly_seeded_board_is_due_for_its_first_sync(tmp_path):
+    """A seed's verified_at means the source was confirmed to exist, not that
+    this installation ever fetched it. Copying it into last_success_at made every
+    newly seeded board look just-synced, so the TTL check skipped all of them and
+    a fresh catalog produced nothing until the TTL expired."""
+    from datetime import datetime, timezone
+
+    registry_path = tmp_path / "source_registry.json"
+    source_registry.initialize_registry(
+        registry_path=registry_path,
+        seeds_path=source_registry.SEEDS_PATH,
+        legacy_path=tmp_path / "ats_companies.json",
+        lock_path=tmp_path / "source_registry.lock",
+        now=datetime(2026, 9, 22, 12, tzinfo=timezone.utc),
+    )
+    view = source_registry.ats_view_from_registry(
+        source_registry.load_registry(registry_path)
+    )
+    ttl = _config()["ats_registry_ttl_days"]
+    now = datetime(2026, 9, 22, 13, tzinfo=timezone.utc)
+
+    assert view["boards"], "seed catalog must publish ATS boards"
+    due = [board for board in view["boards"] if ats_pipeline._retry_due(board, ttl, now)]
+    assert len(due) == len(view["boards"])

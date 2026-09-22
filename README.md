@@ -106,7 +106,8 @@ job-matcher/
 │   ├── verify_jobs.py        # 失效职位状态码检测
 │   ├── fetch_rendered.py     # headless 渲染兜底（复用系统浏览器）
 │   ├── render_html.py        # 渲染 HTML 报告
-│   └── _jobutil.py           # 共享：归一化/去重键/URL 规范化
+│   ├── _jobutil.py           # 共享：归一化/去重键/URL 规范化
+│   └── _filelock.py          # 共享：跨进程独占文件锁（所有本地存储）
 ├── assets/template.html  # 静态报告模板（Tailwind + 纯 JS）
 └── data/                 # 运行时数据（.gitignore，含 PII）
 ```

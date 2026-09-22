@@ -21,13 +21,14 @@ import json
 import os
 import re
 import sys
-import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlparse
+
+import _filelock
 
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -521,36 +522,24 @@ def _save_registry(path: Path, payload: dict[str, Any], *, now: datetime | None 
 def _registry_lock(
     lock_path: Path = LOCK_PATH, *, timeout_seconds: float = 10, stale_seconds: float = 120
 ):
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    started = time.monotonic()
-    descriptor: int | None = None
-    while descriptor is None:
-        try:
-            descriptor = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        except (FileExistsError, PermissionError) as error:
-            if isinstance(error, PermissionError) and not lock_path.exists():
-                raise SourceLockError(f"cannot access registry lock: {lock_path.name}") from error
-            try:
-                if time.time() - lock_path.stat().st_mtime > stale_seconds:
-                    lock_path.unlink()
-                    continue
-            except FileNotFoundError:
-                continue
-            if time.monotonic() - started >= timeout_seconds:
-                raise SourceLockError(f"timed out waiting for registry lock: {lock_path.name}")
-            time.sleep(0.05)
     try:
-        os.write(descriptor, f"pid={os.getpid()}\n".encode("ascii"))
-        os.close(descriptor)
-        descriptor = None
+        descriptor, _ = _filelock.acquire(
+            lock_path, timeout_seconds=timeout_seconds, stale_seconds=stale_seconds
+        )
+    except _filelock.LockUnavailable as error:
+        if error.reason == "denied":
+            raise SourceLockError(f"cannot access registry lock: {lock_path.name}") from error
+        raise SourceLockError(
+            f"timed out waiting for registry lock: {lock_path.name}"
+        ) from error
+    try:
+        try:
+            os.write(descriptor, f"pid={os.getpid()}\n".encode("ascii"))
+        finally:
+            os.close(descriptor)
         yield
     finally:
-        if descriptor is not None:
-            os.close(descriptor)
-        try:
-            lock_path.unlink()
-        except FileNotFoundError:
-            pass
+        _filelock.release(lock_path)
 
 
 BOARD_ENTRY_URLS = {

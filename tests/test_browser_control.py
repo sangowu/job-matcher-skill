@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -235,3 +236,30 @@ def test_unknown_action_or_status_is_refused(tmp_path, action, status):
 
 def test_local_and_remote_providers_stay_disjoint():
     assert not set(LOCAL_PROVIDERS) & set(REMOTE_PROVIDERS)
+
+
+def _deny_lock_handoff(monkeypatch, lock_path, times=5):
+    """Make the exclusive create on *lock_path* fail the way Windows fails it
+    while the previous holder's unlink is still pending: PermissionError, with
+    the file simultaneously invisible to exists()."""
+    real_open = os.open
+    remaining = [PermissionError(13, "denied")] * times
+
+    def fake_open(path, flags, mode=0o777, **kwargs):
+        if Path(path) == lock_path and remaining:
+            raise remaining.pop()
+        return real_open(path, flags, mode, **kwargs)
+
+    monkeypatch.setattr(os, "open", fake_open)
+
+
+def test_a_lock_handoff_denial_does_not_escape_the_budget_lock(tmp_path, monkeypatch):
+    """Same uncaught PermissionError, this time in the round admission gate."""
+    budget = BrowserRoundBudget(tmp_path / "browser_budget.json")
+    lock_path = budget.path.with_suffix(f"{budget.path.suffix}.lock")
+    _deny_lock_handoff(monkeypatch, lock_path)
+
+    with budget._locked():
+        pass
+
+    assert not lock_path.exists()

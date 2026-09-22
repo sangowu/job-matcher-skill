@@ -10,16 +10,18 @@ import os
 import re
 import sys
 import tempfile
-import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 
+import _filelock
+
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LEDGER = SKILL_ROOT / "data" / "multi_region_shadow_runs.json"
 DEFAULT_CONFIG = SKILL_ROOT / "config.json"
+STALE_LOCK_SECONDS = 120
 SUPPORTED_MARKETS = ("ie", "uk", "cn", "de")
 DISCOVERY_ROUTES = ("regional_registry", "agent_web_search")
 ROLLOUT_MODES = {"off", "shadow", "opt_in", "default"}
@@ -273,28 +275,24 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 @contextmanager
 def _write_lock(lock_path: Path, timeout_seconds: float = 10) -> Iterator[None]:
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    deadline = time.monotonic() + timeout_seconds
-    descriptor: int | None = None
-    while descriptor is None:
-        try:
-            descriptor = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        except FileExistsError:
-            if time.monotonic() >= deadline:
-                raise ShadowGateError("timed out waiting for shadow ledger lock")
-            time.sleep(0.05)
     try:
-        os.write(descriptor, str(os.getpid()).encode("ascii"))
-        os.close(descriptor)
-        descriptor = None
+        # This loop previously had no stale handling at all, so a lock left by
+        # a killed process wedged the ledger until someone deleted it by hand.
+        descriptor, _ = _filelock.acquire(
+            lock_path, timeout_seconds=timeout_seconds, stale_seconds=STALE_LOCK_SECONDS
+        )
+    except _filelock.LockUnavailable as error:
+        if error.reason == "denied":
+            raise ShadowGateError("cannot access shadow ledger lock") from error
+        raise ShadowGateError("timed out waiting for shadow ledger lock") from error
+    try:
+        try:
+            os.write(descriptor, str(os.getpid()).encode("ascii"))
+        finally:
+            os.close(descriptor)
         yield
     finally:
-        if descriptor is not None:
-            os.close(descriptor)
-        try:
-            lock_path.unlink()
-        except FileNotFoundError:
-            pass
+        _filelock.release(lock_path)
 
 
 def record_shadow_run(

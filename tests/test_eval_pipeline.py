@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sys
 import threading
 from datetime import datetime, timezone
@@ -882,3 +883,30 @@ def test_twenty_concurrent_writers_preserve_parseable_table(isolated_store):
     assert len(table["jobs"]) == 20
     assert not merge_jobs.LOCK_PATH.exists()
     assert list(isolated_store.glob(".*.tmp")) == []
+
+
+def _deny_lock_handoff(monkeypatch, lock_path, times=5):
+    """Make the exclusive create on *lock_path* fail the way Windows fails it
+    while the previous holder's unlink is still pending: PermissionError, with
+    the file simultaneously invisible to exists()."""
+    real_open = os.open
+    remaining = [PermissionError(13, "denied")] * times
+
+    def fake_open(path, flags, mode=0o777, **kwargs):
+        if Path(path) == lock_path and remaining:
+            raise remaining.pop()
+        return real_open(path, flags, mode, **kwargs)
+
+    monkeypatch.setattr(os, "open", fake_open)
+
+
+def test_a_lock_handoff_denial_does_not_abort_a_table_write(isolated_store, monkeypatch):
+    """This pair used to raise DataStoreError and fail an ordinary merge."""
+    _deny_lock_handoff(monkeypatch, merge_jobs.LOCK_PATH)
+
+    with merge_jobs._table_write_lock() as metrics:
+        merge_jobs._save(merge_jobs.TABLE_PATH, {"jobs": [{"dedup_key": "job-1"}]})
+
+    assert metrics["stale_lock_recoveries"] == 0
+    assert not merge_jobs.LOCK_PATH.exists()
+    assert len(load_table(isolated_store)["jobs"]) == 1

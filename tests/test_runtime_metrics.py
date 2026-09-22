@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 from datetime import datetime, timedelta, timezone
@@ -20,6 +21,7 @@ from runtime_metrics import (  # noqa: E402
     render_markdown,
     run_metadata,
 )
+import runtime_metrics  # noqa: E402
 import summarize_metrics  # noqa: E402
 
 
@@ -377,3 +379,31 @@ def test_concurrent_metric_appends_remain_parseable(tmp_path):
     assert results == [True] * 20
     assert len(events) == 20
     assert not path.with_name("metrics.jsonl.lock").exists()
+
+
+def _deny_lock_handoff(monkeypatch, lock_path, times=5):
+    """Make the exclusive create on *lock_path* fail the way Windows fails it
+    while the previous holder's unlink is still pending: PermissionError, with
+    the file simultaneously invisible to exists()."""
+    real_open = os.open
+    remaining = [PermissionError(13, "denied")] * times
+
+    def fake_open(path, flags, mode=0o777, **kwargs):
+        if Path(path) == lock_path and remaining:
+            raise remaining.pop()
+        return real_open(path, flags, mode, **kwargs)
+
+    monkeypatch.setattr(os, "open", fake_open)
+
+
+def test_a_lock_handoff_denial_does_not_silently_drop_a_metric(tmp_path, monkeypatch):
+    """The metrics writer reported success-or-drop as a bool, so this one
+    dropped the record with nothing to show for it."""
+    target = tmp_path / "metrics.jsonl"
+    payload = b'{"operation":"merge"}\n'
+    _deny_lock_handoff(monkeypatch, target.with_name(f"{target.name}.lock"))
+
+    assert runtime_metrics._append_payload(target, payload) is True
+    # os.open leaves the descriptor in text mode on Windows, so the record's
+    # own line ending is not what this test is about.
+    assert target.read_bytes().strip() == payload.strip()

@@ -8,12 +8,12 @@ import os
 import re
 import subprocess
 import threading
-import time
 from functools import lru_cache
 from hashlib import sha256
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import _filelock
 from _jobutil import skill_version
 
 
@@ -314,31 +314,15 @@ def _append_payload(path: Path, payload: bytes) -> bool:
     with _THREAD_APPEND_LOCK:
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            lock_started = time.monotonic()
-            while lock_descriptor is None:
-                try:
-                    lock_descriptor = os.open(
-                        str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
-                    )
-                except (FileExistsError, PermissionError) as error:
-                    if isinstance(error, PermissionError) and not lock_path.exists():
-                        return False
-                    try:
-                        if time.time() - lock_path.stat().st_mtime > 30:
-                            try:
-                                lock_path.unlink()
-                            except PermissionError:
-                                pass
-                            else:
-                                continue
-                    except FileNotFoundError:
-                        continue
-                    if time.monotonic() - lock_started >= 2:
-                        return False
-                    time.sleep(0.01)
+            try:
+                lock_descriptor, _ = _filelock.acquire(
+                    lock_path, timeout_seconds=2, stale_seconds=30
+                )
+            except _filelock.LockUnavailable:
+                return False
+            lock_acquired = True
             os.close(lock_descriptor)
             lock_descriptor = None
-            lock_acquired = True
             descriptor = os.open(str(path), os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
             remaining = memoryview(payload)
             while remaining:

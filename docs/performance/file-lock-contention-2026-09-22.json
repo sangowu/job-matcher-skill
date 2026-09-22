@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "run_kind": "file_lock_contention_measurement",
+  "observed_at": "2026-09-22T00:00:00Z",
+  "method": "local_threaded_contention_probe",
+  "environment": {
+    "os": "Windows",
+    "python": "3.13.5",
+    "note": "all three defects are Windows-only; Ubuntu CI cannot reach them"
+  },
+  "handoff_error_distribution": {
+    "description": "5 threads contending on one lock for 3 seconds, counting what the exclusive create reported and whether the lock file was visible at that instant",
+    "duration_seconds": 3,
+    "threads": 5,
+    "file_exists_error": 10330,
+    "permission_denied_file_absent": 711,
+    "permission_denied_file_present": 226,
+    "acquired": 7138,
+    "interpretation": "permission_denied_file_absent is the delete-pending window between a holder's unlink and the directory entry going away; three stores read it as proof the lock was unreachable and failed the caller"
+  },
+  "stat_during_delete_pending": {
+    "description": "what stat() reports when the exclusive create has just been refused",
+    "open_file_exists_stat_ok": 8655,
+    "open_file_exists_stat_not_found": 1392,
+    "open_permission_denied_stat_not_found": 781,
+    "open_permission_denied_stat_ok": 226,
+    "interpretation": "stat never raised PermissionError, so the existing FileNotFoundError handling was sufficient there"
+  },
+  "poll_strategy_comparison": {
+    "description": "20 threads, 1 ms critical section, 2 s timeout, 5 runs per strategy",
+    "runs_per_strategy": 5,
+    "strategies": {
+      "constant_50ms_before": {"mean_total_seconds": 0.802, "worst_wait_ms": 972, "timeouts": 0},
+      "constant_5ms_after": {"mean_total_seconds": 0.085, "worst_wait_ms": 96, "timeouts": 0},
+      "backoff_2ms_to_50ms": {"mean_total_seconds": 0.490, "worst_wait_ms": 578, "timeouts": 0},
+      "backoff_with_jitter": {"mean_total_seconds": 0.074, "worst_wait_ms": 88, "timeouts": 0}
+    },
+    "chosen": "constant_5ms_after",
+    "rejected_backoff_because": "per-waiter backoff starves the longest waiter, which is the one that times out: its worst wait was 578 ms against 96 ms for a constant short poll"
+  },
+  "merge_jobs_twenty_writers": {
+    "description": "the real merge_jobs write path, 20 threads, 2 s timeout, idle machine",
+    "before": {"total_seconds": 0.98, "worst_wait_ms": 970, "margin_against_timeout": 2.1},
+    "after": {"total_seconds": 0.17, "worst_wait_ms": 163, "margin_against_timeout": 12.3}
+  },
+  "verification": {
+    "full_suite_tests_passed": 493,
+    "new_tests_added": 14,
+    "consecutive_clean_full_suite_runs": 3,
+    "regressions_confirmed_failing_before_the_fix": 4
+  },
+  "limitations": {
+    "single_machine_single_disk": true,
+    "thread_contention_not_process_contention": true,
+    "idle_machine_so_real_margins_are_smaller": true,
+    "no_claim_about_non_windows_handoff_rates": true
+  },
+  "privacy": {
+    "contains_api_keys": false,
+    "contains_cv_or_jd_text": false,
+    "contains_job_titles": false,
+    "contains_job_urls": false,
+    "contains_profile_fields": false,
+    "contains_queries": false
+  }
+}

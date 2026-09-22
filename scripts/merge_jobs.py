@@ -36,6 +36,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import _filelock
 from analysis_contract import AnalysisContractError, validate_evaluation_result
 from candidate_contract import CandidateContractError, validate_candidate_envelope
 from _jobutil import (
@@ -129,50 +130,34 @@ def _save(path: Path, data: dict) -> None:
 def _table_write_lock():
     """Serialize all canonical-table mutations across local processes."""
     cfg = load_config()
-    timeout = float(cfg.get("table_lock_timeout_seconds", 10))
-    stale_after = float(cfg.get("stale_lock_seconds", 120))
-    LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
-    descriptor = None
-    stale_lock_recoveries = 0
-
-    while descriptor is None:
-        try:
-            descriptor = os.open(str(LOCK_PATH), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except (FileExistsError, PermissionError) as error:
-            if isinstance(error, PermissionError) and not LOCK_PATH.exists():
-                raise DataStoreError(f"cannot access job-table lock: {LOCK_PATH}") from error
-            try:
-                age = time.time() - LOCK_PATH.stat().st_mtime
-                if age > stale_after:
-                    try:
-                        LOCK_PATH.unlink()
-                    except PermissionError:
-                        pass
-                    else:
-                        stale_lock_recoveries += 1
-                        continue
-            except FileNotFoundError:
-                continue
-            if time.monotonic() - started >= timeout:
-                raise LockTimeoutError(f"timed out waiting for job-table lock: {LOCK_PATH}")
-            time.sleep(0.05)
-
     try:
-        os.write(descriptor, f"pid={os.getpid()} created_at={_now().isoformat()}\n".encode("ascii"))
-        os.close(descriptor)
-        descriptor = None
+        descriptor, stale_lock_recoveries = _filelock.acquire(
+            LOCK_PATH,
+            timeout_seconds=float(cfg.get("table_lock_timeout_seconds", 10)),
+            stale_seconds=float(cfg.get("stale_lock_seconds", 120)),
+        )
+    except _filelock.LockUnavailable as error:
+        if error.reason == "denied":
+            raise DataStoreError(f"cannot access job-table lock: {LOCK_PATH}") from error
+        raise LockTimeoutError(f"timed out waiting for job-table lock: {LOCK_PATH}") from error
+
+    # The release has to cover the pid write too: a failure there still leaves a
+    # lock file behind that nobody owns.
+    try:
+        try:
+            os.write(
+                descriptor,
+                f"pid={os.getpid()} created_at={_now().isoformat()}\n".encode("ascii"),
+            )
+        finally:
+            os.close(descriptor)
         yield {
             "lock_wait_ms": round((time.monotonic() - started) * 1000, 2),
             "stale_lock_recoveries": stale_lock_recoveries,
         }
     finally:
-        if descriptor is not None:
-            os.close(descriptor)
-        try:
-            LOCK_PATH.unlink()
-        except FileNotFoundError:
-            pass
+        _filelock.release(LOCK_PATH)
 
 
 def _is_expired(fetched_at: str | None, ttl_days: int) -> bool:

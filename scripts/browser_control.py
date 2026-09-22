@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+import _filelock
 from _jobutil import SKILL_ROOT
 from browser_provider import build_provider, load_browser_settings
 from runtime_metrics import record_metric, validate_run_id
@@ -54,31 +55,17 @@ class BrowserRoundBudget:
         lock_path = self.path.with_suffix(f"{self.path.suffix}.lock")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with _BUDGET_THREAD_LOCK:
-            started = time.monotonic()
-            descriptor = None
-            while descriptor is None:
-                try:
-                    descriptor = os.open(
-                        str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
-                    )
-                except FileExistsError:
-                    try:
-                        if time.time() - lock_path.stat().st_mtime > 30:
-                            lock_path.unlink()
-                            continue
-                    except FileNotFoundError:
-                        continue
-                    if time.monotonic() - started >= 2:
-                        raise RuntimeError("browser budget lock timeout")
-                    time.sleep(0.01)
-            os.close(descriptor)
             try:
+                descriptor, _ = _filelock.acquire(
+                    lock_path, timeout_seconds=2, stale_seconds=30
+                )
+            except _filelock.LockUnavailable as error:
+                raise RuntimeError(f"browser budget lock {error.reason}") from error
+            try:
+                os.close(descriptor)
                 yield
             finally:
-                try:
-                    lock_path.unlink()
-                except FileNotFoundError:
-                    pass
+                _filelock.release(lock_path)
 
     def _load(self) -> dict[str, dict[str, float | int]]:
         try:

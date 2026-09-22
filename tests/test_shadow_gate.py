@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -339,3 +340,30 @@ def test_current_empty_ledger_and_phase_d2_smoke_leave_every_market_ineligible()
         "insufficient_successful_shadow_runs" in row["blockers"]
         for row in report["markets"]
     )
+
+
+def _deny_lock_handoff(monkeypatch, lock_path, times=5):
+    """Make the exclusive create on *lock_path* fail the way Windows fails it
+    while the previous holder's unlink is still pending: PermissionError, with
+    the file simultaneously invisible to exists()."""
+    real_open = os.open
+    remaining = [PermissionError(13, "denied")] * times
+
+    def fake_open(path, flags, mode=0o777, **kwargs):
+        if Path(path) == lock_path and remaining:
+            raise remaining.pop()
+        return real_open(path, flags, mode, **kwargs)
+
+    monkeypatch.setattr(os, "open", fake_open)
+
+
+def test_a_lock_handoff_denial_does_not_escape_the_ledger_lock(tmp_path, monkeypatch):
+    """This loop caught only FileExistsError, so a routine handoff surfaced as
+    a bare PermissionError from inside the ledger writer."""
+    lock_path = tmp_path / "ledger.lock"
+    _deny_lock_handoff(monkeypatch, lock_path)
+
+    with shadow_gate._write_lock(lock_path, timeout_seconds=5):
+        pass
+
+    assert not lock_path.exists()

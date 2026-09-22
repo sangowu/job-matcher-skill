@@ -209,7 +209,7 @@ agent 会自动识别。然后在对话里：
 | `consecutive_empty_stop` | 2 | 连续 N 批 0 结果则停止 |
 | `ats_enabled` | false | 是否启用公开 ATS 增强管道；默认显式关闭 |
 | `ats_max_concurrency` | 3 | 跨 ATS board 并发硬上限 |
-| `ats_boards_per_round` | 30 | 单轮同步 board 数硬上限 |
+| `ats_boards_per_round` | 30 | 单轮同步 board 数硬上限（管道内上限 30）|
 | `ats_requests_per_round` | 100 | 单轮 ATS HTTP 请求硬上限 |
 | `ats_page_size` | 50 | Lever 每页请求数量 |
 | `ats_max_pages` | 10 | 单个 Lever board 顺序翻页硬上限 |

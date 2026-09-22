@@ -236,7 +236,7 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `consecutive_empty_stop` | 2 | stop after N consecutive empty batches |
 | `ats_enabled` | false | enable the public ATS enhancement pipeline; explicitly off by default |
 | `ats_max_concurrency` | 3 | hard cap for concurrent ATS boards |
-| `ats_boards_per_round` | 30 | hard cap for boards synced per round |
+| `ats_boards_per_round` | 30 | hard cap for boards synced per round (pipeline ceiling 30) |
 | `ats_requests_per_round` | 100 | hard cap for ATS HTTP requests per round |
 | `ats_page_size` | 50 | Lever page size |
 | `ats_max_pages` | 10 | hard cap for sequential pages per Lever board |

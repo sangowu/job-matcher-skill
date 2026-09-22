@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "run_kind": "board_harvest_live_dry_run",
+  "observed_at": "2026-09-22T00:00:00Z",
+  "scope": "url_to_board_recovery_and_live_revalidation",
+  "environment": {
+    "os": "Windows",
+    "python": "3.13.5"
+  },
+  "input": {
+    "candidates_read": 3,
+    "shapes": {
+      "ats_job_url_of_a_seeded_board": 1,
+      "ats_job_url_of_an_unseeded_board": 1,
+      "non_ats_job_url": 1
+    }
+  },
+  "result": {
+    "boards_seen": 2,
+    "boards_already_known": 1,
+    "boards_probed": 1,
+    "boards_deferred_by_limit": 0,
+    "probe_outcomes": {
+      "verified": 1
+    },
+    "boards_proposed": 1,
+    "applied": false
+  },
+  "offline_regression": {
+    "tests_added": 20,
+    "full_suite_tests_passed": 413
+  },
+  "boundaries": {
+    "non_ats_urls_are_ignored": true,
+    "known_boards_are_never_reprobed": true,
+    "strong_job_identity_unchanged": true,
+    "probe_requests_bounded_per_run": 5,
+    "markets_derived_from_observed_job_locations": true
+  },
+  "limitations": {
+    "single_live_board_probed": true,
+    "reachability_is_not_market_coverage": true,
+    "no_market_recall_claimed": true,
+    "public_network_variance": true
+  },
+  "privacy": {
+    "candidate_urls_persisted": false,
+    "contains_job_titles": false,
+    "contains_job_urls": false,
+    "contains_cv_or_jd_text": false,
+    "contains_queries": false,
+    "registry_writes_limited_to_provider_token_markets_and_counts": true
+  }
+}

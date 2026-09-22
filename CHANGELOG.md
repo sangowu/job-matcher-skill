@@ -9,6 +9,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `board_harvest.py`: an Ashby/Greenhouse/Lever job URL already carries its company's board identity, so one observed candidate now teaches the registry an entire employer. Each recovered board is probed once through the existing read-only adapter before it is trusted, its markets come from the locations seen in that probe, and only provider, token, markets, and counts are written -- never the URL, job title, JD, or CV.
 - A verified public ATS board catalog: 18 Ashby/Greenhouse boards covering Ireland, the UK, and Germany, each confirmed by a read-only board fetch whose observed job locations determined its markets. Counts and rejection reasons are in [docs/ats-source-catalog.md](docs/ats-source-catalog.md).
 - Deterministic cross-channel discovery waves: the plan owns remaining-task availability, the Agent executes only the current wave, and `discovery_batch.py` exposes a next wave only after canonical merge yield checks pass.
 - Count-only live evidence for a BrowserOS Neo plus Web Search first wave, including semantic platform search, consent pauses, local attention state, open-web contribution, and fail-closed suppression of the next wave.
@@ -38,6 +39,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Source proposals accept `board_token` and `instance`, under the same rules as seeded boards: an `ats_board` proposal without a token, or one naming a provider with no adapter, is rejected.
 - The repository default is now `ats_enabled: true`. The public ATS path is the cheapest discovery channel measured so far (one request per board, roughly 0.2-0.6s, job descriptions included) and stays bounded by its own request/page/concurrency caps.
 - Structured discovery tasks now carry `provider`, `board_token`, and Lever's `instance`, so a board is fetched by provider identity instead of its human-facing `entry_url`.
 - The repository default discovery mode is now `coverage`: model/Web Search runs alongside the preferred available browser provider (BrowserOS Neo, then an authorized user browser). Legacy `auto` retains its single-route compatibility behavior.

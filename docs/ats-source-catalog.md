@@ -73,7 +73,29 @@ Counts are in
   browser route. One global board with Shenzhen jobs was deliberately left out
   rather than widen the China source-access policy for a single employer.
 - **Curation does not scale by hand.** 18 boards is a cold start, not a
-  strategy. The token for any Ashby/Greenhouse/Lever job already appears in the
-  job URL that Web Search and browser discovery return, so harvesting tokens
-  from observed candidates — one job teaching the system an entire company — is
-  the intended way this catalog grows.
+  strategy. The catalog grows through `board_harvest.py` instead (see below).
+
+## How the catalog grows
+
+The token for any Ashby/Greenhouse/Lever job already appears in the job URL that
+Web Search and browser discovery return. `board_harvest.py` recovers it, so one
+observed job teaches the system an entire company: the next round fetches that
+employer's whole board in a single request.
+
+- `extract_board()` in `_jobutil.py` reads the board slug from a job URL. It
+  uses its own patterns rather than extending `_PLATFORM_PATTERNS`, because the
+  identity path reads `group(1)` as the job id and adding a capture group there
+  would silently shift every strong identity.
+- A recovered board is probed once through the same read-only adapter before it
+  is trusted. Its markets come from the locations observed in that probe, never
+  from the URL or an assumption about the company.
+- A board that does not answer, returns nothing, or has no jobs in a supported
+  market is counted and dropped, not registered.
+- Probing is bounded per run (`--limit`, default 5); the rest wait for the next
+  round. Boards already in the seed catalog or the registry are never reprobed.
+- Only provider, token, markets and low-cardinality counts are written. The
+  candidate's URL is read and discarded; no URL, job title, JD, or CV text
+  reaches the registry.
+- The probe is the verification, so a successful one marks the board `verified`
+  and may enable it. `--no-enable` stops at `verified` when a human should
+  approve the last step.

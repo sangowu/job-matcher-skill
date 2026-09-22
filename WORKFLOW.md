@@ -48,6 +48,7 @@
 | `local_browser_panel.py` | `serve/settings/status/event` | 非敏感模式设置；低基数本机浏览器状态事件 | loopback HTML 面板、闪烁提醒和 `resume_requested`；不接收 URL/Cookie/账号/正文/会话 ID |
 | `cookie_consent.py` | `python scripts/cookie_consent.py`（stdin） | 当前 consent dialog 的有界 role/name/text 与语义 controls | 只返回唯一“仅必要/拒绝可选”按钮 ref 或 `pause`；不读取 Cookie、不点击页面、不接受 `Accept All` |
 | `source_registry.py` | `… validate/init/apply/plan/rollback-legacy` | 公开来源种子、PII-safe 来源提案/健康事件 | 原子维护 `data/source_registry.json`；输出确定性 eligible 来源 ID 或迁移/回滚摘要 |
+| `board_harvest.py` | `… --candidates C [--limit N] [--dry-run]` | 只读候选的 `url` 字段 | 反推公开 ATS board，实拉复验后经同一批次写入注册表；只输出计数 |
 | `candidate_contract.py` | `python scripts/candidate_contract.py`（stdin） | Phase C CandidateEnvelope 数组 | 严格校验、边界归一化后的候选数组；不接收 JD/评分字段 |
 | `browser_candidate_smoke.py` | `python scripts/browser_candidate_smoke.py`（stdin） | 最多 20 条浏览器 CandidateEnvelope | 在系统临时目录执行真实 merge，输出 count-only provenance 结果并自动清理，不写正式职位表 |
 | `candidate_handoff.py` | `… --cv-hash H --cp-hash H [--metrics-run-id R]`（stdin） | 同一 `batch_id` 的市场/来源计划、双 route 回报和来源更新 | merge-first 的幂等提交摘要；中断后按 manifest 续跑，不输出候选/JD 正文 |
@@ -120,6 +121,7 @@
 - 算 `candidate_profile_hash`：把 candidate_profile JSON 喂给 `python scripts/cp_hash.py`（它规范化后再 hash，**保证同语义同 hash、不每轮分裂**），取返回的 `cp_hash`。后续 `merge_jobs` / `render_html` 的 `--cp-hash` **全部用它**（不要自己另编 hash）。
 
 ### 4. 检索职位（web 搜索 + 脚本，自适应分批）
+- 一轮候选合并之后，可以用 `board_harvest.py --candidates <candidates.json>` 从候选 URL 反推公开 ATS board：Ashby/Greenhouse/Lever 的职位 URL 本身带着该公司 board 标识，一个职位即可换来整家公司的后续拉取。脚本只读候选的 `url` 字段，绝不把 URL、职位名、JD 或 CV 写入注册表。每个新 board 必须实拉复验一次才标 `verified`，市场归属由实际职位地点决定，不按公司总部推断；未应答、无职位或在受支持市场没有职位的 board 只记计数，不入库。单次运行的复验请求受 `--limit` 上限约束（默认 5），其余 board 留待下一轮。手工策展只负责冷启动，目录靠这条路径增长。
 - structured 任务按 provider 身份执行，不按 `entry_url` 抓取：`ats_board` 任务带 `provider`、`board_token`（Lever 另带 `instance`），直接交给 `ats_pipeline.py` / `ats_handoff.py` 的公开 API 路径。`entry_url` 只用于人工核对与报告展示。
 - 按 `discovery_plan.py` 输出的 `initial_wave_id` 只执行首个波次。当前波次内 browser、Web Search 和启用后的 structured 任务可以独立并发返回，但只能返回 CandidateEnvelope batch；都不得直接写主表或提前执行后续波次。浏览器来源按 local/public/global/company 类别优先保证首波多样性，再按健康计划 priority 分配到后续波次；Web Search 每条任务仍恰好调用一次。
 - 当前波次每个 task 必须恰好回报一次 `succeeded`、`failed` 或 `skipped`。`failed` 必须使用低基数 `failure_kind`，失败/跳过任务的候选必须为空。`necessary_only` 下，只有当前 consent dialog 内唯一且由 `cookie_consent.py` 明确分类的 button 可以自动点击；`ask_every_time`、零/多匹配、登录、CAPTCHA、限流或其他需判断 consent 都是暂停状态，处理或明确放弃前不得提交整批。把原 DiscoveryPlan、`wave_id`、该波次所有 task results、可选来源更新以及 count-only progress 一次性交给 `discovery_batch.py`。它先预校验 source batch 和每条 CandidateEnvelope 与所属 task 的 route/source/market/language，再把全部通道候选合并为一次 `merge_jobs.py merge`，最后提交 source registry；重复 `batch_id` 同输入为 no-op，不同输入拒绝。

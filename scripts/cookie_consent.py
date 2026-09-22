@@ -85,8 +85,17 @@ def classify_cookie_consent(payload: Any) -> dict[str, Any]:
     if policy not in POLICIES:
         raise CookieConsentError("unsupported cookie consent policy")
     container = payload["container"]
-    if not isinstance(container, dict) or set(container) != {"role", "name", "text"}:
-        raise CookieConsentError("container must contain role, name, and text")
+    if not isinstance(container, dict) or set(container) != {
+        "role",
+        "name",
+        "text",
+        "visible",
+    }:
+        raise CookieConsentError(
+            "container must contain role, name, text, and visible"
+        )
+    if not isinstance(container["visible"], bool):
+        raise CookieConsentError("container.visible must be boolean")
     role = _bounded_text(container["role"], "container.role", 40).casefold()
     name = _bounded_text(container["name"], "container.name", 160)
     text = _bounded_text(container["text"], "container.text", 500)
@@ -115,6 +124,16 @@ def classify_cookie_consent(payload: Any) -> dict[str, Any]:
         return {
             "decision": "pause",
             "reason": "policy_requires_user",
+            "target_ref": None,
+        }
+    # A consent dialog that is not showing blocks nothing. Sites commonly leave
+    # an empty dialog shell in the DOM after consent was already given, and
+    # classifying that shell as ambiguous paused runs over a banner no human
+    # could see. This never selects a control; it only declines to stop.
+    if not container["visible"]:
+        return {
+            "decision": "proceed",
+            "reason": "consent_dialog_not_displayed",
             "target_ref": None,
         }
     context = _normalize(f"{name} {text}")

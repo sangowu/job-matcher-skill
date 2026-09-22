@@ -124,6 +124,40 @@ _PLATFORM_PATTERNS: list[tuple[str, re.Pattern]] = [
 ]
 _STRONG_ID_PREFIXES = frozenset(platform for platform, _ in _PLATFORM_PATTERNS) | {"indeed"}
 
+# 同一条职位 URL 里除了 job-id，还带着**公司 board 的标识**。
+# 这里单独定义一组正则（不复用 _PLATFORM_PATTERNS，避免动到强身份的 group(1)），
+# 让任意来源发现的一个职位都能反推出整家公司的 board，供来源注册表按公开 API 复验。
+_BOARD_PATTERNS: list[tuple[str, re.Pattern]] = [
+    ("greenhouse", re.compile(r"greenhouse\.io/([A-Za-z0-9_-]{1,100})/jobs/\d+", re.I)),
+    (
+        "lever",
+        re.compile(
+            r"lever\.co/([A-Za-z0-9_-]{1,100})/[0-9a-f]{8}-[0-9a-f-]{20,}", re.I
+        ),
+    ),
+    (
+        "ashby",
+        re.compile(
+            r"ashbyhq\.com/([A-Za-z0-9_-]{1,100})/[0-9a-f]{8}-[0-9a-f-]{20,}", re.I
+        ),
+    ),
+]
+
+
+def extract_board(url: str) -> tuple[str, str] | None:
+    """从职位 URL 反推 `(provider, board_token)`；无法确定时返回 None。
+
+    只认公开 ATS 的职位详情 URL 形态。返回的 token 统一小写，便于去重。
+    """
+    text = (url or "").strip()
+    if not text:
+        return None
+    for provider, pattern in _BOARD_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            return provider, match.group(1).lower()
+    return None
+
 # job-id 类参数：规范化时保留（小写比较）
 _KEEP_PARAMS = {"jk", "jobid", "gh_jid", "currentjobid", "vjk"}
 # 追踪类参数：丢弃（凡 utm_* 也丢）

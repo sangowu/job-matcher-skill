@@ -197,9 +197,10 @@ agent 会自动识别。然后在对话里：
 | `discovery_mode` | coverage | `coverage` 默认并行浏览器+模型搜索；`auto` 保留单 route 兼容；也支持 `model_only`、`browser_only`、`combined` |
 | `cookie_consent_policy` | necessary_only | 只在唯一明确语义按钮上自动拒绝可选 Cookie；也可设 `ask_every_time` |
 | `discovery_max_waves` | 3 | 单次计划最多生成的确定性发现波次数 |
-| `browser_sources_per_market` | 3 | 每个市场、每个波次的浏览器来源上限；首波先保证来源类型多样性 |
+| `browser_sources_per_market` | 2 | 每个市场、每个波次的浏览器来源上限；浏览器首个波次内先保证来源类型多样性 |
+| `browser_first_wave` | 2 | 浏览器从第几个波次开始；默认让结构化/Web Search 先跑一波，浏览器退为兜底 |
 | `browser_queries_per_source` | 2 | 单个浏览器来源本轮执行的地区化查询上限 |
-| `web_queries_per_market_per_wave` | 1 | 每市场、每波次执行的 Web Search 查询上限 |
+| `web_queries_per_market_per_wave` | 2 | 每市场、每波次执行的 Web Search 查询上限 |
 | `web_source_hints_per_task` | 6 | 每条 Web Search 任务携带的公开来源提示上限 |
 | `multi_region_enabled` | false | 多地区来源总开关；关闭时所有市场有效模式均为 off |
 | `multi_region_rollout` | 四市场均 off | 每市场独立设置 off / shadow / opt_in / default；default 必须通过 Phase E 门禁 |
@@ -207,8 +208,8 @@ agent 会自动识别。然后在对话里：
 | `consecutive_empty_stop` | 2 | 连续 N 批 0 结果则停止 |
 | `ats_enabled` | false | 是否启用公开 ATS 增强管道；默认显式关闭 |
 | `ats_max_concurrency` | 3 | 跨 ATS board 并发硬上限 |
-| `ats_boards_per_round` | 10 | 单轮同步 board 数硬上限 |
-| `ats_requests_per_round` | 30 | 单轮 ATS HTTP 请求硬上限 |
+| `ats_boards_per_round` | 30 | 单轮同步 board 数硬上限 |
+| `ats_requests_per_round` | 100 | 单轮 ATS HTTP 请求硬上限 |
 | `ats_page_size` | 50 | Lever 每页请求数量 |
 | `ats_max_pages` | 10 | 单个 Lever board 顺序翻页硬上限 |
 | `ats_timeout_seconds` | 30 | 单次公开 ATS GET 超时秒数 |

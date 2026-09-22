@@ -284,6 +284,11 @@ def build_discovery_plan(
     web_hint_limit = config.get("web_source_hints_per_task", 6)
     max_waves = config.get("discovery_max_waves", 3)
     web_tasks_per_market = config.get("web_queries_per_market_per_wave", 1)
+    # The browser costs minutes per task and fails on login, consent and custom
+    # controls, so it opens only after the cheap channels have had a wave. The
+    # existing wave gate then withholds it entirely when they already produced
+    # enough, which is what makes it a fallback rather than the default.
+    browser_first_wave = config.get("browser_first_wave", 2)
     for label, value, maximum in (
         ("browser_sources_per_market", browser_limit, 10),
         ("browser_queries_per_source", browser_query_limit, 10),
@@ -291,6 +296,7 @@ def build_discovery_plan(
         ("web_source_hints_per_task", web_hint_limit, 20),
         ("discovery_max_waves", max_waves, 10),
         ("web_queries_per_market_per_wave", web_tasks_per_market, 10),
+        ("browser_first_wave", browser_first_wave, 10),
     ):
         if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= maximum:
             raise DiscoveryPlanError(f"config.{label} must be an integer from 1 to {maximum}")
@@ -370,11 +376,12 @@ def build_discovery_plan(
                     }
                 )
             ordered_sources = _order_diverse_sources(candidates)
-            selected_sources = ordered_sources[: browser_limit * max_waves]
+            browser_waves = max(0, max_waves - browser_first_wave + 1)
+            selected_sources = ordered_sources[: browser_limit * browser_waves]
             omitted["browser"] += len(ordered_sources) - len(selected_sources)
             for position, item in enumerate(selected_sources):
                 source = item["source"]
-                wave_index = position // browser_limit + 1
+                wave_index = position // browser_limit + browser_first_wave
                 entry_host = _host(source["entry_url"], source["source_id"])
                 task_queries = [
                     {

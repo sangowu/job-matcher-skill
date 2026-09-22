@@ -224,9 +224,10 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `discovery_mode` | coverage | `coverage` runs browser + model search; legacy `auto` keeps one route; `model_only`, `browser_only`, and `combined` remain available |
 | `cookie_consent_policy` | necessary_only | automatically reject optional cookies only through one unambiguous semantic button; `ask_every_time` is also available |
 | `discovery_max_waves` | 3 | deterministic discovery-wave cap per plan |
-| `browser_sources_per_market` | 3 | per-market, per-wave browser-source cap with first-wave source-type diversity |
+| `browser_sources_per_market` | 2 | per-market, per-wave browser-source cap, with source-type diversity in the browser's own first wave |
+| `browser_first_wave` | 2 | wave the browser starts in; structured/Web Search run first so the browser stays a fallback |
 | `browser_queries_per_source` | 2 | localized query cap per browser source and run |
-| `web_queries_per_market_per_wave` | 1 | per-market Web Search query cap in each wave |
+| `web_queries_per_market_per_wave` | 2 | per-market Web Search query cap in each wave |
 | `web_source_hints_per_task` | 6 | public source-hint cap per Web Search task |
 | `multi_region_enabled` | false | master multi-region source flag; all effective market modes are off while false |
 | `multi_region_rollout` | all four off | independent off / shadow / opt_in / default mode per market; default requires the Phase E gate |
@@ -234,8 +235,8 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `consecutive_empty_stop` | 2 | stop after N consecutive empty batches |
 | `ats_enabled` | false | enable the public ATS enhancement pipeline; explicitly off by default |
 | `ats_max_concurrency` | 3 | hard cap for concurrent ATS boards |
-| `ats_boards_per_round` | 10 | hard cap for boards synced per round |
-| `ats_requests_per_round` | 30 | hard cap for ATS HTTP requests per round |
+| `ats_boards_per_round` | 30 | hard cap for boards synced per round |
+| `ats_requests_per_round` | 100 | hard cap for ATS HTTP requests per round |
 | `ats_page_size` | 50 | Lever page size |
 | `ats_max_pages` | 10 | hard cap for sequential pages per Lever board |
 | `ats_timeout_seconds` | 30 | timeout in seconds for one public ATS GET |

@@ -916,19 +916,19 @@ def test_two_jobs_on_one_careers_page_are_not_collapsed_into_one(
     isolated_store, monkeypatch, capsys
 ):
     """A company careers page that keeps its job id in a query parameter
-    canonicalize_url() does not preserve gives every job on that page the same
+    canonicalize_url() does not name gives every job on that page the same
     host+path url_key. That key used to authorize a merge by itself, which did
     not produce a duplicate -- it absorbed the second job into the first and
     dropped its title and URL entirely."""
     engineer = candidate(
         title="Senior Data Engineer",
         company="Acme",
-        url="https://acme.com/careers?ashby_jid=1a2b3c4d-1111-2222-3333-444455556666",
+        url="https://acme.com/careers?opening=1a2b3c4d",
     )
     designer = candidate(
         title="Product Designer",
         company="Acme",
-        url="https://acme.com/careers?ashby_jid=9f8e7d6c-9999-8888-7777-666655554444",
+        url="https://acme.com/careers?opening=9f8e7d6c",
     )
 
     output = invoke(
@@ -949,14 +949,14 @@ def test_a_second_careers_page_job_does_not_overwrite_a_stored_one(
     invoke(
         monkeypatch, capsys, merge_jobs.cmd_merge,
         [candidate(title="Senior Data Engineer", company="Acme",
-                   url="https://acme.com/careers?ashby_jid=aaaaaaaa-1111-2222-3333-444455556666")],
+                   url="https://acme.com/careers?opening=aaaaaaaa")],
         "cv", "cp",
     )
 
     output = invoke(
         monkeypatch, capsys, merge_jobs.cmd_merge,
         [candidate(title="Product Designer", company="Acme",
-                   url="https://acme.com/careers?ashby_jid=bbbbbbbb-9999-8888-7777-666655554444")],
+                   url="https://acme.com/careers?opening=bbbbbbbb")],
         "cv", "cp",
     )
 
@@ -971,7 +971,7 @@ def test_one_job_seen_twice_on_a_careers_page_still_merges(
 ):
     """The guard must not turn the ordinary two-source sighting of one job into
     two records: same company and title is still a match."""
-    url = "https://acme.com/careers?ashby_jid=1a2b3c4d-1111-2222-3333-444455556666"
+    url = "https://acme.com/careers?opening=1a2b3c4d"
     web = candidate(title="Senior Data Engineer", company="Acme", url=url, source="web_search")
     browsed = candidate(title="Senior Data Engineer", company="Acme", url=url, source="browser")
 
@@ -999,3 +999,68 @@ def test_a_strong_provider_key_still_merges_across_differing_titles(
 
     assert output["stats"]["deduped"] == 1
     assert output["stats"]["weak_url_key_collisions_prevented"] == 0
+
+
+def test_an_embedded_board_job_merges_with_its_vendor_hosted_twin(
+    isolated_store, monkeypatch, capsys
+):
+    """Web Search finds the company's own careers URL, the ATS channel fetches
+    the same job from the board. One job, two URLs, and until now two records
+    and two evaluations."""
+    # Differing titles are the point: they give the two sightings different
+    # dedup_keys, so the weak-match path cannot join them and only the shared
+    # provider job id can.
+    embedded = candidate(
+        title="Senior Data Scientist - Payments", company="Stripe",
+        url="https://stripe.com/jobs/listing/data-scientist-payments/6543210?gh_jid=6543210",
+        source="web_search",
+    )
+    vendor = candidate(
+        title="Data Scientist, Payments", company="Stripe",
+        url="https://boards.greenhouse.io/stripe/jobs/6543210", source="ats",
+    )
+
+    output = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [embedded, vendor], "cv", "cp")
+
+    assert output["stats"]["deduped"] == 1
+    assert len(output["to_analyze"]) == 1
+    job = load_table(isolated_store)["jobs"][0]
+    assert "greenhouse:6543210" in job["identity_keys"]
+
+
+def test_a_stored_embedded_job_gains_its_identity_without_changing_record_id(
+    isolated_store, monkeypatch, capsys
+):
+    """Records written before this identity existed carry only a weak host+path
+    key. The next merge has to adopt the strong key in place, keeping the
+    record_id, or every cached evaluation is orphaned."""
+    first = invoke(
+        monkeypatch, capsys, merge_jobs.cmd_merge,
+        [candidate(title="Data Scientist, Payments", company="Stripe",
+                   url="https://stripe.com/jobs/listing/x/6543210?gh_jid=6543210")],
+        "cv", "cp",
+    )
+    stored = load_table(isolated_store)["jobs"][0]
+    original_record_id = stored["record_id"]
+    # Simulate a record persisted before the identity existed.
+    stored["identity_keys"] = []
+    stored["url_keys"] = ["stripe.com/jobs/listing/x/6543210?gh_jid=6543210"]
+    table = load_table(isolated_store)
+    table["jobs"] = [stored]
+    (isolated_store / "jobs_table.json").write_text(
+        json.dumps(table, ensure_ascii=False), encoding="utf-8"
+    )
+
+    output = invoke(
+        monkeypatch, capsys, merge_jobs.cmd_merge,
+        [candidate(title="Data Scientist II, Payments Platform", company="Stripe",
+                   url="https://boards.greenhouse.io/stripe/jobs/6543210", source="ats")],
+        "cv", "cp",
+    )
+
+    assert first["stats"]["new"] == 1
+    assert output["stats"]["new"] == 0
+    jobs = load_table(isolated_store)["jobs"]
+    assert len(jobs) == 1
+    assert jobs[0]["record_id"] == original_record_id
+    assert "greenhouse:6543210" in jobs[0]["identity_keys"]

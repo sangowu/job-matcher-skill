@@ -124,6 +124,22 @@ _PLATFORM_PATTERNS: list[tuple[str, re.Pattern]] = [
 ]
 _STRONG_ID_PREFIXES = frozenset(platform for platform, _ in _PLATFORM_PATTERNS) | {"indeed"}
 
+# 公司把 ATS board 嵌进自家招聘页时，URL 里没有厂商域名，job id 落在查询参数里：
+#   boards.greenhouse.io/acme/jobs/123   →  greenhouse:123   （_PLATFORM_PATTERNS）
+#   acme.com/careers?gh_jid=123          →  greenhouse:123   （这里）
+# 同一条职位的两种落地 URL 因此能强命中同一个 url_key。
+# 参数名是厂商专有的、取值格式也与该厂商 job id 一致，所以不像 indeed 的 jk
+# 那样还要再看 host（jk 这个参数名太通用）。
+# 只收真实存在的约定——GitHub 代码检索：gh_jid 51712 处、ashby_jid 948 处，
+# 而 lever_jid / smartrecruiters_jid 只有 6 / 1 处，属噪声，不收。
+_EMBED_ID_PATTERNS: list[tuple[str, re.Pattern]] = [
+    ("greenhouse", re.compile(r"[?&]gh_jid=(\d{2,20})(?:[&#]|$)", re.I)),
+    (
+        "ashby",
+        re.compile(r"[?&]ashby_jid=([0-9a-f]{8}-[0-9a-f-]{20,36})(?:[&#]|$)", re.I),
+    ),
+]
+
 # 同一条职位 URL 里除了 job-id，还带着**公司 board 的标识**。
 # 这里单独定义一组正则（不复用 _PLATFORM_PATTERNS，避免动到强身份的 group(1)），
 # 让任意来源发现的一个职位都能反推出整家公司的 board，供来源注册表按公开 API 复验。
@@ -192,7 +208,9 @@ def extract_board(url: str) -> tuple[str, str] | None:
     return None
 
 # job-id 类参数：规范化时保留（小写比较）
-_KEEP_PARAMS = {"jk", "jobid", "gh_jid", "currentjobid", "vjk"}
+# 兜底：取值格式不合上面的强身份模式时（截断、改写），至少别把这个参数丢掉，
+# 否则同一招聘页上的每条职位都会塌成同一个 host+path key。
+_KEEP_PARAMS = {"jk", "jobid", "gh_jid", "ashby_jid", "currentjobid", "vjk"}
 # 追踪类参数：丢弃（凡 utm_* 也丢）
 _DROP_PARAMS = {"ref", "src", "gh_src", "fbclid", "gclid", "referrer", "trk", "trackingid"}
 
@@ -210,6 +228,12 @@ def canonicalize_url(url: str) -> str:
         m = pat.search(url)
         if m:
             return f"{platform}:{m.group(1)}"
+
+    # 厂商域名认不出来时，再看自有域名上的嵌入式 board 参数。
+    for platform, pat in _EMBED_ID_PATTERNS:
+        m = pat.search(url)
+        if m:
+            return f"{platform}:{m.group(1).lower()}"
 
     # indeed 的 jk 参数单独处理（兼容多种域名）
     m = re.search(r"[?&]jk=([0-9a-f]+)", url, re.I)

@@ -11,6 +11,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 from _jobutil import (  # noqa: E402
     all_identity_keys,
+    is_strong_identity_key,
     all_url_keys,
     canonicalize_url,
     locations_compatible,
@@ -88,3 +89,63 @@ def test_location_compatibility_allows_enrichment_but_not_conflicts():
     assert locations_compatible("", "Dublin") is True
     assert locations_compatible(" Dublin ", "dublin") is True
     assert locations_compatible("Dublin", "London") is False
+
+
+# A company that embeds its ATS board serves the job from its own domain, with
+# the provider's job id in a query parameter and no vendor hostname anywhere in
+# the URL. Values confirmed against real usage: gh_jid is numeric, ashby_jid is
+# a UUID, matching each provider's own job ids.
+@pytest.mark.parametrize(
+    ("embedded", "vendor_hosted"),
+    [
+        (
+            "https://stripe.com/jobs/listing/data-scientist/6543210?gh_jid=6543210",
+            "https://boards.greenhouse.io/stripe/jobs/6543210",
+        ),
+        (
+            "https://acme.com/careers?ashby_jid=00dbfa4a-986c-4c98-a966-47874d1ff0f8",
+            "https://jobs.ashbyhq.com/acme/00dbfa4a-986c-4c98-a966-47874d1ff0f8",
+        ),
+    ],
+)
+def test_an_embedded_board_shares_the_vendor_hosted_identity(embedded, vendor_hosted):
+    """The same job reached two ways has to be one job. Before this, the
+    embedded URL fell through to a host+path key and never met its twin."""
+    key = canonicalize_url(embedded)
+
+    assert key == canonicalize_url(vendor_hosted)
+    assert is_strong_identity_key(key)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        # Truncated or rewritten values must not be promoted to an identity.
+        "https://acme.com/careers?ashby_jid=truncated",
+        "https://acme.com/careers?gh_jid=notanumber",
+    ],
+)
+def test_a_malformed_embed_id_is_not_promoted_to_an_identity(url):
+    key = canonicalize_url(url)
+
+    assert not is_strong_identity_key(key)
+    # It still has to stay distinguishable, or every job on the page collapses.
+    assert key != canonicalize_url("https://acme.com/careers")
+
+
+def test_a_vendor_hosted_url_carrying_the_embed_parameter_is_unchanged():
+    """Order matters: the vendor pattern owns the URL when both could match."""
+    assert (
+        canonicalize_url("https://boards.greenhouse.io/acme/jobs/777?gh_jid=777")
+        == "greenhouse:777"
+    )
+
+
+def test_an_unlisted_job_parameter_is_still_dropped():
+    """This is the residual gap the merge-side guard exists for: the allowlist
+    cannot name every vendor's parameter, so two jobs can still share a key."""
+    first = canonicalize_url("https://acme.com/careers?opening=111")
+    second = canonicalize_url("https://acme.com/careers?opening=222")
+
+    assert first == second
+    assert not is_strong_identity_key(first)

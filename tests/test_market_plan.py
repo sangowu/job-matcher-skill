@@ -41,10 +41,10 @@ def test_versioned_market_and_role_resources_validate(resources):
     ]
     assert all(market["query_templates"] for market in markets["markets"])
     assert {market["market_id"]: len(market["source_ids"]) for market in markets["markets"]} == {
-        "ie": 13,
-        "uk": 13,
+        "ie": 24,
+        "uk": 29,
         "cn": 14,
-        "de": 13,
+        "de": 24,
     }
     assert all(
         len(set(market["source_ids"])) == len(market["source_ids"])

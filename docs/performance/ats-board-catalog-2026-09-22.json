@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "run_kind": "ats_board_catalog_verification",
+  "observed_at": "2026-09-22T00:00:00Z",
+  "method": "public_read_only_board_fetch",
+  "environment": {
+    "os": "Windows",
+    "python": "3.13.5"
+  },
+  "existing_boards_revalidated": {
+    "attempted": 6,
+    "reachable": 6,
+    "with_target_market_jobs": 3,
+    "empty_board": 1,
+    "no_target_market_coverage": 2
+  },
+  "candidate_tokens_probed": {
+    "attempted": 25,
+    "resolved_to_a_reachable_board": 19,
+    "kept_with_target_market_jobs": 17,
+    "rejected_no_target_market_jobs": 2,
+    "unresolved_no_adapter_answered": 6
+  },
+  "seeded": {
+    "boards": 18,
+    "providers": {
+      "greenhouse": 14,
+      "ashby": 4,
+      "lever": 0
+    },
+    "market_coverage": {
+      "ie": 11,
+      "uk": 16,
+      "cn": 0,
+      "de": 11
+    }
+  },
+  "rejection_reasons": {
+    "location_field_carries_work_model_not_geography": 1,
+    "token_resolved_to_a_different_company": 1,
+    "board_returned_zero_jobs": 1,
+    "single_job_board": 1,
+    "target_market_jobs_below_threshold": 1
+  },
+  "plan_effect": {
+    "structured_tasks_before": 0,
+    "structured_tasks_after_single_market_ie": 11
+  },
+  "verification": {
+    "full_suite_tests_passed": 393,
+    "new_tests_added": 8
+  },
+  "limitations": {
+    "market_coverage_is_a_point_in_time_observation": true,
+    "no_market_recall_claimed": true,
+    "cn_has_no_public_ats_board_coverage": true,
+    "public_network_variance": true
+  },
+  "privacy": {
+    "contains_api_keys": false,
+    "contains_cv_or_jd_text": false,
+    "contains_job_titles": false,
+    "contains_job_urls": false,
+    "contains_profile_fields": false,
+    "contains_queries": false
+  }
+}

@@ -432,18 +432,24 @@ def build_discovery_plan(
             selected_structured
         ):
             wave_index = position // structured_limit + 1
-            tasks["structured"].append(
-                {
-                    "task_id": f"structured:{source_id}",
-                    "wave_id": f"wave:{wave_index}",
-                    "kind": "structured_source",
-                    "source_id": source_id,
-                    "source_type": source["source_type"],
-                    "markets": [market for market in markets if market in health["markets"]],
-                    "entry_url": source["entry_url"],
-                    "access_method": access_method,
-                }
-            )
+            task = {
+                "task_id": f"structured:{source_id}",
+                "wave_id": f"wave:{wave_index}",
+                "kind": "structured_source",
+                "source_id": source_id,
+                "source_type": source["source_type"],
+                "provider": source["provider"],
+                "markets": [market for market in markets if market in health["markets"]],
+                "entry_url": source["entry_url"],
+                "access_method": access_method,
+            }
+            # The executor fetches a board by provider identity, not by URL, so
+            # a task without these fields cannot be acted on.
+            if "board_token" in source:
+                task["board_token"] = source["board_token"]
+            if "instance" in source:
+                task["instance"] = source["instance"]
+            tasks["structured"].append(task)
 
     for values in exclusions.values():
         values[:] = sorted(set(values))

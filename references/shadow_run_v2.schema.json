@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sangowu/job-matcher-skill/references/shadow_run_v2.schema.json",
+  "title": "Count-only multi-region shadow run with baseline status",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "run_id", "observed_at", "mode", "ranking_unchanged", "markets"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "run_id": {"type": "string", "pattern": "^shadow-[0-9]{8}-[0-9]{6}-[a-f0-9]{6}$"},
+    "observed_at": {"type": "string", "format": "date-time"},
+    "mode": {"const": "shadow"},
+    "ranking_unchanged": {"const": true},
+    "markets": {"type": "array", "minItems": 1, "maxItems": 4, "items": {"$ref": "#/$defs/marketResult"}}
+  },
+  "$defs": {
+    "count": {"type": "integer", "minimum": 0},
+    "routeResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["discovery_route", "status", "candidates_incremental", "jd_handoff_count", "live_verified_count", "jd_checked", "jd_available", "potential_top_n_contribution", "qualifying_candidates"],
+      "properties": {
+        "discovery_route": {"enum": ["regional_registry", "agent_web_search"]},
+        "status": {"enum": ["succeeded", "failed", "skipped"]},
+        "candidates_incremental": {"$ref": "#/$defs/count"},
+        "jd_handoff_count": {"$ref": "#/$defs/count"},
+        "live_verified_count": {"$ref": "#/$defs/count"},
+        "jd_checked": {"$ref": "#/$defs/count"},
+        "jd_available": {"$ref": "#/$defs/count"},
+        "potential_top_n_contribution": {"$ref": "#/$defs/count"},
+        "qualifying_candidates": {"$ref": "#/$defs/count"}
+      }
+    },
+    "marketResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["market_id", "status", "deterministic_acceptance", "failure_kind", "duplicate_intersection", "baseline_status", "baseline_top_n_count", "routes"],
+      "properties": {
+        "market_id": {"enum": ["ie", "uk", "cn", "de"]},
+        "status": {"enum": ["succeeded", "failed", "skipped"]},
+        "deterministic_acceptance": {"enum": ["passed", "failed"]},
+        "failure_kind": {"type": ["string", "null"], "enum": [null, "network_error", "http_error", "timeout", "access_blocked", "source_unavailable", "invalid_response", "policy_skip", "unknown"]},
+        "duplicate_intersection": {"$ref": "#/$defs/count"},
+        "baseline_status": {"enum": ["complete", "unavailable"]},
+        "baseline_top_n_count": {"type": "integer", "minimum": 0, "maximum": 100},
+        "routes": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/routeResult"}}
+      }
+    }
+  }
+}

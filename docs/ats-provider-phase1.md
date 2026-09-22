@@ -30,9 +30,10 @@ ATS 仍然是 Web Search 发现后的增强来源，但已有已验证公司标�
 
 继续保留一个下游职位主表 `data/jobs_table.json`，避免 Web、ATS 和浏览器结果被重复评估；但 ATS 公司标识属于控制面，不写进职位表。
 
-Phase 2 已增加两个本地运行时文件：
+Phase 2 最初增加两个本地运行时文件；Phase B 初始化通用来源注册表后，ATS 控制状态迁入通用文件：
 
-- `data/ats_companies.json`：`company_key`、显示名、provider、board token、global/EU instance、状态、首次/最近验证时间、发现来源类别。
+- `data/source_registry.json`：通用来源与 ATS board 的标识、状态和健康时间；存在时是唯一 ATS 控制写入目标。
+- `data/ats_companies.json`：兼容回退；迁移后只读保留，不覆盖或删除。
 - `data/ats_sync_state.json`：每个 board 的最近成功时间、失败类别、页数、请求数和是否截断；不保存 JD、Cookie 或任意异常全文。
 
 标识状态使用 `candidate -> verified -> unavailable`：

@@ -28,6 +28,20 @@
     }
   },
   "max_websearch_calls": 6,
+  "discovery_mode": "coverage",
+  "cookie_consent_policy": "necessary_only",
+  "discovery_max_waves": 3,
+  "browser_sources_per_market": 3,
+  "browser_queries_per_source": 2,
+  "web_queries_per_market_per_wave": 1,
+  "web_source_hints_per_task": 6,
+  "multi_region_enabled": false,
+  "multi_region_rollout": {
+    "ie": "off",
+    "uk": "off",
+    "cn": "off",
+    "de": "off"
+  },
   "stop_threshold": 12,
   "consecutive_empty_stop": 2,
   "ats_enabled": false,

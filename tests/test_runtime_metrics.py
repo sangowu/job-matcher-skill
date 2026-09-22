@@ -68,6 +68,40 @@ def test_record_metric_drops_high_cardinality_and_sensitive_fields(tmp_path):
     assert "secret" not in text and "example.com" not in text
 
 
+def test_discovery_metric_keeps_only_low_cardinality_dimensions_and_counts(tmp_path):
+    path = tmp_path / "metrics.jsonl"
+
+    recorded = record_metric(
+        path,
+        "discovery",
+        True,
+        run_id=RUN_ID,
+        market_id="de",
+        source_type="local_job_board",
+        discovery_route="regional_registry",
+        search_language="de",
+        sources_planned=2,
+        sources_succeeded=1,
+        candidates_raw=8,
+        candidates_unique=3,
+        duplicate_intersection=1,
+        source_id="private-source-id",
+        query="private query",
+        title="private title",
+        company="private company",
+        url="https://example.com/private",
+    )
+
+    assert recorded is True
+    text = path.read_text(encoding="utf-8")
+    event = json.loads(text)
+    assert event["schema_version"] == 6
+    assert event["market_id"] == "de"
+    assert event["discovery_route"] == "regional_registry"
+    assert event["candidates_unique"] == 3
+    assert "private" not in text and "example.com" not in text
+
+
 def test_run_completeness_is_linked_without_business_identifiers(tmp_path):
     path = tmp_path / "metrics.jsonl"
     record_metric(path, "run_start", True, run_id=RUN_ID, skill_version="2.3.0")

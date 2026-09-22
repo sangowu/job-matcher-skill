@@ -17,7 +17,7 @@ from pathlib import Path
 from _jobutil import skill_version
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 DEFAULT_THRESHOLDS = {
     "conflict_rate_max": 0.02,
     "rejected_rate_max": 0.01,
@@ -51,11 +51,13 @@ _MERGE_FIELDS = {
     "eval_tasks_created",
     "abandoned_runs",
     "identity_records_migrated",
+    "provenance_records_migrated",
     "strong_identity_records",
     "strong_identity_conflicts_prevented",
     "ambiguous_weak_matches_prevented",
     "jd_handoffs",
     "jd_handoff_chars",
+    "idempotent",
 }
 _UPDATE_FIELDS = {
     "results_in",
@@ -111,6 +113,24 @@ _SEARCH_FIELDS = {
     "duration_ms",
     "first_result_ms",
 }
+_DISCOVERY_FIELDS = {
+    "market_id",
+    "source_type",
+    "discovery_route",
+    "search_language",
+    "sources_planned",
+    "sources_succeeded",
+    "sources_failed",
+    "candidates_raw",
+    "candidates_prefiltered",
+    "candidates_unique",
+    "candidates_incremental",
+    "duplicate_intersection",
+    "jd_handoff_count",
+    "live_verified_count",
+    "top_n_contribution",
+    "duration_ms",
+}
 _BROWSER_FIELDS = {
     "provider",
     "action",
@@ -165,6 +185,7 @@ OPERATIONS = (
     *_SCRIPT_OPERATIONS,
     "round",
     "search",
+    "discovery",
     "subagent",
     "browser",
     "ats",
@@ -179,6 +200,10 @@ _CATEGORY_FIELDS = {
     "role",
     "model_requested",
     "model_effective",
+    "market_id",
+    "source_type",
+    "discovery_route",
+    "search_language",
     "reasoning_effort_requested",
     "reasoning_effort_effective",
     "provider",
@@ -352,6 +377,8 @@ def record_metric(
         allowed = set(_ROUND_FIELDS)
     elif operation == "search":
         allowed = set(_SEARCH_FIELDS)
+    elif operation == "discovery":
+        allowed = set(_DISCOVERY_FIELDS)
     elif operation == "subagent":
         allowed = set(_SUBAGENT_FIELDS)
     elif operation == "browser":

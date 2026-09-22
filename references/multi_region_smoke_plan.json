@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "evidence_boundary": "This bounded smoke run observes only the selected source entry pages and at most one matching detail page per market. It does not estimate market recall or justify enabling a source by default.",
+  "limits": {
+    "max_sources": 4,
+    "max_requests_per_source": 2,
+    "max_response_bytes": 524288,
+    "timeout_seconds": 8,
+    "max_redirects": 2
+  },
+  "markets": [
+    {
+      "market_id": "ie",
+      "source_slot": "ie-local-1",
+      "source_id": "publicjobs-ie",
+      "mode": "public_get",
+      "role_terms": ["ai engineer", "machine learning engineer"],
+      "location_terms": ["dublin", "ireland"]
+    },
+    {
+      "market_id": "uk",
+      "source_slot": "uk-local-1",
+      "source_id": "reed-uk",
+      "mode": "public_get",
+      "request_path": "/jobs/ai-engineer-jobs-in-london",
+      "role_terms": ["ai engineer", "machine learning engineer"],
+      "location_terms": ["london", "united kingdom", "uk"]
+    },
+    {
+      "market_id": "cn",
+      "source_slot": "cn-local-1",
+      "source_id": "nankai-careers-cn",
+      "mode": "public_get",
+      "request_path": "/correcruit/index/keywords/AI/sel_area/4.html",
+      "role_terms": ["AI infra工程师"],
+      "location_terms": ["上海", "上海市"]
+    },
+    {
+      "market_id": "de",
+      "source_slot": "de-local-1",
+      "source_id": "arbeitsagentur-de",
+      "mode": "public_get",
+      "request_path": "/jobsuche/suche?suchbereich=jobs&was=AI&wo=Berlin+(Bundesland)",
+      "role_terms": ["ai engineer", "ki data engineer", "ki-ingenieur", "machine learning engineer"],
+      "location_terms": ["berlin", "deutschland", "germany"]
+    }
+  ]
+}

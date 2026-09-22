@@ -27,14 +27,17 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 import uuid
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 from analysis_contract import AnalysisContractError, validate_evaluation_result
+from candidate_contract import CandidateContractError, validate_candidate_envelope
 from _jobutil import (
     all_identity_keys,
     all_url_keys,
@@ -48,6 +51,15 @@ from runtime_metrics import record_metric, validate_run_id
 
 
 MAX_JD_HANDOFF_CHARS = 50_000
+_BATCH_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
+_DISCOVERY_FORBIDDEN_FIELDS = {
+    "match_score",
+    "match_scores",
+    "jd_profile",
+    "scored_from",
+    "verified",
+    "cv_text",
+}
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = SKILL_ROOT / "data"
@@ -175,6 +187,137 @@ def _is_expired(fetched_at: str | None, ttl_days: int) -> bool:
     return (_now() - ts) > timedelta(days=ttl_days)
 
 
+def _prepare_candidate(candidate: Any) -> Any:
+    if not isinstance(candidate, dict):
+        return candidate
+    is_envelope = "discovery_route" in candidate
+    if not is_envelope:
+        return candidate
+    forbidden = sorted(set(candidate) & _DISCOVERY_FORBIDDEN_FIELDS)
+    if forbidden:
+        raise InputDataError(
+            f"discovery candidate contains evaluation fields: {', '.join(forbidden)}"
+        )
+    try:
+        return validate_candidate_envelope(candidate)
+    except CandidateContractError as error:
+        raise InputDataError(f"invalid CandidateEnvelope: {error}") from error
+
+
+def _legacy_source_id(value: Any) -> str:
+    normalized = re.sub(r"[^a-z0-9_-]+", "-", str(value or "web").casefold()).strip("-")
+    return f"legacy-{normalized or 'web'}"[:100]
+
+
+def _provenance_from_candidate(candidate: dict) -> dict:
+    location_normalized = candidate.get("location_normalized")
+    if not isinstance(location_normalized, dict):
+        location_normalized = {
+            "market_id": None,
+            "city_id": None,
+            "remote_scope": None,
+            "confidence": "unknown",
+        }
+    source = str(candidate.get("source") or candidate.get("source_id") or "web")
+    return {
+        "source": source,
+        "source_id": str(candidate.get("source_id") or _legacy_source_id(source)),
+        "source_type": str(candidate.get("source_type") or "unknown"),
+        "discovery_route": str(candidate.get("discovery_route") or "unknown"),
+        "search_language": str(candidate.get("search_language") or "unknown"),
+        "observed_at": candidate.get("observed_at"),
+        "link_verification_status": str(
+            candidate.get("link_verification_status") or "unknown"
+        ),
+        "location_normalized": location_normalized,
+        "url": candidate.get("url", ""),
+        "date_posted": candidate.get("date_posted", ""),
+    }
+
+
+def _provenance_key(source: dict) -> tuple[str, str, str, str]:
+    return (
+        str(source.get("source_id") or ""),
+        str(source.get("discovery_route") or ""),
+        str(source.get("url") or ""),
+        str(source.get("observed_at") or ""),
+    )
+
+
+def _market_ids_from_sources(sources: list[dict]) -> list[str]:
+    output: list[str] = []
+    for source in sources:
+        normalized = source.get("location_normalized")
+        market_id = normalized.get("market_id") if isinstance(normalized, dict) else None
+        if market_id in {"ie", "uk", "cn", "de"} and market_id not in output:
+            output.append(market_id)
+    return output
+
+
+def _ensure_job_provenance(job: dict) -> bool:
+    before = json.dumps(
+        {
+            "raw_sources": job.get("raw_sources"),
+            "market_ids": job.get("market_ids"),
+            "market_status": job.get("market_status"),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    existing = job.get("raw_sources")
+    if not isinstance(existing, list) or not existing:
+        existing = [
+            {
+                "source": job.get("source", "web"),
+                "url": job.get("url", ""),
+                "date_posted": job.get("date_posted", ""),
+            }
+        ]
+    normalized_sources: list[dict] = []
+    for source in existing:
+        if not isinstance(source, dict):
+            continue
+        source_name = str(source.get("source") or "web")
+        location_normalized = source.get("location_normalized")
+        if not isinstance(location_normalized, dict):
+            location_normalized = {
+                "market_id": None,
+                "city_id": None,
+                "remote_scope": None,
+                "confidence": "unknown",
+            }
+        normalized_sources.append(
+            {
+                **source,
+                "source": source_name,
+                "source_id": str(source.get("source_id") or _legacy_source_id(source_name)),
+                "source_type": str(source.get("source_type") or "unknown"),
+                "discovery_route": str(source.get("discovery_route") or "unknown"),
+                "search_language": str(source.get("search_language") or "unknown"),
+                "observed_at": source.get("observed_at"),
+                "link_verification_status": str(
+                    source.get("link_verification_status") or "unknown"
+                ),
+                "location_normalized": location_normalized,
+                "url": source.get("url", ""),
+                "date_posted": source.get("date_posted", ""),
+            }
+        )
+    job["raw_sources"] = normalized_sources
+    job["market_ids"] = _market_ids_from_sources(normalized_sources)
+    job["market_status"] = "known" if job["market_ids"] else "unknown"
+    after = json.dumps(
+        {
+            "raw_sources": job.get("raw_sources"),
+            "market_ids": job.get("market_ids"),
+            "market_status": job.get("market_status"),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return before != after
+
+
 def _brief(
     job: dict,
     *,
@@ -194,6 +337,8 @@ def _brief(
         "url": job.get("url", ""),
         "snippet": job.get("snippet", ""),
         "raw_sources": job.get("raw_sources", []),
+        "market_ids": job.get("market_ids", []),
+        "market_status": job.get("market_status", "unknown"),
         "possibly_closed": job.get("possibly_closed", False),
         "status": job.get("status", "existing"),
         "task_type": task_type,
@@ -413,8 +558,8 @@ def _weak_match(candidates: list[dict], incoming: dict) -> tuple[dict | None, st
 
 def _absorb(agg: dict, candidate: dict, src: dict) -> None:
     """把一条候选并入本批已有的聚合条目。"""
-    srcs = {rs["source"] for rs in agg["raw_sources"]}
-    if src["source"] not in srcs:
+    source_keys = {_provenance_key(rs) for rs in agg["raw_sources"]}
+    if _provenance_key(src) not in source_keys:
         agg["raw_sources"].append(src)
     elif src["url"]:
         # 同源不同 URL（如列表页+详情页）：URL 不能丢，
@@ -437,6 +582,8 @@ def _absorb(agg: dict, candidate: dict, src: dict) -> None:
         if key not in agg.setdefault("url_keys", []):
             agg["url_keys"].append(key)
     agg["identity_keys"] = all_identity_keys(agg)
+    agg["market_ids"] = _market_ids_from_sources(agg["raw_sources"])
+    agg["market_status"] = "known" if agg["market_ids"] else "unknown"
 
 
 def _aggregate_batch(candidates: list, identity_stats: dict | None = None) -> dict:
@@ -452,11 +599,7 @@ def _aggregate_batch(candidates: list, identity_stats: dict | None = None) -> di
         dk = make_dedup_key(c.get("company", ""), c.get("title", ""))
         if dk.strip("|") == "":  # 公司和 title 都空 → 无效
             continue
-        src = {
-            "source": c.get("source", "web"),
-            "url": c.get("url", ""),
-            "date_posted": c.get("date_posted", ""),
-        }
+        src = _provenance_from_candidate(c)
         candidate_keys = all_url_keys(c)
         candidate_view = {
             **c,
@@ -509,6 +652,10 @@ def _aggregate_batch(candidates: list, identity_stats: dict | None = None) -> di
                 "salary": c.get("salary", ""),
                 "date_posted": c.get("date_posted", ""),
                 "raw_sources": [src],
+                "market_ids": _market_ids_from_sources([src]),
+                "market_status": (
+                    "known" if _market_ids_from_sources([src]) else "unknown"
+                ),
                 "url_keys": candidate_keys,
                 "identity_keys": candidate_view["identity_keys"],
             }
@@ -541,11 +688,12 @@ def _merge_into(hit: dict, cand: dict) -> bool:
         ensure_ascii=False,
         sort_keys=True,
     )
-    srcs = {rs["source"] for rs in hit.get("raw_sources", [])}
+    source_keys = {_provenance_key(rs) for rs in hit.get("raw_sources", [])}
     for rs in cand.get("raw_sources", []):
-        if rs["source"] not in srcs:
+        key = _provenance_key(rs)
+        if key not in source_keys:
             hit.setdefault("raw_sources", []).append(rs)
-            srcs.add(rs["source"])
+            source_keys.add(key)
     # 合并 url_keys
     existing = set(hit.get("url_keys", []))
     for uk in all_url_keys(cand):
@@ -557,6 +705,8 @@ def _merge_into(hit: dict, cand: dict) -> bool:
     for f in ("location", "snippet", "salary"):
         if not hit.get(f) and cand.get(f):
             hit[f] = cand[f]
+    hit["market_ids"] = _market_ids_from_sources(hit.get("raw_sources", []))
+    hit["market_status"] = "known" if hit["market_ids"] else "unknown"
     after = json.dumps(
         {
             "raw_sources": hit.get("raw_sources", []),
@@ -607,7 +757,12 @@ def _archive_stale(table: dict, ttl_days: int) -> int:
     return len(stale)
 
 
-def cmd_merge(cv_hash: str, cp_hash: str, metrics_run_id: str | None = None) -> None:
+def cmd_merge(
+    cv_hash: str,
+    cp_hash: str,
+    metrics_run_id: str | None = None,
+    batch_id: str | None = None,
+) -> None:
     started = time.monotonic()
     cfg = load_config()
     ttl_days = int(cfg.get("jd_ttl_days", 30))
@@ -616,20 +771,76 @@ def cmd_merge(cv_hash: str, cp_hash: str, metrics_run_id: str | None = None) -> 
     candidates = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace") or "[]")
     if not isinstance(candidates, list):
         raise InputDataError("输入必须是职位候选数组")
+    candidates = [_prepare_candidate(candidate) for candidate in candidates]
+    if batch_id is not None and not _BATCH_ID_PATTERN.fullmatch(batch_id):
+        raise InputDataError("--batch-id is invalid")
+    batch_input_hash = hashlib.sha256(
+        json.dumps(
+            candidates, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
     with _table_write_lock() as lock_metrics:
         table = _load(TABLE_PATH)
         jobs = table.get("jobs")
         if not isinstance(jobs, list):
             raise DataStoreError(f"jobs must be a list in {TABLE_PATH}")
+        if batch_id is not None:
+            applied_batches = table.setdefault("applied_batches", [])
+            if not isinstance(applied_batches, list):
+                raise DataStoreError(f"applied_batches must be a list in {TABLE_PATH}")
+            previous = next(
+                (
+                    marker
+                    for marker in applied_batches
+                    if isinstance(marker, dict) and marker.get("batch_id") == batch_id
+                ),
+                None,
+            )
+            if previous is not None:
+                if previous.get("input_hash") != batch_input_hash:
+                    raise InputDataError("batch_id was already used with different candidates")
+                replay_stats = {
+                    **(previous.get("stats") or {}),
+                    **lock_metrics,
+                    "duration_ms": round((time.monotonic() - started) * 1000, 2),
+                    "idempotent": True,
+                }
+                metrics_recorded = record_metric(
+                    METRICS_PATH,
+                    "merge",
+                    True,
+                    run_id=metrics_run_id,
+                    **replay_stats,
+                    eval_tasks_created=0,
+                )
+                print(
+                    json.dumps(
+                        {
+                            "ok": True,
+                            "idempotent": True,
+                            "to_analyze": [],
+                            "to_score_only": [],
+                            "cached": [],
+                            "in_evaluation": [],
+                            "eval_run": previous.get("eval_run"),
+                            "stats": replay_stats,
+                            "metrics_recorded": metrics_recorded,
+                        }
+                    )
+                )
+                return
 
         by_urlkey: dict[str, dict] = {}
         by_identity: dict[str, dict] = {}
         by_dedup: dict[str, list[dict]] = {}
         used_record_ids: set[str] = set()
         identity_records_migrated = 0
+        provenance_records_migrated = 0
         for job in jobs:
             if _ensure_job_identity(job, used_record_ids):
                 identity_records_migrated += 1
+            if _ensure_job_provenance(job):
+                provenance_records_migrated += 1
             job["record_version"] = int(job.get("record_version") or 1)
             job["status"] = "existing"
             for uk in job.get("url_keys", []):
@@ -720,6 +931,8 @@ def cmd_merge(cv_hash: str, cp_hash: str, metrics_run_id: str | None = None) -> 
                     "snippet": cand.get("snippet", ""), "salary": cand.get("salary", ""),
                     "date_posted": cand.get("date_posted", ""),
                     "raw_sources": cand["raw_sources"], "url_keys": cand_keys,
+                    "market_ids": cand.get("market_ids", []),
+                    "market_status": cand.get("market_status", "unknown"),
                     "identity_keys": all_identity_keys(cand),
                     "first_seen": today, "last_seen": today, "seen_count": 1,
                     "fetched_at": None, "jd_profile": None, "match_scores": {},
@@ -748,7 +961,8 @@ def cmd_merge(cv_hash: str, cp_hash: str, metrics_run_id: str | None = None) -> 
                 )
 
         archived = _archive_stale(table, ttl_days)
-        _save(TABLE_PATH, table)
+        if batch_id is None:
+            _save(TABLE_PATH, table)
         eval_run = _create_eval_run(
             cv_hash, cp_hash, to_analyze + to_score_only, jd_handoffs
         )
@@ -766,6 +980,7 @@ def cmd_merge(cv_hash: str, cp_hash: str, metrics_run_id: str | None = None) -> 
             "cached": len(cached), "in_evaluation": len(in_evaluation), "archived": archived,
             "abandoned_runs": abandoned_runs,
             "identity_records_migrated": identity_records_migrated,
+            "provenance_records_migrated": provenance_records_migrated,
             "strong_identity_records": sum(bool(job.get("identity_keys")) for job in jobs),
             "strong_identity_conflicts_prevented": identity_stats.get(
                 "strong_identity_conflicts_prevented", 0
@@ -776,7 +991,32 @@ def cmd_merge(cv_hash: str, cp_hash: str, metrics_run_id: str | None = None) -> 
             "table_size": len(jobs), **lock_metrics,
             "jd_handoffs": len(handed_off),
             "jd_handoff_chars": sum(len(item["jd_text"]) for item in handed_off),
+            "idempotent": False,
         }
+        if batch_id is not None:
+            marker_stats = {
+                key: value
+                for key, value in stats.items()
+                if key not in {"duration_ms", "lock_wait_ms", "stale_lock_recoveries"}
+            }
+            table["applied_batches"].append(
+                {
+                    "batch_id": batch_id,
+                    "input_hash": batch_input_hash,
+                    "applied_at": _now().isoformat(),
+                    "eval_run": eval_run,
+                    "stats": marker_stats,
+                }
+            )
+            try:
+                _save(TABLE_PATH, table)
+            except DataStoreWriteError:
+                if eval_run:
+                    try:
+                        Path(eval_run["path"]).unlink()
+                    except FileNotFoundError:
+                        pass
+                raise
 
     stats["duration_ms"] = round((time.monotonic() - started) * 1000, 2)
     metrics_recorded = record_metric(
@@ -787,7 +1027,8 @@ def cmd_merge(cv_hash: str, cp_hash: str, metrics_run_id: str | None = None) -> 
         **stats,
         eval_tasks_created=len(to_analyze) + len(to_score_only),
     )
-    print(json.dumps({"ok": True, "to_analyze": to_analyze,
+    print(json.dumps({"ok": True, "idempotent": False,
+                      "to_analyze": to_analyze,
                       "to_score_only": to_score_only, "cached": cached,
                       "in_evaluation": in_evaluation,
                       "eval_run": eval_run, "stats": stats,
@@ -1041,6 +1282,10 @@ def main() -> None:
     ap.add_argument("--cp-hash", required=True)
     ap.add_argument("--run-id", help="Evaluation run id returned by merge; required for update.")
     ap.add_argument(
+        "--batch-id",
+        help="Idempotency key for a Phase C discovery batch; merge mode only.",
+    )
+    ap.add_argument(
         "--metrics-run-id",
         type=validate_run_id,
         help="Pipeline run id returned by round_timer.py start.",
@@ -1049,8 +1294,10 @@ def main() -> None:
     started = time.monotonic()
     try:
         if args.mode == "merge":
-            cmd_merge(args.cv_hash, args.cp_hash, args.metrics_run_id)
+            cmd_merge(args.cv_hash, args.cp_hash, args.metrics_run_id, args.batch_id)
         else:
+            if args.batch_id:
+                raise InputDataError("--batch-id is only valid for merge")
             if not args.run_id:
                 raise InputDataError("--run-id is required for update")
             cmd_update(args.cv_hash, args.cp_hash, args.run_id, args.metrics_run_id)

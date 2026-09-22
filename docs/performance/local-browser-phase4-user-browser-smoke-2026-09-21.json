@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-09-21T10:41:40Z",
+  "runtime": "codex_desktop_windows",
+  "mode": "auto",
+  "browseros_neo": {
+    "status": "unavailable",
+    "tool_surface_observed": false,
+    "os_or_profile_scan_used": false
+  },
+  "user_browser": {
+    "status": "ready",
+    "provider_class": "chrome_extension",
+    "capabilities": {
+      "tabs": true,
+      "navigate": true,
+      "read": true
+    },
+    "successful_dedicated_tab_runs": 2,
+    "successful_same_tab_navigation_runs": 1,
+    "successful_read_runs": 2,
+    "successful_close_runs": 2
+  },
+  "selector": {
+    "status": "degraded",
+    "browser_provider": "user_browser",
+    "routes": [
+      "browser"
+    ],
+    "issues": [
+      "browseros_neo_unavailable"
+    ]
+  },
+  "privacy_counts": {
+    "existing_tabs_enumerated": 0,
+    "existing_tabs_read": 0,
+    "private_or_account_pages_opened": 0,
+    "cookie_or_profile_reads": 0,
+    "browser_history_reads": 0,
+    "forms_submitted": 0,
+    "messages_sent": 0,
+    "files_uploaded": 0,
+    "applications_submitted": 0
+  },
+  "not_verified": [
+    "browseros_neo_connectivity",
+    "authenticated_job_board_session",
+    "captcha_or_login_handoff",
+    "rate_limit_pause_and_resume"
+  ]
+}

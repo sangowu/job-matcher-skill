@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-09-22T07:34:34Z",
+  "scope": "single_market_full_cv_production_run",
+  "market_count": 1,
+  "wave_count": 3,
+  "tasks": {
+    "planned": 12,
+    "succeeded": 6,
+    "failed": 2,
+    "skipped": 4
+  },
+  "browser": {
+    "planned": 9,
+    "succeeded": 3,
+    "failed": 2,
+    "skipped": 4,
+    "validated_candidates": 0
+  },
+  "web_search": {
+    "planned": 3,
+    "succeeded": 3,
+    "failed": 0,
+    "skipped": 0,
+    "validated_candidates": 2
+  },
+  "raw_result_rows": 47,
+  "prefiltered_candidates": 2,
+  "validated_candidates": 2,
+  "strong_identity_records_added": 2,
+  "evaluation_tasks_completed": 2,
+  "jobs_reported": 2,
+  "continuation_stop_reason": "plan_exhausted",
+  "terminal_failure_kinds": {
+    "login_required": 1,
+    "host_boundary": 1,
+    "consent_ambiguous": 2,
+    "search_control_unresponsive": 2
+  },
+  "runtime_metrics": {
+    "status": "incomplete",
+    "missing_operations": ["browser"],
+    "reason": "direct_local_browser_mcp_actions_not_emitted_to_runtime_metrics"
+  },
+  "verification": {
+    "report_tests_passed": 16,
+    "full_suite_tests_passed": 385
+  },
+  "privacy": {
+    "cv_or_jd_text_stored": false,
+    "query_or_job_identity_stored": false,
+    "cookie_or_account_data_stored": false,
+    "generated_report_committed": false
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "role_families": [
+    {
+      "role_family_id": "applied_ai",
+      "titles": {
+        "en": [
+          "Applied AI Engineer",
+          "AI Engineer",
+          "LLM Engineer"
+        ],
+        "de": [
+          "KI-Ingenieur",
+          "Machine-Learning-Ingenieur",
+          "LLM Engineer"
+        ],
+        "zh-Hans": [
+          "人工智能工程师",
+          "大模型工程师",
+          "算法工程师"
+        ]
+      },
+      "synonyms": {
+        "en": [
+          "Generative AI Engineer",
+          "AI Evaluation Engineer",
+          "Agent Systems Engineer",
+          "Machine Learning Engineer"
+        ],
+        "de": [
+          "Ingenieur für Künstliche Intelligenz",
+          "Entwickler für generative KI"
+        ],
+        "zh-Hans": [
+          "生成式人工智能工程师",
+          "LLM工程师",
+          "机器学习工程师"
+        ]
+      }
+    },
+    {
+      "role_family_id": "backend",
+      "titles": {
+        "en": [
+          "Backend Engineer",
+          "Backend Developer",
+          "Software Engineer Backend"
+        ],
+        "de": [
+          "Backend-Entwickler",
+          "Backend Softwareentwickler",
+          "Softwareentwickler Backend"
+        ],
+        "zh-Hans": [
+          "后端工程师",
+          "后端开发工程师",
+          "服务端工程师"
+        ]
+      },
+      "synonyms": {
+        "en": [
+          "Server-side Engineer",
+          "API Engineer"
+        ],
+        "de": [
+          "Backend Developer",
+          "Serverentwickler"
+        ],
+        "zh-Hans": [
+          "后端开发",
+          "服务端开发"
+        ]
+      }
+    },
+    {
+      "role_family_id": "data_engineering",
+      "titles": {
+        "en": [
+          "Data Engineer",
+          "Analytics Engineer"
+        ],
+        "de": [
+          "Dateningenieur",
+          "Data Engineer"
+        ],
+        "zh-Hans": [
+          "数据工程师",
+          "数据开发工程师"
+        ]
+      },
+      "synonyms": {
+        "en": [
+          "Data Platform Engineer"
+        ],
+        "de": [
+          "Datenplattform-Ingenieur"
+        ],
+        "zh-Hans": [
+          "数据平台工程师"
+        ]
+      }
+    },
+    {
+      "role_family_id": "software_engineering",
+      "titles": {
+        "en": [
+          "Software Engineer",
+          "Software Developer"
+        ],
+        "de": [
+          "Softwareentwickler",
+          "Softwareingenieur"
+        ],
+        "zh-Hans": [
+          "软件工程师",
+          "软件开发工程师"
+        ]
+      },
+      "synonyms": {
+        "en": [
+          "Application Developer"
+        ],
+        "de": [
+          "Anwendungsentwickler"
+        ],
+        "zh-Hans": [
+          "应用开发工程师"
+        ]
+      }
+    }
+  ]
+}

@@ -68,11 +68,9 @@ def run_handoff(
     merge_runner: MergeRunner | None = None,
     metrics_run_id: str | None = None,
 ) -> dict[str, Any]:
-    registry = ats_pipeline._load_document(
-        ats_pipeline.REGISTRY_PATH, {"schema_version": 1, "boards": []}
-    )
+    registry = ats_pipeline._load_ats_registry()
     discovery = ats_pipeline.discover_candidates(web_candidates, registry)
-    ats_pipeline._save_document(ats_pipeline.REGISTRY_PATH, registry)
+    ats_pipeline._save_ats_registry(registry)
     ats_result = ats_pipeline.sync_registry(
         registry,
         profile,

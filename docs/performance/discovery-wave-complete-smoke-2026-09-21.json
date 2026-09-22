@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "run_id": "discovery-wave-complete-smoke-20260921",
+  "observed_at": "2026-09-21T21:20:28.3159542Z",
+  "outcome": "pass",
+  "plan": {
+    "waves_planned": 3,
+    "waves_executed": 3,
+    "planned_tasks": 12,
+    "browser_provider": "browseros_neo"
+  },
+  "browser": {
+    "planned": 9,
+    "succeeded": 7,
+    "skipped": 2,
+    "failed": 0,
+    "candidate_observations": 0,
+    "skip_failure_kinds": {
+      "login_required": 1,
+      "consent_ambiguous": 1
+    }
+  },
+  "cookie_consent": {
+    "policy": "necessary_only",
+    "automatic_necessary_only_actions": 3,
+    "ambiguous_pauses": 1,
+    "accept_all_actions": 0,
+    "category_toggle_actions": 0,
+    "cookie_store_reads": 0
+  },
+  "web_search": {
+    "planned": 3,
+    "succeeded": 3,
+    "failed": 0,
+    "calls": 3,
+    "candidate_observations_validated": 3,
+    "unique_candidates_after_merge": 2,
+    "duplicate_observations_suppressed": 1
+  },
+  "orchestration": {
+    "batch_commits": 3,
+    "single_writer": true,
+    "temporary_canonical_store": true,
+    "source_proposals_added": 1,
+    "source_proposal_status": "candidate",
+    "final_decision": "stop",
+    "final_reason": "plan_exhausted",
+    "temporary_store_removed": true
+  },
+  "privacy": {
+    "cv_content_persisted": false,
+    "query_content_persisted": false,
+    "candidate_content_persisted": false,
+    "job_urls_persisted": false,
+    "job_titles_persisted": false,
+    "company_names_persisted": false,
+    "jd_content_persisted": false,
+    "account_data_read": false,
+    "cookies_read": false
+  },
+  "limits": {
+    "cv_matching_measured": false,
+    "recall_measured": false,
+    "formal_report_generated": false,
+    "production_store_modified": false
+  }
+}

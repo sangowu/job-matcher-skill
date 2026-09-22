@@ -1,0 +1,659 @@
+{
+  "schema_version": 1,
+  "markets": [
+    {
+      "market_id": "ie",
+      "country": "Ireland",
+      "country_names": {
+        "en": "Ireland",
+        "de": "Irland",
+        "zh-Hans": "爱尔兰"
+      },
+      "country_aliases": [
+        "Ireland",
+        "Republic of Ireland",
+        "IE",
+        "Éire",
+        "爱尔兰"
+      ],
+      "default_search_languages": [
+        "en"
+      ],
+      "cities": [
+        {
+          "city_id": "dublin",
+          "name": "Dublin",
+          "names": {
+            "en": "Dublin",
+            "de": "Dublin",
+            "zh-Hans": "都柏林"
+          },
+          "aliases": [
+            "Dublin",
+            "County Dublin",
+            "Greater Dublin",
+            "Dublin City",
+            "都柏林"
+          ],
+          "administrative_areas": [
+            "County Dublin",
+            "Leinster"
+          ]
+        },
+        {
+          "city_id": "cork",
+          "name": "Cork",
+          "names": {
+            "en": "Cork",
+            "de": "Cork",
+            "zh-Hans": "科克"
+          },
+          "aliases": [
+            "Cork",
+            "Cork City",
+            "County Cork",
+            "科克"
+          ],
+          "administrative_areas": [
+            "County Cork",
+            "Munster"
+          ]
+        },
+        {
+          "city_id": "galway",
+          "name": "Galway",
+          "names": {
+            "en": "Galway",
+            "de": "Galway",
+            "zh-Hans": "戈尔韦"
+          },
+          "aliases": [
+            "Galway",
+            "Galway City",
+            "County Galway",
+            "戈尔韦"
+          ],
+          "administrative_areas": [
+            "County Galway",
+            "Connacht"
+          ]
+        },
+        {
+          "city_id": "limerick",
+          "name": "Limerick",
+          "names": {
+            "en": "Limerick",
+            "de": "Limerick",
+            "zh-Hans": "利默里克"
+          },
+          "aliases": [
+            "Limerick",
+            "Limerick City",
+            "County Limerick",
+            "利默里克"
+          ],
+          "administrative_areas": [
+            "County Limerick",
+            "Munster"
+          ]
+        }
+      ],
+      "remote_scopes": [
+        "ie",
+        "eu",
+        "emea"
+      ],
+      "source_ids": [
+        "irishjobs-ie",
+        "jobs-ie",
+        "publicjobs-ie",
+        "amazon-careers",
+        "microsoft-careers",
+        "apple-jobs",
+        "sap-careers",
+        "siemens-jobs",
+        "ibm-careers",
+        "google-careers",
+        "accenture-careers",
+        "oracle-careers",
+        "bosch-careers"
+      ],
+      "query_templates": [
+        {
+          "template_id": "ie-generic-en",
+          "language": "en",
+          "source_type": "open_web",
+          "discovery_route": "agent_web_search",
+          "template": "{role} jobs {location}"
+        }
+      ]
+    },
+    {
+      "market_id": "uk",
+      "country": "United Kingdom",
+      "country_names": {
+        "en": "United Kingdom",
+        "de": "Vereinigtes Königreich",
+        "zh-Hans": "英国"
+      },
+      "country_aliases": [
+        "United Kingdom",
+        "UK",
+        "Great Britain",
+        "Britain",
+        "England",
+        "Scotland",
+        "Wales",
+        "Northern Ireland",
+        "英国",
+        "北爱尔兰"
+      ],
+      "default_search_languages": [
+        "en"
+      ],
+      "cities": [
+        {
+          "city_id": "london",
+          "name": "London",
+          "names": {
+            "en": "London",
+            "de": "London",
+            "zh-Hans": "伦敦"
+          },
+          "aliases": [
+            "London",
+            "Greater London",
+            "London Area",
+            "伦敦"
+          ],
+          "administrative_areas": [
+            "Greater London",
+            "England"
+          ]
+        },
+        {
+          "city_id": "manchester",
+          "name": "Manchester",
+          "names": {
+            "en": "Manchester",
+            "de": "Manchester",
+            "zh-Hans": "曼彻斯特"
+          },
+          "aliases": [
+            "Manchester",
+            "Greater Manchester",
+            "曼彻斯特"
+          ],
+          "administrative_areas": [
+            "Greater Manchester",
+            "England"
+          ]
+        },
+        {
+          "city_id": "edinburgh",
+          "name": "Edinburgh",
+          "names": {
+            "en": "Edinburgh",
+            "de": "Edinburgh",
+            "zh-Hans": "爱丁堡"
+          },
+          "aliases": [
+            "Edinburgh",
+            "City of Edinburgh",
+            "爱丁堡"
+          ],
+          "administrative_areas": [
+            "Scotland"
+          ]
+        },
+        {
+          "city_id": "belfast",
+          "name": "Belfast",
+          "names": {
+            "en": "Belfast",
+            "de": "Belfast",
+            "zh-Hans": "贝尔法斯特"
+          },
+          "aliases": [
+            "Belfast",
+            "Greater Belfast",
+            "贝尔法斯特"
+          ],
+          "administrative_areas": [
+            "Northern Ireland"
+          ]
+        }
+      ],
+      "remote_scopes": [
+        "uk",
+        "emea"
+      ],
+      "source_ids": [
+        "reed-uk",
+        "cv-library-uk",
+        "jobs-ac-uk",
+        "amazon-careers",
+        "microsoft-careers",
+        "apple-jobs",
+        "sap-careers",
+        "siemens-jobs",
+        "ibm-careers",
+        "google-careers",
+        "accenture-careers",
+        "oracle-careers",
+        "bosch-careers"
+      ],
+      "query_templates": [
+        {
+          "template_id": "uk-generic-en",
+          "language": "en",
+          "source_type": "open_web",
+          "discovery_route": "agent_web_search",
+          "template": "{role} jobs {location}"
+        }
+      ]
+    },
+    {
+      "market_id": "cn",
+      "country": "China",
+      "country_names": {
+        "en": "China",
+        "de": "China",
+        "zh-Hans": "中国"
+      },
+      "country_aliases": [
+        "China",
+        "Mainland China",
+        "PRC",
+        "CN",
+        "中国",
+        "中国大陆",
+        "中华人民共和国"
+      ],
+      "default_search_languages": [
+        "zh-Hans",
+        "en"
+      ],
+      "cities": [
+        {
+          "city_id": "beijing",
+          "name": "Beijing",
+          "names": {
+            "en": "Beijing",
+            "de": "Peking",
+            "zh-Hans": "北京"
+          },
+          "aliases": [
+            "Beijing",
+            "Peking",
+            "北京市",
+            "北京"
+          ],
+          "administrative_areas": [
+            "Beijing Municipality",
+            "北京市"
+          ]
+        },
+        {
+          "city_id": "shanghai",
+          "name": "Shanghai",
+          "names": {
+            "en": "Shanghai",
+            "de": "Shanghai",
+            "zh-Hans": "上海"
+          },
+          "aliases": [
+            "Shanghai",
+            "上海市",
+            "上海"
+          ],
+          "administrative_areas": [
+            "Shanghai Municipality",
+            "上海市"
+          ]
+        },
+        {
+          "city_id": "shenzhen",
+          "name": "Shenzhen",
+          "names": {
+            "en": "Shenzhen",
+            "de": "Shenzhen",
+            "zh-Hans": "深圳"
+          },
+          "aliases": [
+            "Shenzhen",
+            "深圳市",
+            "深圳"
+          ],
+          "administrative_areas": [
+            "Guangdong",
+            "广东"
+          ]
+        },
+        {
+          "city_id": "guangzhou",
+          "name": "Guangzhou",
+          "names": {
+            "en": "Guangzhou",
+            "de": "Guangzhou",
+            "zh-Hans": "广州"
+          },
+          "aliases": [
+            "Guangzhou",
+            "Canton",
+            "广州市",
+            "广州"
+          ],
+          "administrative_areas": [
+            "Guangdong",
+            "广东"
+          ]
+        },
+        {
+          "city_id": "hangzhou",
+          "name": "Hangzhou",
+          "names": {
+            "en": "Hangzhou",
+            "de": "Hangzhou",
+            "zh-Hans": "杭州"
+          },
+          "aliases": [
+            "Hangzhou",
+            "杭州市",
+            "杭州"
+          ],
+          "administrative_areas": [
+            "Zhejiang",
+            "浙江"
+          ]
+        },
+        {
+          "city_id": "chengdu",
+          "name": "Chengdu",
+          "names": {
+            "en": "Chengdu",
+            "de": "Chengdu",
+            "zh-Hans": "成都"
+          },
+          "aliases": [
+            "Chengdu",
+            "成都市",
+            "成都"
+          ],
+          "administrative_areas": [
+            "Sichuan",
+            "四川"
+          ]
+        }
+      ],
+      "remote_scopes": [
+        "cn"
+      ],
+      "source_ids": [
+        "boss-zhipin-cn",
+        "liepin-cn",
+        "lagou-cn",
+        "nankai-careers-cn",
+        "amazon-careers",
+        "microsoft-careers",
+        "apple-jobs",
+        "sap-careers",
+        "siemens-jobs",
+        "ibm-careers",
+        "google-careers",
+        "accenture-careers",
+        "oracle-careers",
+        "bosch-careers"
+      ],
+      "query_templates": [
+        {
+          "template_id": "cn-generic-zh-hans",
+          "language": "zh-Hans",
+          "source_type": "open_web",
+          "discovery_route": "agent_web_search",
+          "template": "{location} {role} 招聘"
+        },
+        {
+          "template_id": "cn-generic-en",
+          "language": "en",
+          "source_type": "open_web",
+          "discovery_route": "agent_web_search",
+          "template": "{role} jobs {location}"
+        }
+      ]
+    },
+    {
+      "market_id": "de",
+      "country": "Germany",
+      "country_names": {
+        "en": "Germany",
+        "de": "Deutschland",
+        "zh-Hans": "德国"
+      },
+      "country_aliases": [
+        "Germany",
+        "Deutschland",
+        "DE",
+        "德国"
+      ],
+      "default_search_languages": [
+        "de",
+        "en"
+      ],
+      "cities": [
+        {
+          "city_id": "berlin",
+          "name": "Berlin",
+          "names": {
+            "en": "Berlin",
+            "de": "Berlin",
+            "zh-Hans": "柏林"
+          },
+          "aliases": [
+            "Berlin",
+            "Berlin-Brandenburg",
+            "柏林"
+          ],
+          "administrative_areas": [
+            "Berlin",
+            "Brandenburg"
+          ]
+        },
+        {
+          "city_id": "munich",
+          "name": "Munich",
+          "names": {
+            "en": "Munich",
+            "de": "München",
+            "zh-Hans": "慕尼黑"
+          },
+          "aliases": [
+            "Munich",
+            "München",
+            "Muenchen",
+            "慕尼黑"
+          ],
+          "administrative_areas": [
+            "Bavaria",
+            "Bayern"
+          ]
+        },
+        {
+          "city_id": "hamburg",
+          "name": "Hamburg",
+          "names": {
+            "en": "Hamburg",
+            "de": "Hamburg",
+            "zh-Hans": "汉堡"
+          },
+          "aliases": [
+            "Hamburg",
+            "汉堡"
+          ],
+          "administrative_areas": [
+            "Hamburg"
+          ]
+        },
+        {
+          "city_id": "frankfurt",
+          "name": "Frankfurt",
+          "names": {
+            "en": "Frankfurt",
+            "de": "Frankfurt am Main",
+            "zh-Hans": "法兰克福"
+          },
+          "aliases": [
+            "Frankfurt",
+            "Frankfurt am Main",
+            "法兰克福"
+          ],
+          "administrative_areas": [
+            "Hesse",
+            "Hessen"
+          ]
+        },
+        {
+          "city_id": "cologne",
+          "name": "Cologne",
+          "names": {
+            "en": "Cologne",
+            "de": "Köln",
+            "zh-Hans": "科隆"
+          },
+          "aliases": [
+            "Cologne",
+            "Köln",
+            "Koeln",
+            "科隆"
+          ],
+          "administrative_areas": [
+            "North Rhine-Westphalia",
+            "Nordrhein-Westfalen"
+          ]
+        }
+      ],
+      "remote_scopes": [
+        "de",
+        "eu",
+        "emea"
+      ],
+      "source_ids": [
+        "arbeitsagentur-de",
+        "stepstone-de",
+        "make-it-in-germany-de",
+        "amazon-careers",
+        "microsoft-careers",
+        "apple-jobs",
+        "sap-careers",
+        "siemens-jobs",
+        "ibm-careers",
+        "google-careers",
+        "accenture-careers",
+        "oracle-careers",
+        "bosch-careers"
+      ],
+      "query_templates": [
+        {
+          "template_id": "de-generic-de",
+          "language": "de",
+          "source_type": "open_web",
+          "discovery_route": "agent_web_search",
+          "template": "{role} Stellenangebote {location}"
+        },
+        {
+          "template_id": "de-generic-en",
+          "language": "en",
+          "source_type": "open_web",
+          "discovery_route": "agent_web_search",
+          "template": "{role} jobs {location}"
+        }
+      ]
+    }
+  ],
+  "remote_scopes": [
+    {
+      "scope_id": "ie",
+      "market_ids": [
+        "ie"
+      ],
+      "aliases": [
+        "Remote Ireland",
+        "Ireland Remote",
+        "爱尔兰远程"
+      ]
+    },
+    {
+      "scope_id": "uk",
+      "market_ids": [
+        "uk"
+      ],
+      "aliases": [
+        "Remote UK",
+        "UK Remote",
+        "United Kingdom Remote",
+        "英国远程"
+      ]
+    },
+    {
+      "scope_id": "cn",
+      "market_ids": [
+        "cn"
+      ],
+      "aliases": [
+        "Remote China",
+        "China Remote",
+        "中国远程"
+      ]
+    },
+    {
+      "scope_id": "de",
+      "market_ids": [
+        "de"
+      ],
+      "aliases": [
+        "Remote Germany",
+        "Germany Remote",
+        "Deutschlandweit",
+        "Remote Deutschland",
+        "德国远程"
+      ]
+    },
+    {
+      "scope_id": "eu",
+      "market_ids": [
+        "ie",
+        "de"
+      ],
+      "aliases": [
+        "Remote EU",
+        "EU Remote",
+        "Remote Europe",
+        "Europe Remote",
+        "欧盟远程"
+      ]
+    },
+    {
+      "scope_id": "emea",
+      "market_ids": [
+        "ie",
+        "uk",
+        "de"
+      ],
+      "aliases": [
+        "Remote EMEA",
+        "EMEA Remote",
+        "EMEA-wide"
+      ]
+    },
+    {
+      "scope_id": "global",
+      "market_ids": [],
+      "aliases": [
+        "Remote",
+        "Worldwide Remote",
+        "Global Remote",
+        "远程"
+      ]
+    }
+  ]
+}

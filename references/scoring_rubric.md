@@ -90,8 +90,8 @@ deal_breaker 性质问题压 `must_have_score` 和 `title_score`），overall �
 ```
 
 ## 输出语言（重要）
-`strengths` / `weaknesses` / `explanation` / `missing_must_haves` 等**所有自然语言文本，必须用 CV 的语言（`CVProfile.search_language`）输出**，与报告界面语言一致。
-- CV 是中文 → 这些分析文本用中文；CV 是英文 → 用英文。
+`strengths` / `weaknesses` / `explanation` / `missing_must_haves` 等**所有自然语言文本，必须用 `report_language` 输出**，与报告界面语言一致。旧输入没有该字段时才回退 `CVProfile.search_language`。
+- `report_language` 是中文 → 这些分析文本用中文；是英文 → 用英文。
 - 不要用英文分析中文 CV（反之亦然）。`matched_keywords` 保持技能原文（如 Python、Kubernetes）。
 
 ## 失效判断（精排时兜底）

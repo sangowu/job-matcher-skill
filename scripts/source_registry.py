@@ -56,6 +56,10 @@ ACCESS_METHODS = {
     "ats_public_api",
 }
 SOURCE_STATUSES = {"candidate", "verified", "unavailable", "disabled"}
+# Providers the structured channel can actually fetch. Kept here so this module
+# stays free of local imports; tests/test_source_registry.py pins it against
+# ats_provider.PROVIDERS so the two cannot drift apart.
+ATS_API_PROVIDERS = {"ashby", "greenhouse", "lever"}
 LOCAL_SOURCE_TYPES = {
     "local_job_board",
     "public_sector_portal",
@@ -301,6 +305,16 @@ def validate_seed_payload(payload: dict[str, Any]) -> dict[str, Any]:
             str(source["board_token"])
         ):
             raise SourceValidationError(f"{prefix}.board_token is invalid")
+        if "instance" in source and not _TOKEN_PATTERN.fullmatch(str(source["instance"])):
+            raise SourceValidationError(f"{prefix}.instance is invalid")
+        # An ATS board without a token, or one naming a provider with no
+        # adapter, would plan a structured task that can never be fetched.
+        if source["source_type"] == "ats_board" and "board_token" not in source:
+            raise SourceValidationError(f"{prefix}.board_token is required for ats_board")
+        if "ats_public_api" in access_methods and source["provider"] not in ATS_API_PROVIDERS:
+            raise SourceValidationError(
+                f"{prefix}.provider '{source['provider']}' has no ATS API adapter"
+            )
 
         if source["enabled"] and source["verified"]:
             for market_id in markets:
@@ -541,7 +555,7 @@ def _registry_lock(
 
 def _source_record_from_seed(seed: dict[str, Any]) -> dict[str, Any]:
     verified_at = seed["verified_at"] if seed["verified"] else None
-    return {
+    record = {
         "source_id": seed["source_id"],
         "display_name": seed["display_name"],
         "source_type": seed["source_type"],
@@ -562,6 +576,14 @@ def _source_record_from_seed(seed: dict[str, Any]) -> dict[str, Any]:
         "transient_failures": 0,
         "origin": "seed",
     }
+    # ATS board identity must survive the seed -> registry hop, otherwise
+    # ats_view_from_registry() silently drops the board and the structured
+    # channel has nothing to fetch.
+    if "board_token" in seed:
+        record["board_token"] = seed["board_token"]
+    if "instance" in seed:
+        record["instance"] = seed["instance"]
+    return record
 
 
 def merge_seeds(
@@ -597,6 +619,15 @@ def merge_seeds(
         for field in static_fields:
             if current.get(field) != desired[field]:
                 current[field] = desired[field]
+                changed = True
+        # Board identity is optional, so it is synced separately: a seed that
+        # drops it must clear the stale value rather than leave it behind.
+        for field in ("board_token", "instance"):
+            if current.get(field) != desired.get(field):
+                if field in desired:
+                    current[field] = desired[field]
+                else:
+                    current.pop(field, None)
                 changed = True
         if current["status"] not in {"disabled", "unavailable"}:
             target_status = desired["status"]

@@ -112,7 +112,7 @@ def test_public_source_seeds_validate_locked_market_coverage():
     markets, _ = market_plan.load_resources()
     known = {source["source_id"] for source in seeds["sources"]}
 
-    assert len(seeds["sources"]) == 23
+    assert len(seeds["sources"]) == 41
     assert all(set(market["source_ids"]) <= known for market in markets["markets"])
     for market_id in source_registry.SUPPORTED_MARKETS:
         eligible = [
@@ -210,7 +210,7 @@ def test_initialization_creates_url_free_health_registry_and_is_idempotent(tmp_p
         "seed_added": 0,
         "seed_updated": 0,
         "legacy_imported": 0,
-        "registry_size": 23,
+        "registry_size": 41,
         "changed": False,
     }
     assert registry_path.read_bytes() == first_bytes
@@ -238,7 +238,7 @@ def test_only_enabled_verified_unexpired_sources_enter_deterministic_plan(tmp_pa
     assert candidate["enabled"] is False
     assert "new-public-source" not in plan["source_ids"]
     assert plan["source_ids"].count("amazon-careers") == 1
-    assert len(plan["source_ids"]) == 16
+    assert len(plan["source_ids"]) == 34
 
     _apply(
         registry_path,
@@ -370,7 +370,7 @@ def test_legacy_registry_is_imported_once_with_marker_and_never_modified(tmp_pat
 
     assert first["legacy_imported"] == 1
     assert second["legacy_imported"] == 0
-    assert len(registry["sources"]) == 24
+    assert len(registry["sources"]) == 42
     assert registry["migrations"]["ats_companies_v1"]["status"] == "completed"
     assert legacy_path.read_bytes() == legacy_bytes
 
@@ -436,7 +436,7 @@ def test_legacy_migration_can_be_rolled_back_without_touching_legacy_or_seeds(tm
     registry = source_registry.load_registry(registry_path)
 
     assert result == {"removed": 1, "changed": True}
-    assert len(registry["sources"]) == 23
+    assert len(registry["sources"]) == 41
     assert {source["origin"] for source in registry["sources"]} == {"seed"}
     assert registry["migrations"]["ats_companies_v1"]["status"] == "rolled_back"
     assert legacy_path.read_bytes() == legacy_bytes
@@ -449,7 +449,7 @@ def test_legacy_migration_can_be_rolled_back_without_touching_legacy_or_seeds(tm
         now=NOW + timedelta(hours=2),
     )
     assert repeated["legacy_imported"] == 0
-    assert len(source_registry.load_registry(registry_path)["sources"]) == 23
+    assert len(source_registry.load_registry(registry_path)["sources"]) == 41
 
 
 def test_ats_pipeline_uses_generic_registry_after_initialization(tmp_path, monkeypatch):
@@ -530,3 +530,84 @@ def test_ats_pipeline_rollback_reads_legacy_without_writing_it(tmp_path, monkeyp
 
     assert registry_path.read_bytes() == generic_before
     assert legacy_path.read_bytes() == legacy_before
+
+
+def test_ats_board_seeds_reach_the_pipeline_with_their_identity(tmp_path):
+    """A seeded board must keep board_token across seed -> registry -> ATS view.
+
+    Dropping it silently produced an empty structured channel: the board was
+    registered but could never be fetched.
+    """
+    registry_path, _, _ = _initialize(tmp_path)
+    registry = source_registry.load_registry(registry_path)
+    seeded = [
+        source
+        for source in registry["sources"]
+        if source["source_type"] == "ats_board" and source["origin"] == "seed"
+    ]
+
+    assert seeded, "seed catalog must publish ATS boards"
+    assert all("board_token" in source for source in seeded)
+
+    view = source_registry.ats_view_from_registry(registry)
+    board_ids = {board["board_id"] for board in view["boards"]}
+    assert {source["source_id"] for source in seeded} <= board_ids
+    assert all(board["board_token"] for board in view["boards"])
+
+
+def test_seeded_lever_board_keeps_its_instance(tmp_path):
+    registry_path, _, _ = _initialize(tmp_path)
+    registry = source_registry.load_registry(registry_path)
+    seeds = source_registry.load_seeds()
+    with_instance = {
+        source["source_id"] for source in seeds["sources"] if "instance" in source
+    }
+
+    for source in registry["sources"]:
+        if source["source_id"] in with_instance:
+            assert source["instance"] == next(
+                seed["instance"]
+                for seed in seeds["sources"]
+                if seed["source_id"] == source["source_id"]
+            )
+
+
+def test_structured_access_is_limited_to_providers_with_an_adapter():
+    import ats_provider
+
+    assert source_registry.ATS_API_PROVIDERS == set(ats_provider.PROVIDERS)
+
+
+def test_ats_board_seed_without_a_token_is_rejected():
+    payload = copy.deepcopy(source_registry.load_seeds())
+    board = next(
+        source for source in payload["sources"] if source["source_type"] == "ats_board"
+    )
+    board.pop("board_token")
+
+    with pytest.raises(source_registry.SourceValidationError, match="board_token is required"):
+        source_registry.validate_seed_payload(payload)
+
+
+def test_ats_api_access_requires_a_supported_provider():
+    payload = copy.deepcopy(source_registry.load_seeds())
+    board = next(
+        source for source in payload["sources"] if source["source_type"] == "ats_board"
+    )
+    board["provider"] = "workday"
+
+    with pytest.raises(source_registry.SourceValidationError, match="no ATS API adapter"):
+        source_registry.validate_seed_payload(payload)
+
+
+def test_seed_catalog_covers_each_western_market_with_ats_boards():
+    seeds = source_registry.load_seeds()
+    boards = [
+        source
+        for source in seeds["sources"]
+        if source["source_type"] == "ats_board" and source["enabled"] and source["verified"]
+    ]
+
+    for market_id in ("ie", "uk", "de"):
+        covering = [board for board in boards if market_id in board["markets"]]
+        assert len(covering) >= 3, f"{market_id} needs verified ATS boards"

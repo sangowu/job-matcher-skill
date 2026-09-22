@@ -254,3 +254,31 @@ def test_cli_emits_one_public_execution_plan():
     assert payload["plan"]["tasks"]["browser"]
     assert payload["plan"]["tasks"]["web_search"]
     assert process.stderr == ""
+
+
+def test_structured_tasks_carry_the_identity_needed_to_fetch_a_board():
+    """A structured task is fetched by provider identity, not by entry_url."""
+    seeds = source_registry.load_seeds()
+    config = {**_config(), "ats_enabled": True}
+
+    plan = discovery_plan.build_discovery_plan(_request(seeds), seeds=seeds, config=config)
+    structured = plan["tasks"]["structured"]
+
+    assert structured, "enabling ats must produce structured tasks"
+    assert "structured" in plan["channels"]
+    by_id = {source["source_id"]: source for source in seeds["sources"]}
+    for task in structured:
+        source = by_id[task["source_id"]]
+        assert task["provider"] == source["provider"]
+        assert task["access_method"] == "ats_public_api"
+        assert task["board_token"] == source["board_token"]
+        assert task.get("instance") == source.get("instance")
+
+
+def test_structured_channel_stays_empty_while_ats_is_disabled():
+    seeds = source_registry.load_seeds()
+
+    plan = discovery_plan.build_discovery_plan(_request(seeds), seeds=seeds, config=_config())
+
+    assert plan["tasks"]["structured"] == []
+    assert "structured" not in plan["channels"]

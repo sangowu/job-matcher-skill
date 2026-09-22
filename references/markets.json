@@ -116,7 +116,18 @@
         "google-careers",
         "accenture-careers",
         "oracle-careers",
-        "bosch-careers"
+        "bosch-careers",
+        "intercom-greenhouse",
+        "stripe-greenhouse",
+        "datadog-greenhouse",
+        "sumup-greenhouse",
+        "wayflyer-ashby",
+        "tines-greenhouse",
+        "workhuman-ashby",
+        "flipdish-greenhouse",
+        "udemy-greenhouse",
+        "monzo-greenhouse",
+        "deliveroo-greenhouse"
       ],
       "query_templates": [
         {
@@ -241,7 +252,23 @@
         "google-careers",
         "accenture-careers",
         "oracle-careers",
-        "bosch-careers"
+        "bosch-careers",
+        "intercom-greenhouse",
+        "stripe-greenhouse",
+        "datadog-greenhouse",
+        "sumup-greenhouse",
+        "wayflyer-ashby",
+        "tines-greenhouse",
+        "workhuman-ashby",
+        "flipdish-greenhouse",
+        "udemy-greenhouse",
+        "monzo-greenhouse",
+        "deliveroo-greenhouse",
+        "celonis-greenhouse",
+        "getyourguide-greenhouse",
+        "deepl-ashby",
+        "contentful-greenhouse",
+        "cohere-ashby"
       ],
       "query_templates": [
         {
@@ -550,7 +577,18 @@
         "google-careers",
         "accenture-careers",
         "oracle-careers",
-        "bosch-careers"
+        "bosch-careers",
+        "intercom-greenhouse",
+        "stripe-greenhouse",
+        "datadog-greenhouse",
+        "sumup-greenhouse",
+        "celonis-greenhouse",
+        "n26-greenhouse",
+        "getyourguide-greenhouse",
+        "deepl-ashby",
+        "contentful-greenhouse",
+        "doctolib-greenhouse",
+        "cohere-ashby"
       ],
       "query_templates": [
         {

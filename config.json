@@ -44,7 +44,7 @@
   },
   "stop_threshold": 12,
   "consecutive_empty_stop": 2,
-  "ats_enabled": false,
+  "ats_enabled": true,
   "ats_max_concurrency": 3,
   "ats_boards_per_round": 10,
   "ats_requests_per_round": 30,

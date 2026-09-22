@@ -9,6 +9,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A verified public ATS board catalog: 18 Ashby/Greenhouse boards covering Ireland, the UK, and Germany, each confirmed by a read-only board fetch whose observed job locations determined its markets. Counts and rejection reasons are in [docs/ats-source-catalog.md](docs/ats-source-catalog.md).
 - Deterministic cross-channel discovery waves: the plan owns remaining-task availability, the Agent executes only the current wave, and `discovery_batch.py` exposes a next wave only after canonical merge yield checks pass.
 - Count-only live evidence for a BrowserOS Neo plus Web Search first wave, including semantic platform search, consent pauses, local attention state, open-web contribution, and fail-closed suppression of the next wave.
 - Count-only evidence for a completed three-wave BrowserOS Neo plus Web Search run: 12 terminal task results, two explicit skips, three single-writer batch commits, one suppressed duplicate, two unique strong-identity candidates, and a `plan_exhausted` stop in an automatically cleaned temporary store.
@@ -37,6 +38,8 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The repository default is now `ats_enabled: true`. The public ATS path is the cheapest discovery channel measured so far (one request per board, roughly 0.2-0.6s, job descriptions included) and stays bounded by its own request/page/concurrency caps.
+- Structured discovery tasks now carry `provider`, `board_token`, and Lever's `instance`, so a board is fetched by provider identity instead of its human-facing `entry_url`.
 - The repository default discovery mode is now `coverage`: model/Web Search runs alongside the preferred available browser provider (BrowserOS Neo, then an authorized user browser). Legacy `auto` retains its single-route compatibility behavior.
 - Report language and market search languages are separate in the new planning boundary; `zh` and `zh-CN` normalize to internal `zh-Hans`, while the existing single-region Web Search path remains available.
 - `markets.json` now references stable Phase B source IDs, while `multi_region_enabled: false` continues to prevent the new source plan from changing the production discovery path.
@@ -51,6 +54,8 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Seeded ATS boards reach the pipeline with their identity intact: seed-to-registry conversion dropped `board_token`, so every `ats_board` seed became a tokenless record that `ats_view_from_registry()` silently skipped, leaving the structured channel empty no matter how the catalog was curated.
+- Seed validation now rejects an `ats_board` without a `board_token`, and rejects `ats_public_api` access for a provider that has no adapter, instead of planning a structured task that can never be fetched.
 - Teamtailor job URLs now produce provider-owned `teamtailor:<job-id>` strong identities, allowing valid Web Search candidates to pass the shared CandidateEnvelope and canonical deduplication boundary.
 - Phase E no longer treats missing real-CV Top-N baselines or repeated zero-useful-candidate runs as default-enable evidence; v2 count-only shadow records carry explicit baseline status while historical v1 ledger hashes remain readable.
 - The legacy-table migration regression now uses a fixed clock, preventing its fixture from becoming stale as the real 30-day archive TTL advances.

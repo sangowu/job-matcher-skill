@@ -57,9 +57,17 @@ finished the run with `metrics_status=incomplete` and
 `missing_operations=browser`; the generated report correctly displayed
 `health_status=unknown` rather than claiming healthy coverage.
 
-This is an instrumentation gap, not a discovery, merge, evaluation, or render
-failure. A provider-neutral local-browser metric adapter remains required
-before Neo-backed production runs can satisfy the browser completeness gate.
+This was an instrumentation gap, not a discovery, merge, evaluation, or render
+failure.
+
+It is now closed. `browser_control.py action` records an Agent-executed local
+browser action through the same allowlisted `browser` event the remote adapter
+writes, without needing a provider object, credentials, or session budget. A run
+whose browser work is driven directly by the Agent satisfies the completeness
+gate once those actions are reported; only successful actions count, so
+reporting a failure cannot make a broken route look instrumented. See
+[`ats-source-catalog.md`](ats-source-catalog.md) for the unrelated discovery
+changes made in the same series.
 
 ## Privacy boundary
 
@@ -74,7 +82,8 @@ before Neo-backed production runs can satisfy the browser completeness gate.
 ## Gate update
 
 This trial closes the earlier gate for a full single-market CV production run
-through the canonical table and HTML report. It does not close cross-site host
-alias handling, ambiguous consent handoff, custom-combobox compatibility,
-additional-page pagination, CAPTCHA recovery, rate-limit recovery, or local
-browser metric completeness.
+through the canonical table and HTML report. Local-browser metric completeness
+was closed separately by the self-reporting path described above. It does not
+close cross-site host alias handling, ambiguous consent handoff,
+custom-combobox compatibility, additional-page pagination, CAPTCHA recovery, or
+rate-limit recovery.

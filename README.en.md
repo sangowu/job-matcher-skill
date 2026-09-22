@@ -89,7 +89,7 @@ job-matcher/
 │   ├── round_timer.py        # full-round timing, compared per orchestration mode
 │   ├── subagent_metrics.py   # requested/effective subagent model and effort metrics
 │   ├── browser_provider.py   # Kernel/Fake providers and safe settings
-│   ├── browser_control.py    # remote visual-browser control CLI
+│   ├── browser_control.py    # remote visual-browser CLI; metric self-reporting for local browsers
 │   ├── browser_setup.py      # one-shot localhost setup page
 │   ├── browser_workflow.py   # listing pagination/pause state machine
 │   ├── ats_provider.py       # public Ashby/Greenhouse/Lever GET adapters and Fake

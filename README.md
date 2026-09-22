@@ -89,7 +89,7 @@ job-matcher/
 │   ├── round_timer.py        # 整轮计时，按编排模式对比墙钟
 │   ├── subagent_metrics.py   # 子代理模型/effort 配置与结果指标
 │   ├── browser_provider.py   # Kernel/Fake Provider 与安全配置
-│   ├── browser_control.py    # 远程视觉浏览器控制命令
+│   ├── browser_control.py    # 远程视觉浏览器控制命令；本机浏览器动作的指标自报路径
 │   ├── browser_setup.py      # 一次性 localhost 配置页面
 │   ├── browser_workflow.py   # 列表翻页/暂停状态机
 │   ├── ats_provider.py       # Ashby/Greenhouse/Lever 公开 GET 适配器与 Fake

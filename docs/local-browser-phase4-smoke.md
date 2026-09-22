@@ -146,8 +146,9 @@ single-market CV production run. Local-browser runtime-metric completeness is no
 longer a gate: an Agent-driven browser now reports each action through
 `browser_control.py action`, which writes the same allowlisted `browser` event
 the remote adapter emits. The runs still do **not** prove additional-page
-pagination, broad job-board/layout/language compatibility, host aliases outside
-the source boundary, ambiguous-consent recovery, custom-combobox compatibility,
-CAPTCHA recovery, or rate-limit pause/resume. A public Skill must continue to derive capability from the current
+pagination, broad job-board/layout/language compatibility, ambiguous-consent
+recovery, custom-combobox compatibility, CAPTCHA recovery, or rate-limit
+pause/resume. A redirect to a public ATS host is no longer a boundary failure:
+it is recorded as a board handoff and fetched through the structured channel. A public Skill must continue to derive capability from the current
 Agent tool surface and degrade safely rather than treating installation or
 documentation as live evidence.

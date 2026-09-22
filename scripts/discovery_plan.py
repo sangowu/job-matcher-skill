@@ -18,6 +18,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import source_registry
+from _jobutil import ATS_BOARD_HOSTS
 
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -405,6 +406,13 @@ def build_discovery_plan(
                         "entry_url": source["entry_url"],
                         "allowed_hosts": [entry_host],
                         "allow_same_site_redirects": True,
+                        # A careers portal that redirects to its own public ATS
+                        # board has not gone out of bounds -- it has revealed
+                        # which board to fetch. Browsing there would be the
+                        # expensive way to learn it, so the task hands the board
+                        # off instead of reporting a boundary failure.
+                        "ats_handoff_hosts": list(ATS_BOARD_HOSTS),
+                        "on_ats_handoff": "record_board_then_stop",
                         "interaction_mode": "semantic_accessibility",
                         "auth_policy": "reuse_browser_session_without_cookie_access",
                         "cookie_consent": {

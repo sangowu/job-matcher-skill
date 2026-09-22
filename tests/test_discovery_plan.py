@@ -345,3 +345,21 @@ def test_invalid_browser_first_wave_is_rejected(value):
         discovery_plan.build_discovery_plan(
             _request(seeds), seeds=seeds, config={**_config(), "browser_first_wave": value}
         )
+
+
+def test_browser_tasks_name_the_ats_hosts_that_are_a_handoff_not_a_violation():
+    """A portal redirecting to its own public ATS board has revealed which board
+    to fetch, not gone out of bounds."""
+    seeds = source_registry.load_seeds()
+
+    plan = discovery_plan.build_discovery_plan(_request(seeds), seeds=seeds, config=_config())
+
+    assert plan["tasks"]["browser"]
+    for task in plan["tasks"]["browser"]:
+        assert task["on_ats_handoff"] == "record_board_then_stop"
+        assert "boards.greenhouse.io" in task["ats_handoff_hosts"]
+        assert "jobs.lever.co" in task["ats_handoff_hosts"]
+        assert "jobs.ashbyhq.com" in task["ats_handoff_hosts"]
+        # The handoff list widens what a redirect means, not what may be browsed.
+        assert task["allowed_hosts"] == [task["allowed_hosts"][0]]
+        assert not set(task["ats_handoff_hosts"]) & set(task["allowed_hosts"])

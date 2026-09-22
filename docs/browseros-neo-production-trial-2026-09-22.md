@@ -35,7 +35,9 @@ false coverage:
 
 - One public board required sign-in before search results could be read.
 - One public-sector source redirected to a legitimate ATS host that was not in
-  the task's original host boundary.
+  the task's original host boundary. That case is now handled: such a redirect
+  is treated as a board handoff and the employer is fetched through the
+  structured channel instead of being skipped.
 - Two consent banners used accessibility containers outside the classifier's
   currently accepted `dialog`/`alertdialog` boundary, so no consent button was
   clicked.
@@ -84,6 +86,6 @@ changes made in the same series.
 This trial closes the earlier gate for a full single-market CV production run
 through the canonical table and HTML report. Local-browser metric completeness
 was closed separately by the self-reporting path described above. It does not
-close cross-site host alias handling, ambiguous consent handoff,
-custom-combobox compatibility, additional-page pagination, CAPTCHA recovery, or
-rate-limit recovery.
+close ambiguous consent handoff, custom-combobox compatibility,
+additional-page pagination, CAPTCHA recovery, or rate-limit recovery.
+Cross-site ATS host handling was closed separately by the board handoff.

@@ -142,12 +142,39 @@ _BOARD_PATTERNS: list[tuple[str, re.Pattern]] = [
         ),
     ),
 ]
+# 公司招聘门户常常**跳转**到自家 ATS 的 board 根页，而不是某个具体职位。
+# 这类 URL 认不出来，就只能当成越界跳转丢掉；认出来则是一次 board 发现。
+_BOARD_ROOT_PATTERNS: list[tuple[str, re.Pattern]] = [
+    (
+        "greenhouse",
+        re.compile(
+            r"(?:job-)?boards(?:\.eu)?\.greenhouse\.io/([A-Za-z0-9_-]{1,100})(?:[/?#]|$)",
+            re.I,
+        ),
+    ),
+    ("lever", re.compile(r"jobs\.lever\.co/([A-Za-z0-9_-]{1,100})(?:[/?#]|$)", re.I)),
+    (
+        "ashby",
+        re.compile(r"jobs\.ashbyhq\.com/([A-Za-z0-9_-]{1,100})(?:[/?#]|$)", re.I),
+    ),
+]
+# 这些路径段是平台自有功能，不是公司 board token。
+_RESERVED_BOARD_TOKENS = frozenset({"embed", "api", "search", "jobs", "static", "assets"})
+# 跳转落到这些 host 属于合法的 ATS 交接，不是越界。
+ATS_BOARD_HOSTS = (
+    "boards.greenhouse.io",
+    "job-boards.greenhouse.io",
+    "job-boards.eu.greenhouse.io",
+    "jobs.lever.co",
+    "jobs.ashbyhq.com",
+)
 
 
 def extract_board(url: str) -> tuple[str, str] | None:
-    """从职位 URL 反推 `(provider, board_token)`；无法确定时返回 None。
+    """从 URL 反推 `(provider, board_token)`；无法确定时返回 None。
 
-    只认公开 ATS 的职位详情 URL 形态。返回的 token 统一小写，便于去重。
+    先匹配职位详情 URL（形态最明确），再匹配 board 根页——公司门户跳转通常
+    落在后者。返回的 token 统一小写，便于去重。
     """
     text = (url or "").strip()
     if not text:
@@ -156,6 +183,12 @@ def extract_board(url: str) -> tuple[str, str] | None:
         match = pattern.search(text)
         if match:
             return provider, match.group(1).lower()
+    for provider, pattern in _BOARD_ROOT_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            token = match.group(1).lower()
+            if token not in _RESERVED_BOARD_TOKENS:
+                return provider, token
     return None
 
 # job-id 类参数：规范化时保留（小写比较）

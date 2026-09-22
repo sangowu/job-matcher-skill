@@ -95,6 +95,7 @@ job-matcher/
 │   ├── ats_provider.py       # public Ashby/Greenhouse/Lever GET adapters and Fake
 │   ├── ats_pipeline.py       # ATS registry, prefilter, sync, and normalization
 │   ├── ats_handoff.py        # in-memory ATS JD handoff to canonical merge
+│   ├── board_harvest.py      # recover ATS boards from job URLs and register verified ones
 │   ├── benchmark_pipeline.py # fixed small core/Fake Provider benchmark
 │   ├── benchmark_ats.py      # bounded public ATS regression using production adapters
 │   ├── benchmark_ats_e2e.py  # controlled fixed-Web vs Web+ATS A/B

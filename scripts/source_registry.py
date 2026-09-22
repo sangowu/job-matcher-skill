@@ -553,6 +553,22 @@ def _registry_lock(
             pass
 
 
+def board_source_id(provider: str, board_token: str) -> str:
+    """Stable source_id for an ATS board, shared by seeding and harvesting.
+
+    A source_id must start with a letter, so a token that does not (for example
+    "26shoes") falls back to a provider-first form instead of being rejected.
+    """
+    provider_key = str(provider or "").strip().lower()
+    token_key = str(board_token or "").strip().lower()
+    candidate = f"{token_key}-{provider_key}"
+    if not _SOURCE_ID_PATTERN.fullmatch(candidate):
+        candidate = f"{provider_key}-{token_key}"
+    if not _SOURCE_ID_PATTERN.fullmatch(candidate):
+        raise SourceValidationError(f"cannot derive a source_id for {provider}/{board_token}")
+    return candidate
+
+
 def _source_record_from_seed(seed: dict[str, Any]) -> dict[str, Any]:
     verified_at = seed["verified_at"] if seed["verified"] else None
     record = {
@@ -914,6 +930,8 @@ def _validate_proposal(proposal: Any, index: int) -> dict[str, Any]:
         "access_methods",
         "verification_ttl_days",
         "priority",
+        "board_token",
+        "instance",
     }
     unknown = set(proposal) - allowed_keys
     if unknown:
@@ -947,7 +965,7 @@ def _validate_proposal(proposal: Any, index: int) -> dict[str, Any]:
         raise SourceValidationError(f"proposals[{index}].verification_ttl_days is invalid")
     if not isinstance(priority, int) or isinstance(priority, bool) or not 0 <= priority <= 100:
         raise SourceValidationError(f"proposals[{index}].priority is invalid")
-    return {
+    record = {
         "source_id": source_id,
         "display_name": display_name,
         "source_type": source_type,
@@ -958,6 +976,20 @@ def _validate_proposal(proposal: Any, index: int) -> dict[str, Any]:
         "verification_ttl_days": ttl,
         "priority": priority,
     }
+    # A harvested ATS board is only actionable with its token, and the same
+    # rules that guard seeded boards apply to proposed ones.
+    for field in ("board_token", "instance"):
+        if field in proposal:
+            if not _TOKEN_PATTERN.fullmatch(str(proposal[field])):
+                raise SourceValidationError(f"proposals[{index}].{field} is invalid")
+            record[field] = str(proposal[field])
+    if source_type == "ats_board" and "board_token" not in record:
+        raise SourceValidationError(f"proposals[{index}].board_token is required for ats_board")
+    if "ats_public_api" in access and provider not in ATS_API_PROVIDERS:
+        raise SourceValidationError(
+            f"proposals[{index}].provider '{provider}' has no ATS API adapter"
+        )
+    return record
 
 
 def _validate_event(event: Any, index: int) -> dict[str, str]:

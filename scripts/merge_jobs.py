@@ -43,6 +43,7 @@ from _jobutil import (
     all_identity_keys,
     all_url_keys,
     is_closed_posting,
+    is_strong_identity_key,
     load_config,
     locations_compatible,
     make_dedup_key,
@@ -520,6 +521,31 @@ def _ensure_job_identity(job: dict, used_record_ids: set[str]) -> bool:
     return before != after
 
 
+def _match_by_url_key(keys, index, dedup_key, dedup_key_of):
+    """Resolve a url_key hit, refusing a weak key that points at a different job.
+
+    A url_key is only an identity when it carries a provider job id. Otherwise
+    `canonicalize_url()` falls back to host+path plus a short allowlist of
+    job-id query parameters -- so a company careers page that keeps its job id
+    in any other parameter collapses every job on that page onto one key. That
+    key used to authorize a merge on its own, which did not produce a duplicate:
+    it absorbed the second job into the first and dropped it, title and URL and
+    all. A weak key now has to agree on company and title as well.
+
+    Returns the matched target, and the target a weak key was refused for so
+    the caller can decide whether that refusal is worth counting.
+    """
+    blocked = None
+    for key in keys:
+        target = index.get(key)
+        if target is None:
+            continue
+        if is_strong_identity_key(key) or dedup_key_of(target) == dedup_key:
+            return target, blocked
+        blocked = target
+    return None, blocked
+
+
 def _weak_match(candidates: list[dict], incoming: dict) -> tuple[dict | None, str]:
     """Resolve a weak match only when it is compatible and unambiguous."""
     incoming_ids = set(all_identity_keys(incoming))
@@ -598,12 +624,14 @@ def _aggregate_batch(candidates: list, identity_stats: dict | None = None) -> di
             if key in by_identity_key:
                 target = by_identity_key[key]
                 break
-        for key in candidate_keys:
-            if target is not None:
-                break
-            if key in by_url_key:
-                target = by_url_key[key]
-                break
+        if target is None:
+            target, blocked = _match_by_url_key(
+                candidate_keys, by_url_key, dk, lambda rid: batch[rid]["dedup_key"]
+            )
+            if blocked is not None and target is None:
+                stats["weak_url_key_collisions_prevented"] = (
+                    stats.get("weak_url_key_collisions_prevented", 0) + 1
+                )
         if target is None:
             weak_hit, reason = _weak_match(by_dedup.get(dk, []), candidate_view)
             if weak_hit is not None:
@@ -852,12 +880,20 @@ def cmd_merge(
                 if identity_key in by_identity:
                     hit = by_identity[identity_key]
                     break
-            for uk in cand_keys:
-                if hit is not None:
-                    break
-                if uk in by_urlkey:
-                    hit = by_urlkey[uk]
-                    break
+            if hit is None:
+                hit, blocked = _match_by_url_key(
+                    cand_keys, by_urlkey, dk, lambda job: job.get("dedup_key")
+                )
+                # A collision inside this batch was already refused and counted
+                # by _aggregate_batch; only a stored record adds a new one.
+                if (
+                    blocked is not None
+                    and hit is None
+                    and blocked.get("record_id") in preexisting_record_ids
+                ):
+                    identity_stats["weak_url_key_collisions_prevented"] = (
+                        identity_stats.get("weak_url_key_collisions_prevented", 0) + 1
+                    )
             if hit is None:
                 hit, reason = _weak_match(by_dedup.get(dk, []), cand)
                 has_preexisting_weak_candidate = any(
@@ -969,6 +1005,9 @@ def cmd_merge(
             "strong_identity_records": sum(bool(job.get("identity_keys")) for job in jobs),
             "strong_identity_conflicts_prevented": identity_stats.get(
                 "strong_identity_conflicts_prevented", 0
+            ),
+            "weak_url_key_collisions_prevented": identity_stats.get(
+                "weak_url_key_collisions_prevented", 0
             ),
             "ambiguous_weak_matches_prevented": identity_stats.get(
                 "ambiguous_weak_matches_prevented", 0

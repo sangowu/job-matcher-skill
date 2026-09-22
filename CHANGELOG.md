@@ -39,6 +39,8 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Discovery budget now follows measured cost: the structured and Web Search channels own wave 1, while the browser is deferred by the new `browser_first_wave` (default 2) and narrowed to two sources per market per wave. The existing wave gate then withholds browser tasks entirely when the cheap channels already produced enough. `browser_first_wave: 1` restores the previous all-channels-at-once behaviour.
+- `ats_boards_per_round` rises from 10 to 30 and `ats_requests_per_round` from 30 to 100; a measured board costs roughly one request and a fraction of a second, so the old caps bound the cheapest channel far tighter than its cost warranted.
 - Source proposals accept `board_token` and `instance`, under the same rules as seeded boards: an `ats_board` proposal without a token, or one naming a provider with no adapter, is rejected.
 - The repository default is now `ats_enabled: true`. The public ATS path is the cheapest discovery channel measured so far (one request per board, roughly 0.2-0.6s, job descriptions included) and stays bounded by its own request/page/concurrency caps.
 - Structured discovery tasks now carry `provider`, `board_token`, and Lever's `instance`, so a board is fetched by provider identity instead of its human-facing `entry_url`.

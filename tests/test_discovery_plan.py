@@ -86,11 +86,15 @@ def test_coverage_plan_is_deterministic_and_uses_diverse_browser_sources():
     assert first == second
     assert first["channels"] == ["browser", "web_search"]
     assert first["browser_provider"] == "browseros_neo"
+    # The browser opens after the cheap channels, so diversity is guaranteed in
+    # its own first wave rather than in wave 1.
+    first_browser_wave = min(task["wave_id"] for task in first["tasks"]["browser"])
     browser_sources = [
         task["source_id"]
         for task in first["tasks"]["browser"]
-        if task["wave_id"] == first["initial_wave_id"]
+        if task["wave_id"] == first_browser_wave
     ]
+    assert first_browser_wave == "wave:2"
     assert browser_sources == ["irishjobs-ie", "publicjobs-ie", "amazon-careers"]
     assert {task["source_category"] for task in first["tasks"]["browser"]} == {
         "local",
@@ -129,7 +133,9 @@ def test_plan_builds_bounded_cross_channel_waves():
         for task in channel_tasks
     ]
     assert sorted(assigned) == sorted(planned)
-    assert plan["omitted_by_wave_budget"]["browser"] == 3
+    # The browser now has two waves instead of three, so three more eligible
+    # browser sources fall outside the budget.
+    assert plan["omitted_by_wave_budget"]["browser"] == 6
 
 
 def test_browser_tasks_are_semantic_bounded_and_contain_no_selectors():
@@ -282,3 +288,60 @@ def test_structured_channel_stays_empty_while_ats_is_disabled():
 
     assert plan["tasks"]["structured"] == []
     assert "structured" not in plan["channels"]
+
+
+def test_cheap_channels_own_the_first_wave_and_the_browser_waits():
+    """The browser costs minutes per task, so it must not spend wave 1."""
+    seeds = source_registry.load_seeds()
+    config = {**_config(), "ats_enabled": True}
+
+    plan = discovery_plan.build_discovery_plan(_request(seeds), seeds=seeds, config=config)
+    first_wave = next(wave for wave in plan["waves"] if wave["wave_id"] == "wave:1")
+
+    assert first_wave["task_ids"]["browser"] == []
+    assert first_wave["task_ids"]["structured"]
+    assert first_wave["task_ids"]["web_search"]
+    assert all(task["wave_id"] != "wave:1" for task in plan["tasks"]["browser"])
+
+
+def test_browser_first_wave_is_configurable():
+    seeds = source_registry.load_seeds()
+
+    eager = discovery_plan.build_discovery_plan(
+        _request(seeds), seeds=seeds, config={**_config(), "browser_first_wave": 1}
+    )
+    late = discovery_plan.build_discovery_plan(
+        _request(seeds), seeds=seeds, config={**_config(), "browser_first_wave": 3}
+    )
+
+    assert min(task["wave_id"] for task in eager["tasks"]["browser"]) == "wave:1"
+    assert {task["wave_id"] for task in late["tasks"]["browser"]} == {"wave:3"}
+    # A later start leaves fewer browser waves, so more sources fall outside it.
+    assert (
+        late["omitted_by_wave_budget"]["browser"]
+        > eager["omitted_by_wave_budget"]["browser"]
+    )
+
+
+def test_browser_first_wave_beyond_the_budget_plans_no_browser_task():
+    seeds = source_registry.load_seeds()
+
+    plan = discovery_plan.build_discovery_plan(
+        _request(seeds),
+        seeds=seeds,
+        config={**_config(), "discovery_max_waves": 2, "browser_first_wave": 3},
+    )
+
+    assert plan["tasks"]["browser"] == []
+    assert "browser" not in plan["channels"]
+    assert plan["omitted_by_wave_budget"]["browser"] > 0
+
+
+@pytest.mark.parametrize("value", [0, -1, "2", 2.0, True, 11])
+def test_invalid_browser_first_wave_is_rejected(value):
+    seeds = source_registry.load_seeds()
+
+    with pytest.raises(discovery_plan.DiscoveryPlanError, match="browser_first_wave"):
+        discovery_plan.build_discovery_plan(
+            _request(seeds), seeds=seeds, config={**_config(), "browser_first_wave": value}
+        )

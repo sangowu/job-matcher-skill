@@ -121,6 +121,7 @@
 - 算 `candidate_profile_hash`：把 candidate_profile JSON 喂给 `python scripts/cp_hash.py`（它规范化后再 hash，**保证同语义同 hash、不每轮分裂**），取返回的 `cp_hash`。后续 `merge_jobs` / `render_html` 的 `--cp-hash` **全部用它**（不要自己另编 hash）。
 
 ### 4. 检索职位（web 搜索 + 脚本，自适应分批）
+- **通道顺序按实测成本排**：结构化（公开 ATS API，单 board 一次请求、约 0.2–0.6 秒、自带 JD）与 Web Search 占据第一个波次；浏览器由 `browser_first_wave`（默认 2）推迟到后续波次。浏览器单任务是分钟级，且会在登录、模糊 consent 和自定义 combobox 上失败，因此它是兜底通道而不是主力。第一波产出已经足够时，既有的波次门禁根本不会放出浏览器任务。`browser_first_wave: 1` 可恢复三通道同时起跑的旧行为。
 - 一轮候选合并之后，可以用 `board_harvest.py --candidates <candidates.json>` 从候选 URL 反推公开 ATS board：Ashby/Greenhouse/Lever 的职位 URL 本身带着该公司 board 标识，一个职位即可换来整家公司的后续拉取。脚本只读候选的 `url` 字段，绝不把 URL、职位名、JD 或 CV 写入注册表。每个新 board 必须实拉复验一次才标 `verified`，市场归属由实际职位地点决定，不按公司总部推断；未应答、无职位或在受支持市场没有职位的 board 只记计数，不入库。单次运行的复验请求受 `--limit` 上限约束（默认 5），其余 board 留待下一轮。手工策展只负责冷启动，目录靠这条路径增长。
 - structured 任务按 provider 身份执行，不按 `entry_url` 抓取：`ats_board` 任务带 `provider`、`board_token`（Lever 另带 `instance`），直接交给 `ats_pipeline.py` / `ats_handoff.py` 的公开 API 路径。`entry_url` 只用于人工核对与报告展示。
 - 按 `discovery_plan.py` 输出的 `initial_wave_id` 只执行首个波次。当前波次内 browser、Web Search 和启用后的 structured 任务可以独立并发返回，但只能返回 CandidateEnvelope batch；都不得直接写主表或提前执行后续波次。浏览器来源按 local/public/global/company 类别优先保证首波多样性，再按健康计划 priority 分配到后续波次；Web Search 每条任务仍恰好调用一次。

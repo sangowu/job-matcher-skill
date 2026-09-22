@@ -96,6 +96,7 @@ job-matcher/
 │   ├── ats_pipeline.py       # ATS 标识库、初筛、同步与候选归一化
 │   ├── ats_handoff.py        # ATS 正文内存直送统一 merge，避免主上下文暴露
 │   ├── board_harvest.py      # 从职位 URL 反推 ATS board，复验后写入来源注册表
+│   ├── seed_promotion.py    # 把已复验的采集来源提升进版本控制的种子目录
 │   ├── benchmark_pipeline.py # 固定小数据集核心/Fake Provider 基准
 │   ├── benchmark_ats.py      # 复用生产适配器的公开 ATS 有界回归
 │   ├── benchmark_ats_e2e.py  # 固定 Web 对照组与 Web+ATS 受控 A/B

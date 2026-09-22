@@ -99,3 +99,22 @@ employer's whole board in a single request.
 - The probe is the verification, so a successful one marks the board `verified`
   and may enable it. `--no-enable` stops at `verified` when a human should
   approve the last step.
+
+## Getting the growth out of one machine
+
+`data/source_registry.json` sits under `.gitignore` — the whole `data/`
+directory is excluded because it also holds CV text, the job table and
+generated reports. Harvested boards therefore live on one machine: reinstalling
+the skill resets them, and nobody else benefits. A board token is public
+information with no PII in it; it was simply caught by that blanket rule.
+
+`seed_promotion.py` moves the durable part into version control. It promotes a
+source only when it is agent-origin, `verified`, still inside its TTL, and its
+`entry_url` can be rebuilt deterministically from the provider identity. The
+registry stores no URL by design, so a source whose URL cannot be rebuilt — any
+non-ATS agent source — is counted and left alone.
+
+Promotion transfers ownership. `merge_seeds()` refuses a seed that collides with
+an `agent` source, so the local record is re-origined to `seed` in the same
+operation; without that step the next registry merge would fail outright. A
+regression pins both halves.

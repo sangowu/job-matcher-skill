@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-09-21T11:03:32Z",
+  "runtime": "codex_desktop_windows",
+  "provider": "browseros_neo",
+  "site_class": "authenticated_job_board",
+  "site": "linkedin_jobs",
+  "flow": {
+    "login_required_detected": 1,
+    "site_paused_without_fallback": 1,
+    "panel_attention_rendered": 1,
+    "resume_requested_observed": 1,
+    "authenticated_landing_confirmed": 1,
+    "same_tab_search_reached": 1,
+    "result_container_observed": 1,
+    "nonempty_page_reads": 1,
+    "verification_tabs_closed": 1,
+    "panel_completed_events": 1
+  },
+  "privacy_counts": {
+    "unrelated_tabs_enumerated": 0,
+    "unrelated_tabs_read": 0,
+    "account_identifiers_captured": 0,
+    "credentials_captured": 0,
+    "cookie_or_profile_reads": 0,
+    "browser_history_reads": 0,
+    "urls_or_queries_persisted": 0,
+    "page_texts_persisted": 0,
+    "job_records_persisted": 0,
+    "forms_submitted": 0,
+    "messages_sent": 0,
+    "files_uploaded": 0,
+    "applications_submitted": 0,
+    "account_mutations": 0
+  },
+  "evidence_boundary": {
+    "authenticated_marker_location": "jobs_landing",
+    "search_marker": "result_container",
+    "search_page_authenticated_marker_claimed": false
+  },
+  "not_verified": [
+    "live_candidate_extraction",
+    "job_detail_liveness_verification",
+    "candidate_envelope_validation_and_merge",
+    "captcha_or_consent_handoff",
+    "rate_limit_pause_and_resume"
+  ]
+}

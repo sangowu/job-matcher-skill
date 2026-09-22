@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-09-21T10:46:56Z",
+  "runtime": "codex_desktop_windows",
+  "mode": "auto",
+  "provider": "browseros_neo",
+  "tool_surface_observed": true,
+  "capabilities": {
+    "tabs": true,
+    "navigate": true,
+    "read": true
+  },
+  "successful_session_naming_runs": 1,
+  "successful_dedicated_tab_runs": 1,
+  "successful_same_tab_navigation_runs": 1,
+  "successful_read_runs": 2,
+  "successful_close_runs": 1,
+  "selector": {
+    "status": "ready",
+    "browser_provider": "browseros_neo",
+    "routes": [
+      "browser"
+    ],
+    "issues": []
+  },
+  "privacy_counts": {
+    "existing_tabs_enumerated": 0,
+    "existing_tabs_read": 0,
+    "private_or_account_pages_opened": 0,
+    "cookie_or_profile_reads": 0,
+    "browser_history_reads": 0,
+    "forms_submitted": 0,
+    "messages_sent": 0,
+    "files_uploaded": 0,
+    "applications_submitted": 0
+  },
+  "not_verified": [
+    "authenticated_job_board_session",
+    "captcha_or_login_handoff",
+    "rate_limit_pause_and_resume"
+  ]
+}

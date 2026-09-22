@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "run_id": "discovery-wave-live-smoke-20260921",
+  "observed_at": "2026-09-21T16:49:14.0241068Z",
+  "outcome": "partial_pass",
+  "plan": {
+    "schema_version": 1,
+    "wave_id": "wave:1",
+    "planned_tasks": 4,
+    "channels": [
+      "browser",
+      "web_search"
+    ],
+    "browser_provider": "browseros_neo"
+  },
+  "browser": {
+    "planned": 3,
+    "succeeded": 1,
+    "needs_user_action": 2,
+    "failed": 0,
+    "candidate_count": 0,
+    "semantic_form_search_completed": true,
+    "normalized_location_observed": true,
+    "consent_pauses": 2
+  },
+  "web_search": {
+    "planned": 1,
+    "succeeded": 1,
+    "failed": 0,
+    "calls": 1,
+    "result_pages_returned": 29,
+    "qualifying_direct_job_pages_observed": 2
+  },
+  "orchestration": {
+    "batch_commit_attempted": false,
+    "next_wave_dispatched": false,
+    "reason": "current_wave_has_non_terminal_consent_tasks",
+    "attention_state": "needs_user_action",
+    "attention_issue": "consent_required"
+  },
+  "privacy": {
+    "cv_content_persisted": false,
+    "query_content_persisted": false,
+    "candidate_content_persisted": false,
+    "job_urls_persisted": false,
+    "account_data_read": false,
+    "cookies_read": false
+  }
+}

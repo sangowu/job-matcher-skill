@@ -533,6 +533,36 @@ def test_phase_c_routes_merge_one_job_with_complete_provenance(
     }
 
 
+@pytest.mark.parametrize("route", ["browseros_neo", "user_browser"])
+def test_local_browser_route_uses_canonical_merge_writer(
+    isolated_store, monkeypatch, capsys, route
+):
+    item = phase_c_candidate(
+        route=route,
+        source_id="company-careers",
+        language="de",
+        title="KI-Ingenieur",
+        url="https://boards.greenhouse.io/acme/jobs/4567890",
+        source_type="company_careers",
+    )
+
+    output = invoke(
+        monkeypatch,
+        capsys,
+        merge_jobs.cmd_merge,
+        [item],
+        "cv",
+        "cp",
+        None,
+        f"local-browser-{route}",
+    )
+    job = load_table(isolated_store)["jobs"][0]
+
+    assert output["stats"]["new"] == 1
+    assert output["eval_run"]["task_count"] == 1
+    assert job["raw_sources"][0]["discovery_route"] == route
+
+
 def test_phase_c_batch_replay_does_not_increment_seen_or_create_another_run(
     isolated_store, monkeypatch, capsys
 ):

@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-09-21T11:14:07Z",
+  "runtime": "codex_desktop_windows",
+  "provider": "browseros_neo",
+  "site_class": "global_job_board",
+  "flow": {
+    "live_candidates_extracted": 1,
+    "job_details_opened": 1,
+    "active_apply_signals": 1,
+    "closed_posting_signals": 0,
+    "candidate_envelopes_validated": 1,
+    "temporary_merge_candidates": 1,
+    "temporary_merge_table_size": 1,
+    "temporary_merge_analysis_tasks": 1,
+    "strong_identity_records": 1,
+    "browser_routes_preserved": 1,
+    "source_types_preserved": 1
+  },
+  "privacy_counts": {
+    "unscoped_read_regressions_observed": 1,
+    "scoped_main_reads_passed": 1,
+    "account_metadata_values_persisted_to_repository": 0,
+    "job_records_persisted_to_repository": 0,
+    "canonical_job_table_writes": 0,
+    "forms_submitted": 0,
+    "messages_sent": 0,
+    "files_uploaded": 0,
+    "applications_submitted": 0,
+    "account_mutations": 0
+  },
+  "contract": {
+    "discovery_route": "browseros_neo",
+    "source_type": "global_job_board",
+    "link_verification_status": "alive",
+    "merge_store_scope": "temporary"
+  },
+  "not_verified": [
+    "multi_result_pagination",
+    "other_job_board_layouts",
+    "non_english_browser_extraction",
+    "full_cv_run_to_production_table",
+    "captcha_or_consent_handoff",
+    "rate_limit_pause_and_resume"
+  ]
+}

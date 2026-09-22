@@ -216,6 +216,16 @@ def test_flatten_exposes_filterable_provenance_without_translating_source_fields
     assert len(flattened["provenance"]) == 2
 
 
+def test_report_template_labels_local_browser_discovery_routes():
+    template = (Path(__file__).resolve().parents[1] / "assets" / "template.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'route_browseros_neo: "BrowserOS Neo"' in template
+    assert 'route_user_browser: "用户浏览器"' in template
+    assert 'route_user_browser: "User browser"' in template
+
+
 def test_report_meta_aggregates_market_coverage_without_treating_failure_as_zero():
     meta = render_html.normalize_report_meta(
         {

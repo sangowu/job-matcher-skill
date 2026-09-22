@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-09-21T18:14:31.1081601+01:00",
+  "browser_provider": "browseros_neo",
+  "policy": "necessary_only",
+  "sites_observed": 2,
+  "preexisting_nonblocking_sites": 1,
+  "consent_dialogs_opened": 1,
+  "unique_safe_actions": 1,
+  "necessary_only_clicks": 1,
+  "dialogs_cleared_after_action": 1,
+  "accept_all_clicks": 0,
+  "category_toggle_clicks": 0,
+  "cookie_store_reads": 0,
+  "candidate_content_persisted": false,
+  "page_content_persisted": false,
+  "outcome": "pass"
+}

@@ -1,7 +1,7 @@
 # Job Matcher — Workflow（agent-中立）
 
 > 本文件是 job-matcher 的**单一事实源流程**，不绑定任何特定 agent。
-> 任何具备「运行 Python + 读写文件 + web 搜索」能力的 agent 都能照此执行。
+> 当前正式职位发现需要「运行 Python + 读写文件」，以及至少一条已就绪的发现路径：模型/Web 搜索或本机浏览器。浏览器连接由当前 Agent 已暴露的工具执行，不由 Python 扫描本机。
 > 各 agent 的入口文件（如 Claude Code 的 `SKILL.md`）只负责把下面的「能力」映射到该 agent 的具体工具，流程本身在这里。
 
 ## 能力前提
@@ -9,9 +9,10 @@
 | 能力 | 必需性 | 映射到你的运行时 | 缺失时 |
 |------|:---:|------|------|
 | 运行 Python 3 + 读写文件 | **必需** | shell / exec | 无法运行（脚本是骨架） |
-| Web 搜索 | **必需** | 你的 web 搜索工具 | 无法做职位检索（核心残缺） |
+| 模型/Web 搜索 | 可选发现路径 | 你的 web 搜索工具 | 降级到已就绪的本机浏览器；两者都缺失则无法检索 |
 | 并行子代理 | 可选 | 你的 sub-agent / 并行机制 | **降级：你自己主线程串行执行各步** |
 | 网页抓取 | 可选 | 你的 fetch / 浏览工具 | **回退脚本**：静态/本机 `fetch_rendered.py`，以及可选的远程 `browser_control.py` |
+| 本机浏览器发现 | 可选发现路径 | 已连接、已授权且具备 tabs/navigate/read 的 BrowserOS Neo 或用户浏览器工具 | 继续模型/Web 搜索；不得把仅安装浏览器当作已可用 |
 
 > 下文用「**子代理**」「**web 搜索**」「**抓取**」指代上述能力。有就用，没有就按"缺失时"列降级——流程不变，只是慢一些、上下文不那么整洁。
 
@@ -40,8 +41,15 @@
 | `extract_cv.py` | `python scripts/extract_cv.py <file>` | CV 文件路径 | `{ok, source_type, char_count, cv_hash, text_path, cache_hit, cached_profile_path?, warnings}` |
 | `validate_profile.py` | `python scripts/validate_profile.py`（stdin） | LLM 抽取的 CVProfile JSON | `{ok, profile, notes}` |
 | `market_plan.py` | `… validate` / `… plan`（stdin） | 四市场配置；或 `{cv_profile,user_intent}` | 配置校验；或确定性 `{target_markets,target_locations,report_language,search_languages,search_plan,...}` |
+| `discovery_mode.py` | `… plan` / `… event`（stdin） | 用户模式 + 当前运行时只读能力状态；或本机浏览器事件 | 优先 Neo 的发现 route 决策；连接丢失时有界降级，验证/限流时暂停单站；不探测系统或读取凭据 |
+| `discovery_plan.py` | `python scripts/discovery_plan.py`（stdin） | `{market_plan,source_plan,route_plan,browser_settings?}` | 只读连接公开来源目录与 URL-free 健康计划，生成确定性 browser/Web/structured 任务；不执行搜索或写状态 |
+| `discovery_batch.py` | `… --cv-hash H --cp-hash H [--metrics-run-id R]`（stdin） | `{batch_id,wave_id,discovery_plan,task_results,source_updates,progress}` | 强校验当前波次每个任务的终态与 CandidateEnvelope，一次 merge 后提交来源状态，并从计划推导幂等 count-only 下一波决策 |
+| `local_browser_probe.py` | `… probe`（stdin） | Agent 已观察到的 provider、连接/授权状态及工具名或规范操作 | 不回显工具名的 `ready/needs_setup/unavailable/unsupported` 能力结果；不自行连接浏览器 |
+| `local_browser_panel.py` | `serve/settings/status/event` | 非敏感模式设置；低基数本机浏览器状态事件 | loopback HTML 面板、闪烁提醒和 `resume_requested`；不接收 URL/Cookie/账号/正文/会话 ID |
+| `cookie_consent.py` | `python scripts/cookie_consent.py`（stdin） | 当前 consent dialog 的有界 role/name/text 与语义 controls | 只返回唯一“仅必要/拒绝可选”按钮 ref 或 `pause`；不读取 Cookie、不点击页面、不接受 `Accept All` |
 | `source_registry.py` | `… validate/init/apply/plan/rollback-legacy` | 公开来源种子、PII-safe 来源提案/健康事件 | 原子维护 `data/source_registry.json`；输出确定性 eligible 来源 ID 或迁移/回滚摘要 |
 | `candidate_contract.py` | `python scripts/candidate_contract.py`（stdin） | Phase C CandidateEnvelope 数组 | 严格校验、边界归一化后的候选数组；不接收 JD/评分字段 |
+| `browser_candidate_smoke.py` | `python scripts/browser_candidate_smoke.py`（stdin） | 最多 20 条浏览器 CandidateEnvelope | 在系统临时目录执行真实 merge，输出 count-only provenance 结果并自动清理，不写正式职位表 |
 | `candidate_handoff.py` | `… --cv-hash H --cp-hash H [--metrics-run-id R]`（stdin） | 同一 `batch_id` 的市场/来源计划、双 route 回报和来源更新 | merge-first 的幂等提交摘要；中断后按 manifest 续跑，不输出候选/JD 正文 |
 | `merge_jobs.py merge` | `… merge --cv-hash H --cp-hash H [--batch-id B]`（stdin） | 旧候选数组或严格 CandidateEnvelope 数组 | `{idempotent,to_analyze,to_score_only,in_evaluation,cached,eval_run,stats,metrics_recorded}` |
 | `merge_jobs.py update` | `… update --cv-hash H --cp-hash H --run-id R`（stdin） | 带快照元数据的打分结果数组 | `{ok, updated, rebased, rejected, conflicts, released, duration_ms, metrics_recorded}` |
@@ -64,6 +72,8 @@
 
 ### 0. 准备
 - 读 `config.json` 拿参数。
+- **发现能力选择（Phase 1+2）**：按 `docs/discovery-mode-phase1.md` 与 `docs/local-browser-phase2.md` 观察当前运行时是否能执行模型搜索、BrowserOS Neo、本机用户浏览器。对浏览器只把当前 Agent 已暴露的工具/规范操作传给 `python scripts/local_browser_probe.py probe`，再把结果状态输入 `python scripts/discovery_mode.py plan`；不要扫描进程、端口、配置、Cookie 或现有标签页。用户未选模式时用 `coverage`：浏览器提供者按 Neo → 用户浏览器选择，浏览器和模型/Web 搜索两个发现通道同时执行。旧 `auto` 保留只选第一条 ready route 的兼容语义；`browser_only` 无浏览器时停止说明原因，所有 route 都不可用时不能生成貌似完整的空报告。
+- **本机控制面板（Phase 3，可选）**：按 `docs/local-browser-phase3-panel.md` 启动 `python scripts/local_browser_panel.py serve` 并在规划前读取 `settings`。浏览器状态识别后只提交 allowlist `event`；不得传 URL、query、公司、账号、标签页/会话 ID 或 CV/JD 正文。面板出现 `resume_requested` 后，Agent 先重新观察专用标签页，再发布 `running` 或新的暂停事件。运行时不能维持 localhost 服务时，继续搜索并在聊天中明显提醒，不得因此把 route 判失败。
 - `python scripts/version_check.py`：默认最多每 24 小时用只读 GitHub public API 对比 `main` 的版本号和 commit，其余启动复用 `data/version_check.json`。`different` / `version_different` / `local_modified` 时简短提醒用户但继续；`synced` / `version_synced` 无需打扰；`unknown` 只在诊断时说明。不得根据结果自动 `git pull`、切分支或覆盖文件。只有用户明确要求立即复查时才使用 `--force`。
 - `python scripts/round_timer.py start` → 记下返回的 `run_id`（兼容字段 `round_id` 值相同；整轮计时，第 7 步收尾时结束）。后续所有指标命令都显式传这个 pipeline run id；它与 `merge` 返回的评估 `run_id` 不是同一概念。`metrics_recorded:false` 不阻塞流程，但必须告知用户。
 - **灵活识别输入**：从用户消息找出 CV（文件路径，或粘贴的大段简历文本）和 query（求职意向）。
@@ -95,6 +105,11 @@
   Worker 只能提交不含 URL/query/JD/CV/职位信息的 proposal/event batch，由主编排器调用
   `apply` 串行提交；重复 `batch_id` 幂等。`plan --markets ...` 只列出
   `enabled + verified + TTL 未过期` 的来源，candidate 不自动启用、全局来源跨市场只列一次。
+- 取得 market plan、`source_registry.py plan` 输出和 `discovery_mode.py plan` 输出后，把三者作为
+  `{market_plan,source_plan,route_plan}` 交给 `python scripts/discovery_plan.py`。它只在内存中连接
+  公开 `source_seeds.json` 的 URL/访问策略与 URL-free 健康计划，输出有界 browser/Web/structured
+  任务。详细契约见 `docs/discovery-plan.md`。不得跳过该步骤让浏览器自行猜网站，也不得把执行 URL
+  写回健康注册表。
 - `user_intent.locations` 覆盖 CV 默认地点；没有用户地点时才依次回退
   `target_locations`、旧 `preferred_locations`、最后的 `current_location`。无法识别的明确地点
   返回 `needs_user_input=true`，不能回退到 CV 地点或猜国家。
@@ -105,7 +120,12 @@
 - 算 `candidate_profile_hash`：把 candidate_profile JSON 喂给 `python scripts/cp_hash.py`（它规范化后再 hash，**保证同语义同 hash、不每轮分裂**），取返回的 `cp_hash`。后续 `merge_jobs` / `render_html` 的 `--cp-hash` **全部用它**（不要自己另编 hash）。
 
 ### 4. 检索职位（web 搜索 + 脚本，自适应分批）
-- **Phase C 显式多地区入口**：从同一 market/source plan 在同一条编排消息中同时启动
+- 按 `discovery_plan.py` 输出的 `initial_wave_id` 只执行首个波次。当前波次内 browser、Web Search 和启用后的 structured 任务可以独立并发返回，但只能返回 CandidateEnvelope batch；都不得直接写主表或提前执行后续波次。浏览器来源按 local/public/global/company 类别优先保证首波多样性，再按健康计划 priority 分配到后续波次；Web Search 每条任务仍恰好调用一次。
+- 当前波次每个 task 必须恰好回报一次 `succeeded`、`failed` 或 `skipped`。`failed` 必须使用低基数 `failure_kind`，失败/跳过任务的候选必须为空。`necessary_only` 下，只有当前 consent dialog 内唯一且由 `cookie_consent.py` 明确分类的 button 可以自动点击；`ask_every_time`、零/多匹配、登录、CAPTCHA、限流或其他需判断 consent 都是暂停状态，处理或明确放弃前不得提交整批。把原 DiscoveryPlan、`wave_id`、该波次所有 task results、可选来源更新以及 count-only progress 一次性交给 `discovery_batch.py`。它先预校验 source batch 和每条 CandidateEnvelope 与所属 task 的 route/source/market/language，再把全部通道候选合并为一次 `merge_jobs.py merge`，最后提交 source registry；重复 `batch_id` 同输入为 no-op，不同输入拒绝。
+- 对带 `waves` 的新计划，`discovery_batch.py` 从计划本身判断是否仍有任务，再结合 merge 的 `new`、累计唯一候选、`stop_threshold` 与 `consecutive_empty_stop` 输出 `continuation.decision=continue|stop`。只有 `continue` 才返回 `next_wave_id` 与对应 task IDs；调用方不得传入 `has_more_tasks` 覆盖该判断。无 `waves` 的旧计划仍可使用旧字段。该决策只控制候选发现扩展，不代表 JD 已完整或职位已通过 CV 评分；后续仍按第 5 步评估。
+- **本机浏览器 route**：仅当 Phase 2 probe 为 `ready` 且任务计划包含 `browser` 时执行。用当前运行时工具打开一个专用 Agent 标签页，只访问任务给定的 `entry_url` 和允许的同站跳转，以 accessibility tree/snapshot 语义识别关键词、地点、搜索和翻页控件；不得使用硬编码 selector、读取已有标签页、提交申请、发消息、上传文件、执行页面脚本、导出 Cookie 或修改账户。读取范围优先限制在职位列表/详情主区域，不把账户导航、通知数或个性化侧栏带入候选或日志。候选设置 `discovery_route=browseros_neo|user_browser`，但 `source_type` 仍记录实际招聘来源类型；LinkedIn 等跨市场平台使用 `global_job_board`，不得错标成 `local_job_board`。只有打开职位详情且看到有效职位/申请入口时标 `alive`，只见列表时标 `unknown`。先用 `candidate_contract.py` 校验；首次接入或回归可再用 `browser_candidate_smoke.py` 在临时 store 验证 merge，生产运行仍由编排者串行交给既有 `merge_jobs.py merge`。不建立浏览器专用职位表，也不把它塞进要求双 route 的 `candidate_handoff.py`。
+- 浏览器首次真实调用失败时向 selector 提交 `connection_lost` 重新规划，并向面板发布对应失败状态；登录、验证码、需判断的 consent 或限流时向 selector 提交 `user_action_required`/`rate_limited`，同时向面板发布 `needs_user_action`/`rate_limited`。暂停该站并明显提醒用户，不为同一受阻站点自动换浏览器或绕过验证。结束时只关闭该专用标签页，发布 `completed` 并停止本轮面板服务。
+- **旧 Phase C 显式多地区入口（兼容）**：从同一 market/source plan 在同一条编排消息中同时启动
   `regional_registry` 与 `agent_web_search` worker。两者只能回传 immutable route batch，不能写
   主表、评估快照、来源注册表或指标。每条 route 必须回报 `succeeded/failed/skipped`；失败 route
   候选必须为空，但不能阻断另一 route 的有效候选。

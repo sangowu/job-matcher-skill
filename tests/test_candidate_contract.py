@@ -50,6 +50,12 @@ def test_json_schema_and_runtime_validator_share_required_contract():
 
     assert set(schema["required"]) <= set(normalized)
     assert schema["additionalProperties"] is False
+    assert set(schema["properties"]["discovery_route"]["enum"]) == (
+        candidate_contract.DISCOVERY_ROUTES
+    )
+    assert set(schema["properties"]["source_type"]["enum"]) == (
+        candidate_contract.SOURCE_TYPES
+    )
     assert normalized["search_language"] == "de"
     assert normalized["identity_keys"] == ["greenhouse:123"]
 
@@ -86,3 +92,42 @@ def test_unknown_location_cannot_assert_a_market():
 
     with pytest.raises(candidate_contract.CandidateContractError, match="cannot assert"):
         candidate_contract.validate_candidate_envelope(item)
+
+
+@pytest.mark.parametrize("route", ["browseros_neo", "user_browser"])
+def test_local_browser_routes_use_the_existing_candidate_envelope(route):
+    normalized = candidate_contract.validate_candidate_envelope(
+        envelope(discovery_route=route, identity_keys=[])
+    )
+
+    assert normalized["discovery_route"] == route
+    assert normalized["identity_keys"] == []
+
+
+def test_global_job_board_is_distinct_from_local_market_sources():
+    normalized = candidate_contract.validate_candidate_envelope(
+        envelope(
+            source="LinkedIn Jobs",
+            source_id="linkedin-jobs",
+            source_type="global_job_board",
+            discovery_route="browseros_neo",
+            identity_keys=["linkedin:4460145019"],
+        )
+    )
+
+    assert normalized["source_type"] == "global_job_board"
+
+
+def test_teamtailor_identity_is_accepted_for_web_discovery():
+    normalized = candidate_contract.validate_candidate_envelope(
+        envelope(
+            source="Huawei Ireland Research Centre",
+            source_id="huawei-ireland-careers",
+            source_type="company_careers",
+            discovery_route="agent_web_search",
+            identity_keys=["teamtailor:8181244"],
+        ),
+        known_source_ids={"huawei-ireland-careers"},
+    )
+
+    assert normalized["identity_keys"] == ["teamtailor:8181244"]

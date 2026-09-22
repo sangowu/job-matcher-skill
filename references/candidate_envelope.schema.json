@@ -39,10 +39,10 @@
     "source": {"type": "string", "maxLength": 100},
     "source_id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{2,99}$"},
     "source_type": {
-      "enum": ["ats_board", "company_careers", "local_job_board", "public_sector_portal", "web_query_template"]
+      "enum": ["ats_board", "company_careers", "global_job_board", "local_job_board", "public_sector_portal", "web_query_template"]
     },
     "discovery_route": {
-      "enum": ["regional_registry", "agent_web_search", "ats_expansion", "company_careers"]
+      "enum": ["regional_registry", "agent_web_search", "ats_expansion", "company_careers", "browseros_neo", "user_browser"]
     },
     "search_language": {"enum": ["en", "de", "zh-Hans"]},
     "observed_at": {"type": "string", "format": "date-time", "maxLength": 40},

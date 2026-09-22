@@ -4,9 +4,9 @@
 
 版本文档：[更新记录](CHANGELOG.md) · [v2.4.0 发布说明](docs/releases/v2.4.0.md) · [v2.3.0 发布说明](docs/releases/v2.3.0.md) · [v2.2.0 发布说明](docs/releases/v2.2.0.md) · [v2.1.0 发布说明](docs/releases/v2.1.0.md) · [v2.0.0 发布说明](docs/releases/v2.0.0.md)
 
-> 一个 **agent skill（Claude Code 与 Codex 通用）**：输入**简历(CV) + 求职意向**，自动抽取简历字段、用 **web 搜索实时检索**匹配职位，生成一份**可交互的 HTML 报告**。
+> 一个 **agent skill（Claude Code 与 Codex 通用）**：输入**简历(CV) + 求职意向**，自动抽取简历字段、组合使用**模型/Web 搜索与 BrowserOS Neo 或用户浏览器**检索匹配职位，生成一份**可交互的 HTML 报告**。
 
-是 [JobRadar](https://github.com/sangowu/JobRadar) 的**轻量版**——默认只依赖 agent 原生能力（web 搜索 + 子代理 + Python 脚本），并可选接入 BYOK 隔离浏览器，借鉴 JobRadar 的 schema、算法与界面风格。
+是 [JobRadar](https://github.com/sangowu/JobRadar) 的**轻量版**——默认同时使用模型搜索和可用的本机浏览器；浏览器提供者优先选择 Agent 已连接的 BrowserOS Neo，再降级到已授权用户浏览器，也可选接入 BYOK 隔离浏览器作为抓取兜底。
 
 ---
 
@@ -14,7 +14,7 @@
 
 - 📄 **简历解析**：支持 PDF / DOCX / TXT / MD，或直接粘贴文本（不做 OCR）。
 - 🧠 **结构化抽取**：抽取目标职位、技能、资历(seniority)、地点、语言等，自动按相关年限定级。
-- 🔎 **实时职位检索**：基于 WebSearch 自适应分批搜索；按 CV 语言选职位词，按目标地点叠加当地平台（爱尔兰/英国、欧陆、澳新、中国大陆，其余市场按语言+地点推断）。
+- 🔎 **实时职位检索**：默认并行运行浏览器平台搜索与模型/Web 搜索；浏览器按 Neo → 用户浏览器选择提供者，平台由地区来源目录动态规划，不在代码中硬编码站点 selector。
 - 🎯 **5 维匹配打分**：title / seniority / skills / location / must-have，输出五档投递建议（强烈投递→跳过）。资历硬规则与契约校验拦截打分漂移。
 - 🗂️ **增量缓存**：CV、JD、匹配分三层缓存；多来源同职位自动聚合（含区域平台 job-id 强命中）；换 query 自动失效重算。
 - 🛡️ **不可信输入隔离**：搜索结果与 JD 正文按纯数据处理并忽略其中指令；报告内嵌 JSON 转义、链接限 http(s)。
@@ -34,7 +34,7 @@ CV + query
    │ [缓存检查]                 → 命中则跳过抽取
    │ [subagent] 抽取 CVProfile  → [脚本] validate_profile
    │ [主agent] 融合 query       → search_plan + candidate_profile
-   │ [并行 subagent] WebSearch+解析+初筛 → [脚本] merge_jobs(去重/聚合/缓存+评估快照)
+   │ [发现计划] 浏览器平台+模型/Web+可选ATS → [脚本] merge_jobs(去重/聚合/缓存+评估快照)
    │ [并行 subagent] 粗排→精排抓JD+5维打分 + 失效验证 → [脚本] 条件化回写
    │ [脚本] render_html         → report_*.html（自动打开）
    ▼
@@ -68,6 +68,13 @@ job-matcher/
 │   ├── extract_cv.py         # 解析 CV → 文本 + hash
 │   ├── validate_profile.py   # 校验 + seniority→levels 映射
 │   ├── market_plan.py        # 校验市场资源并生成确定性多地区计划
+│   ├── discovery_mode.py     # 只读能力状态的发现模式选择与安全降级
+│   ├── discovery_plan.py     # 连接市场/健康/来源目录并生成多通道执行任务
+│   ├── discovery_batch.py    # 校验所有任务结果，一次 merge 并决定是否扩展下一批
+│   ├── local_browser_probe.py # 校验 Agent 已观察到的本机浏览器工具面
+│   ├── local_browser_panel.py # localhost 设置、状态与闪烁人工提醒面板
+│   ├── cookie_consent.py    # accessibility Cookie 语义分类；仅必要或暂停
+│   ├── browser_candidate_smoke.py # 临时 store 验证浏览器候选与 merge，不污染正式数据
 │   ├── source_registry.py    # 来源种子校验、健康状态、迁移与确定性来源计划
 │   ├── candidate_contract.py # 严格校验 Phase C CandidateEnvelope
 │   ├── candidate_handoff.py  # 双发现管道串行交给 merge/registry 单写入器
@@ -123,6 +130,34 @@ Phase E 的 count-only shadow 契约、逐市场门槛和当前未达标状态�
 [`docs/multi-region-phase-e.md`](docs/multi-region-phase-e.md)。
 `multi_region_enabled` 默认仍是 `false`；因此 Phase C 不会自动替换现有单地区流程。
 
+发现模式 Phase 1+2 提供 `discovery_mode.py plan|event` 与
+`local_browser_probe.py probe` 的确定性契约。默认 `coverage` 同时运行模型/Web 搜索与一个
+**已连接、已授权且可执行**的浏览器提供者，浏览器内部按 BrowserOS Neo → 用户浏览器选择；旧
+`auto` 保留单 route 兼容行为，`browser_only` 绝不静默改用模型搜索。`discovery_plan.py` 再把
+market plan、URL-free 健康计划和公开来源目录连接成有界 browser/Web/structured 任务。探测基于
+Agent 已暴露的工具面，不扫描端口、浏览器配置、Cookie 或现有标签页；实际发现使用专用标签页，
+候选仍进入同一 CandidateEnvelope/merge 主表。详见
+[`docs/discovery-mode-phase1.md`](docs/discovery-mode-phase1.md) 与
+[`docs/local-browser-phase2.md`](docs/local-browser-phase2.md)。浏览器 route 可运行
+`python scripts/local_browser_panel.py serve` 打开 loopback 控制面板：它只保存模式和低基数状态，
+登录/验证/consent/限流时闪烁并等待用户恢复；详细契约见
+[`docs/local-browser-phase3-panel.md`](docs/local-browser-phase3-panel.md)。现有 Kernel 远程浏览器仍只是
+单独的可选抓取兜底，不会代替用户本机的登录会话。
+
+DiscoveryPlan 把跨通道任务分成确定性波次；Agent 先只执行 `initial_wave_id`。每个当前波次 task
+完成后，`discovery_batch.py` 要求其恰有一个终态，校验候选与 task 的
+route/source/market/language 一致性，再把该波次所有通道候选一次性交给现有单写入 merge。
+它的脱敏 manifest 支持中断恢复，并按新增唯一候选、计划内剩余波次和现有停止阈值决定是否返回
+`next_wave_id`；调用方不能自行覆盖。该决策只控制发现扩展，不等同于 JD 完整或 CV 匹配合格。
+2026-09-21 的有界运行时 smoke 已分别验证 BrowserOS Neo MCP 主路径和用户 Chrome 降级路径的
+专用标签页 create/navigate/read/close；当 Neo 可用时浏览器提供者会选择 Neo。LinkedIn 实测还验证了
+登录暂停、面板提醒/恢复、登录态复用和同标签页受限搜索；后续单候选 smoke 已通过受限主区域读取、
+详情存活验证、CandidateEnvelope 和临时 merge；三候选同页批次也完成 3/3 provenance 保留。跨页翻页、其他平台/语言、完整 CV 生产运行及
+CAPTCHA、歧义 consent 的人工恢复和限流恢复仍是 gate。证据边界见
+[`docs/local-browser-phase4-smoke.md`](docs/local-browser-phase4-smoke.md)。确定性首波的 Neo + Web Search
+联合 smoke、consent 暂停、三波继续/停止决策以及临时单写入 merge 的证据见
+[`docs/discovery-wave-live-smoke.md`](docs/discovery-wave-live-smoke.md)。
+
 ## 🚀 使用
 
 克隆到个人 skill 目录（目录名用 `job-matcher`，与 skill 名一致）：
@@ -154,6 +189,13 @@ agent 会自动识别。然后在对话里：
 | `max_parallel_subagents` | 3 | 批内并行上限 |
 | `subagent_profiles` | 见配置 | 各角色请求的 model、reasoning effort 与隔离上下文策略 |
 | `max_websearch_calls` | 6 | WebSearch 总次数上限 |
+| `discovery_mode` | coverage | `coverage` 默认并行浏览器+模型搜索；`auto` 保留单 route 兼容；也支持 `model_only`、`browser_only`、`combined` |
+| `cookie_consent_policy` | necessary_only | 只在唯一明确语义按钮上自动拒绝可选 Cookie；也可设 `ask_every_time` |
+| `discovery_max_waves` | 3 | 单次计划最多生成的确定性发现波次数 |
+| `browser_sources_per_market` | 3 | 每个市场、每个波次的浏览器来源上限；首波先保证来源类型多样性 |
+| `browser_queries_per_source` | 2 | 单个浏览器来源本轮执行的地区化查询上限 |
+| `web_queries_per_market_per_wave` | 1 | 每市场、每波次执行的 Web Search 查询上限 |
+| `web_source_hints_per_task` | 6 | 每条 Web Search 任务携带的公开来源提示上限 |
 | `multi_region_enabled` | false | 多地区来源总开关；关闭时所有市场有效模式均为 off |
 | `multi_region_rollout` | 四市场均 off | 每市场独立设置 off / shadow / opt_in / default；default 必须通过 Phase E 门禁 |
 | `stop_threshold` | 12 | 净有效职位达标停止 |

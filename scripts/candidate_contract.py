@@ -20,6 +20,7 @@ INTERNAL_LANGUAGES = {"en", "de", "zh-Hans"}
 SOURCE_TYPES = {
     "ats_board",
     "company_careers",
+    "global_job_board",
     "local_job_board",
     "public_sector_portal",
     "web_query_template",
@@ -29,6 +30,8 @@ DISCOVERY_ROUTES = {
     "agent_web_search",
     "ats_expansion",
     "company_careers",
+    "browseros_neo",
+    "user_browser",
 }
 LINK_STATUSES = {"unknown", "alive", "dead", "possibly_closed"}
 LOCATION_CONFIDENCE = {"exact", "country", "scope", "unknown"}

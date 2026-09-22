@@ -43,6 +43,7 @@ INTERNAL_LANGUAGES = ("en", "de", "zh-Hans")
 SOURCE_TYPES = {
     "ats_board",
     "company_careers",
+    "global_job_board",
     "local_job_board",
     "public_sector_portal",
     "web_query_template",
@@ -60,7 +61,7 @@ LOCAL_SOURCE_TYPES = {
     "public_sector_portal",
     "web_query_template",
 }
-GLOBAL_SOURCE_TYPES = {"company_careers", "ats_board"}
+GLOBAL_SOURCE_TYPES = {"company_careers", "ats_board", "global_job_board"}
 SEED_KEYS = {
     "source_id",
     "display_name",
@@ -315,7 +316,7 @@ def validate_seed_payload(payload: dict[str, Any]) -> dict[str, Any]:
             )
         if global_counts[market_id] < 10:
             raise SourceValidationError(
-                f"market {market_id} requires at least 10 verified company/ATS sources"
+                f"market {market_id} requires at least 10 verified company/ATS/global-board sources"
             )
     return payload
 
@@ -1041,6 +1042,17 @@ def _apply_batch(
         "proposals_added": added,
         "events_applied": len(events),
     }
+
+
+def preview_batch(
+    registry: dict[str, Any], batch: dict[str, Any], *, now: datetime | None = None
+) -> dict[str, int | bool]:
+    """Validate a source batch against current state without writing it."""
+    validate_registry(registry)
+    _, summary = _apply_batch(
+        registry, batch, now=(now or _now()).astimezone(timezone.utc)
+    )
+    return summary
 
 
 def apply_batch_to_registry(

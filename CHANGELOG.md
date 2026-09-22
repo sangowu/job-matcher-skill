@@ -9,6 +9,20 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Deterministic cross-channel discovery waves: the plan owns remaining-task availability, the Agent executes only the current wave, and `discovery_batch.py` exposes a next wave only after canonical merge yield checks pass.
+- Count-only live evidence for a BrowserOS Neo plus Web Search first wave, including semantic platform search, consent pauses, local attention state, open-web contribution, and fail-closed suppression of the next wave.
+- Count-only evidence for a completed three-wave BrowserOS Neo plus Web Search run: 12 terminal task results, two explicit skips, three single-writer batch commits, one suppressed duplicate, two unique strong-identity candidates, and a `plan_exhausted` stop in an automatically cleaned temporary store.
+- A fail-closed, multilingual accessibility classifier and HTML setting for `necessary_only` versus `ask_every_time`; it never reads Cookie storage or selects accept-all/granular consent controls.
+- Traditional-Chinese and generic English exact-label coverage for necessary-only consent, added from live consent banners without introducing site-specific selectors.
+
+- A read-only `DiscoveryPlan` compiler that joins localized market queries, the URL-free source-health plan, and the public source catalog into bounded browser, Web Search, and optional structured-source tasks without hard-coded site selectors.
+- Diversity-first browser source selection, source-policy enforcement, public Web source hints, and explicit semantic-accessibility/auth/privacy constraints for each browser task.
+- A restart-safe `discovery_batch.py` handoff that requires one terminal result per current-wave task, validates CandidateEnvelope provenance against its task, commits all wave channels through one canonical merge, retries source-state failures without repeating merge, and returns a count-only continuation decision.
+- Read-only source-batch preview validation so malformed source proposals/events fail before candidate persistence.
+- A read-only discovery-mode selector with explicit `coverage`/`auto`/`model_only`/`browser_only`/`combined` routing, single-route Neo-first legacy `auto` fallback, and deterministic connection-loss versus human-action behavior.
+- A provider-neutral local-browser capability probe and runtime adapter contract for BrowserOS Neo or an authorized user browser, with dedicated-tab privacy rules and canonical CandidateEnvelope handoff through the existing merge writer.
+- A loopback-only local-browser control panel with persisted non-sensitive discovery mode, polling status UI, flashing browser-tab/beacon alerts, CSRF-protected resume requests, and a low-cardinality event CLI for login, verification, consent, and rate-limit pauses.
+- Count-only Phase 4 runtime evidence for successful BrowserOS Neo MCP and authorized Chrome fallback paths, plus a real LinkedIn login pause/panel-resume/authenticated-session/same-tab-search handoff; candidate extraction/merge, CAPTCHA/consent, and rate-limit recovery remain live gates.
 - Versioned `ie`/`uk`/`cn`/`de` market metadata, English/German/Simplified-Chinese role taxonomy, and a deterministic opt-in market planner with city/country/remote-scope normalization.
 - Synthetic ten-observation-per-market offline fixtures and fixed strong-identity/routing ground truth for the four initial markets.
 - A validated public source seed catalog with three local entry points and ten global company portals per initial market.
@@ -22,15 +36,21 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The repository default discovery mode is now `coverage`: model/Web Search runs alongside the preferred available browser provider (BrowserOS Neo, then an authorized user browser). Legacy `auto` retains its single-route compatibility behavior.
 - Report language and market search languages are separate in the new planning boundary; `zh` and `zh-CN` normalize to internal `zh-Hans`, while the existing single-region Web Search path remains available.
 - `markets.json` now references stable Phase B source IDs, while `multi_region_enabled: false` continues to prevent the new source plan from changing the production discovery path.
 - Once the generic registry is initialized, the existing ATS pipeline reads and writes its ATS-board view there; without it, the legacy `ats_companies.json` path remains the compatibility fallback.
 - Runtime metrics schema v6 adds low-cardinality Phase C discovery counts and merge provenance/idempotency fields without recording queries, titles, companies, URLs, CVs, or JDs.
 - Legacy candidate arrays remain accepted by `merge_jobs.py`; strict discovery validation is activated by the Phase C `discovery_route` boundary, while `candidate_handoff.py` always validates the full envelope.
+- Browser-discovered candidates reuse the canonical table and now preserve `browseros_neo` or `user_browser` provenance in the bilingual HTML report.
+- Candidate provenance distinguishes `global_job_board` from market-local job boards, with bilingual report labels and scoped-read guidance that excludes account navigation metadata.
+- A count-only live candidate smoke validates one scoped BrowserOS Neo extraction and active detail page through CandidateEnvelope and the real merge writer in an automatically cleaned temporary store; the initial unscoped-read privacy regression is retained as failed evidence.
+- A bounded three-candidate same-page BrowserOS Neo batch preserves strong identities, browser route, and global-job-board provenance 3/3 through the temporary merge while keeping uncertain detail pages at `unknown`.
 - Multi-region run metadata is additive: old `{profile_summary,new_count,cached_count,lang}` files still render, while new metadata can provide target markets, search/report languages, run time, and count-only route summaries.
 
 ### Fixed
 
+- Teamtailor job URLs now produce provider-owned `teamtailor:<job-id>` strong identities, allowing valid Web Search candidates to pass the shared CandidateEnvelope and canonical deduplication boundary.
 - Phase E no longer treats missing real-CV Top-N baselines or repeated zero-useful-candidate runs as default-enable evidence; v2 count-only shadow records carry explicit baseline status while historical v1 ledger hashes remain readable.
 - The legacy-table migration regression now uses a fixed clock, preventing its fixture from becoming stale as the real 30-day archive TTL advances.
 

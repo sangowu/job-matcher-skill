@@ -139,6 +139,12 @@ def test_public_source_seeds_validate_locked_market_coverage():
         }
 
 
+def test_global_job_boards_are_not_counted_as_local_market_sources():
+    assert "global_job_board" in source_registry.SOURCE_TYPES
+    assert "global_job_board" in source_registry.GLOBAL_SOURCE_TYPES
+    assert "global_job_board" not in source_registry.LOCAL_SOURCE_TYPES
+
+
 def test_china_restricted_sources_stay_browser_or_web_search_only():
     seeds = source_registry.load_seeds()
     china_local = [

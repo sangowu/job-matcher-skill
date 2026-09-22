@@ -115,6 +115,7 @@ _PLATFORM_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("linkedin", re.compile(r"linkedin\.com/jobs/view/(\d+)", re.I)),
     ("ashby", re.compile(r"ashbyhq\.com/[^/]+/([0-9a-f]{8}-[0-9a-f-]{20,})", re.I)),
     ("workday", re.compile(r"myworkdayjobs\.com/.+/job/[^/]+/[^/]*?_(R-?\d+)", re.I)),
+    ("teamtailor", re.compile(r"teamtailor\.com/jobs/(\d+)(?:[-/?#]|$)", re.I)),
     ("liepin", re.compile(r"liepin\.com/(?:[a-z]+/)?job/(\d+)", re.I)),
     ("zhipin", re.compile(r"zhipin\.com/job_detail/([0-9a-z~_-]+)\.html", re.I)),
     ("lagou", re.compile(r"lagou\.com/(?:wn/)?jobs/(\d+)", re.I)),

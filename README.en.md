@@ -4,9 +4,9 @@
 
 Release documentation: [Changelog](CHANGELOG.md) · [v2.4.0 release notes](docs/releases/v2.4.0.md) · [v2.3.0 release notes](docs/releases/v2.3.0.md) · [v2.2.0 release notes](docs/releases/v2.2.0.md) · [v2.1.0 release notes](docs/releases/v2.1.0.md) · [v2.0.0 release notes](docs/releases/v2.0.0.md)
 
-> An **agent skill (for Claude Code & Codex)**: give it your **CV + job intent**, and it extracts your CV fields, retrieves matching jobs via **live web search**, and generates an **interactive HTML report**.
+> An **agent skill (for Claude Code & Codex)**: give it your **CV + job intent**, and it extracts CV fields, discovers matching jobs through **model search plus BrowserOS Neo or an authorized user browser**, and generates an **interactive HTML report**.
 
-A lightweight take on [JobRadar](https://github.com/sangowu/JobRadar) — agent-native by default (web search + subagents + Python scripts), with an optional BYOK isolated browser, borrowing JobRadar's schema, algorithms and UI style.
+A lightweight take on [JobRadar](https://github.com/sangowu/JobRadar) — it combines model/Web search with an Agent-connected BrowserOS Neo or authorized user browser, with an optional BYOK isolated browser as a fetch fallback.
 
 ---
 
@@ -14,7 +14,7 @@ A lightweight take on [JobRadar](https://github.com/sangowu/JobRadar) — agent-
 
 - 📄 **CV parsing**: PDF / DOCX / TXT / MD, or pasted text (no OCR).
 - 🧠 **Structured extraction**: target roles, skills, seniority, locations, languages; auto-leveling by *relevant* years.
-- 🔎 **Live job retrieval**: adaptive batched web search; role wording follows the CV language while target platforms follow the location (Ireland/UK, continental Europe, Australia/NZ, mainland China, and an inference rule for everywhere else).
+- 🔎 **Live job retrieval**: runs browser-platform and model/Web discovery together by default; the browser provider follows Neo → authorized user browser, while a regional source catalog selects platforms without hard-coded site selectors.
 - 🎯 **5-dimension scoring**: title / seniority / skills / location / must-have, with a five-tier recommendation (strong apply → skip). Deterministic seniority caps and contract validation catch scoring drift.
 - 🗂️ **Incremental cache**: three-layer cache (CV / JD / match score); multi-source same-job aggregation with exact job-id matching on regional platforms; auto re-score when the query changes.
 - 🛡️ **Untrusted input isolation**: search results and JD text are treated as data and their embedded instructions ignored; report JSON is escaped and links are restricted to http(s).
@@ -34,7 +34,7 @@ CV + query
    │ [cache check]                → hit → skip extraction
    │ [subagent] extract CVProfile → [script] validate_profile
    │ [main agent] fuse query      → search_plan + candidate_profile
-   │ [parallel subagents] web search + parse + prefilter → [script] merge_jobs (dedup/cache/eval snapshot)
+   │ [discovery plan] browser platform + model/Web + optional ATS → [script] merge_jobs (dedup/cache/eval snapshot)
    │ [parallel subagents] coarse → fine (fetch JD) + scoring + liveness → [script] conditional commit
    │ [script] render_html         → report_*.html (auto-opened)
    ▼
@@ -68,6 +68,13 @@ job-matcher/
 │   ├── extract_cv.py         # parse CV → text + hash
 │   ├── validate_profile.py   # validate + seniority→levels mapping
 │   ├── market_plan.py        # validate resources and build deterministic market plans
+│   ├── discovery_mode.py     # select discovery routes and safe fallback from read-only capability status
+│   ├── discovery_plan.py     # compile market/health/catalog inputs into multi-channel tasks
+│   ├── discovery_batch.py    # validate all task results, merge once, and decide expansion
+│   ├── local_browser_probe.py # validate the Agent-observed local-browser tool surface
+│   ├── local_browser_panel.py # localhost settings, status, and flashing action panel
+│   ├── cookie_consent.py    # accessibility consent classifier: necessary-only or pause
+│   ├── browser_candidate_smoke.py # validate browser candidates in a temporary merge store
 │   ├── source_registry.py    # seed validation, health state, migration, and source plans
 │   ├── candidate_contract.py # strict Phase C CandidateEnvelope validation
 │   ├── candidate_handoff.py  # serialize dual discovery routes into the canonical writers
@@ -133,6 +140,48 @@ ineligible state are documented in
 `multi_region_enabled` defaults to `false`; regional source execution remains
 opt-in and does not replace the existing single-region flow automatically.
 
+Discovery mode Phases 1+2 provide deterministic
+`discovery_mode.py plan|event` and `local_browser_probe.py probe` contracts.
+Default `coverage` runs model/Web Search alongside one authorized browser
+provider, selected BrowserOS Neo first and then an authorized user browser.
+Legacy `auto` retains its single-route behavior, and `browser_only` never silently
+switches to model search. `discovery_plan.py` then joins the market plan, URL-free
+health plan, and public source catalog into bounded browser/Web/structured tasks.
+Detection uses tools already exposed to the Agent; it does not scan
+ports, browser configuration, cookies, or existing tabs. Browser observations use
+a dedicated tab and enter the same CandidateEnvelope/merge table. See
+[`docs/discovery-mode-phase1.md`](docs/discovery-mode-phase1.md) and
+[`docs/local-browser-phase2.md`](docs/local-browser-phase2.md). A selected browser
+route may run `python scripts/local_browser_panel.py serve` for a loopback control
+panel. It stores only mode and low-cardinality state, then flashes for login,
+verification, consent, or rate limiting until the user requests resume. See
+[`docs/local-browser-phase3-panel.md`](docs/local-browser-phase3-panel.md). The existing
+Kernel remote browser remains a separate optional fetching fallback, not a way
+to reuse local login sessions.
+
+DiscoveryPlan assigns cross-channel tasks to deterministic waves; the Agent
+executes only `initial_wave_id` first. After the current wave finishes,
+`discovery_batch.py` requires exactly one terminal result per wave task,
+validates candidate route/source/market/language, and sends all wave channels
+through one canonical merge. Its content-free manifest supports safe retries.
+New-candidate yield, plan-owned remaining waves, and stop thresholds determine
+whether it exposes `next_wave_id`; callers cannot override that decision. This
+does not claim complete JDs or qualified CV matches.
+Bounded runtime smokes on 2026-09-21 separately verified dedicated-tab
+create/navigate/read/close through the BrowserOS Neo MCP primary path and the
+user Chrome fallback. Neo remains the preferred browser provider when available.
+A LinkedIn smoke also verified login pause, panel attention/resume,
+authenticated-session reuse, and a bounded same-tab search. Live candidate
+smoke then passed scoped main-content extraction, detail liveness,
+CandidateEnvelope validation, and a temporary-store merge; a three-candidate
+same-page batch also retained provenance 3/3. Additional-page pagination, other
+sites/languages, a full CV production run, CAPTCHA/consent
+recovery, and rate-limit recovery remain live gates. See
+[`docs/local-browser-phase4-smoke.md`](docs/local-browser-phase4-smoke.md).
+The deterministic first-wave Neo + Web Search smoke, consent pauses, and proof
+that the next wave was not dispatched are in
+[`docs/discovery-wave-live-smoke.md`](docs/discovery-wave-live-smoke.md).
+
 ## 🚀 Usage
 
 Clone into your skills dir (use folder name `job-matcher` to match the skill name):
@@ -164,6 +213,13 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `max_parallel_subagents` | 3 | per-batch parallelism cap |
 | `subagent_profiles` | see config | requested model, reasoning effort, and context isolation per role |
 | `max_websearch_calls` | 6 | total web-search call cap |
+| `discovery_mode` | coverage | `coverage` runs browser + model search; legacy `auto` keeps one route; `model_only`, `browser_only`, and `combined` remain available |
+| `cookie_consent_policy` | necessary_only | automatically reject optional cookies only through one unambiguous semantic button; `ask_every_time` is also available |
+| `discovery_max_waves` | 3 | deterministic discovery-wave cap per plan |
+| `browser_sources_per_market` | 3 | per-market, per-wave browser-source cap with first-wave source-type diversity |
+| `browser_queries_per_source` | 2 | localized query cap per browser source and run |
+| `web_queries_per_market_per_wave` | 1 | per-market Web Search query cap in each wave |
+| `web_source_hints_per_task` | 6 | public source-hint cap per Web Search task |
 | `multi_region_enabled` | false | master multi-region source flag; all effective market modes are off while false |
 | `multi_region_rollout` | all four off | independent off / shadow / opt_in / default mode per market; default requires the Phase E gate |
 | `stop_threshold` | 12 | stop once enough net-valid jobs found |

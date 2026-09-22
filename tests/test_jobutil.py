@@ -30,6 +30,10 @@ from _jobutil import (  # noqa: E402
         ("https://www.seek.co.nz/job/81234567", "seek:81234567"),
         ("https://www.reed.co.uk/jobs/ai-engineer/55512345", "reed:55512345"),
         ("https://boards.greenhouse.io/acme/jobs/4567890", "greenhouse:4567890"),
+        (
+            "https://huaweiireland.teamtailor.com/jobs/8181244-2026-senior-llm-agent-researcher-engineer-permanent",
+            "teamtailor:8181244",
+        ),
     ],
 )
 def test_regional_platform_urls_canonicalize_to_stable_keys(url, expected):
@@ -62,6 +66,12 @@ def test_identity_keys_exclude_generic_urls_and_keep_provider_ids():
     assert all_identity_keys(job) == [
         "ashby:11111111-1111-1111-1111-111111111111",
         "greenhouse:4567890",
+    ]
+
+
+def test_teamtailor_job_id_is_a_strong_identity():
+    assert all_identity_keys({"identity_keys": ["TEAMTAILOR:8181244"]}) == [
+        "teamtailor:8181244"
     ]
 
 

@@ -88,7 +88,7 @@ def _load_manifest(path: Path) -> dict[str, Any] | None:
     return payload
 
 
-def _merge_subprocess(
+def run_merge_subprocess(
     candidates: list[dict[str, Any]],
     cv_hash: str,
     cp_hash: str,
@@ -420,7 +420,7 @@ def run_handoff(
     merge_summary = manifest.get("merge")
     if manifest.get("phase") not in {"merge_committed", "source_registry_committed"}:
         try:
-            runner = merge_runner or _merge_subprocess
+            runner = merge_runner or run_merge_subprocess
             merge_result = runner(
                 candidates,
                 cv_hash,

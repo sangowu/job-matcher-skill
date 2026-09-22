@@ -131,9 +131,9 @@ merge, two JD evaluations, and a two-job interactive HTML report. Every planned
 task reached a terminal state; blocked sites were recorded as explicit failures
 or skips rather than false zero-result successes.
 
-The trial also exposed a metrics boundary: direct BrowserOS Neo MCP actions do
-not yet emit the repository's `browser` runtime events, so run completeness and
-report health remained `unknown`. Counts, privacy boundaries, and failure
+The trial also exposed a metrics boundary: direct BrowserOS Neo MCP actions did
+not emit the repository's `browser` runtime events, so run completeness and
+report health remained `unknown`. That path now exists. Counts, privacy boundaries, and failure
 classes are documented in
 [`browseros-neo-production-trial-2026-09-22.md`](browseros-neo-production-trial-2026-09-22.md).
 
@@ -142,10 +142,12 @@ classes are documented in
 Together, these runs prove the Neo-first path, authorized user-browser fallback,
 real login pause/resume, authenticated-session reuse, bounded search, scoped
 candidate extraction, contract validation, isolated merge, and one full
-single-market CV production run. They do **not** yet prove additional-page
+single-market CV production run. Local-browser runtime-metric completeness is no
+longer a gate: an Agent-driven browser now reports each action through
+`browser_control.py action`, which writes the same allowlisted `browser` event
+the remote adapter emits. The runs still do **not** prove additional-page
 pagination, broad job-board/layout/language compatibility, host aliases outside
 the source boundary, ambiguous-consent recovery, custom-combobox compatibility,
-CAPTCHA recovery, rate-limit pause/resume, or local-browser runtime-metric
-completeness. A public Skill must continue to derive capability from the current
+CAPTCHA recovery, or rate-limit pause/resume. A public Skill must continue to derive capability from the current
 Agent tool surface and degrade safely rather than treating installation or
 documentation as live evidence.

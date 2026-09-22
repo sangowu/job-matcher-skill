@@ -20,6 +20,28 @@ from runtime_metrics import record_metric, validate_run_id
 DEFAULT_BUDGET_PATH = SKILL_ROOT / "data" / "browser_round_budget.json"
 _BUDGET_THREAD_LOCK = threading.Lock()
 
+# Remote providers are driven by this process through a provider object, so their
+# actions are timed and recorded automatically. A local browser is driven by the
+# Agent's own runtime tools instead, so nothing here observes it and the run
+# finishes with `missing_operations=browser`. These providers therefore report
+# their actions explicitly, through the same allowlisted event.
+REMOTE_PROVIDERS = ("kernel", "fake")
+LOCAL_PROVIDERS = ("browseros_neo", "user_browser")
+# A closed vocabulary: `action` is a low-cardinality metric dimension, and an
+# open one would let a caller fragment the series.
+LOCAL_ACTIONS = (
+    "create",
+    "navigate",
+    "read",
+    "snapshot",
+    "act",
+    "extract",
+    "wait",
+    "close",
+)
+ACTION_STATUSES = ("ok", "user_action_required", "rate_limited", "resumed", "failed", "timeout")
+_FAILED_STATUSES = {"failed", "timeout"}
+
 
 class BrowserRoundBudget:
     """Cross-process session, concurrency, and estimated-cost admission gate."""
@@ -202,6 +224,50 @@ class BrowserController:
         self._call("close", lambda: self.provider.close(session_id))
         return {"ok": True}
 
+    def record_action(
+        self,
+        action: str,
+        status: str,
+        *,
+        duration_ms: float = 0,
+        page_number: int = 0,
+        links_found: int = 0,
+        links_new: int = 0,
+        handoff_wait_ms: float = 0,
+        estimated_cost_usd: float = 0,
+    ) -> dict[str, bool]:
+        """Record one Agent-executed local browser action.
+
+        The remote path times its own calls; a local browser cannot be timed from
+        here, so the caller reports the duration it observed. Only the provider,
+        the action, its outcome and counts are written -- never a URL, page text,
+        session id or input.
+        """
+        if action not in LOCAL_ACTIONS:
+            raise ValueError(f"unsupported browser action: {action}")
+        if status not in ACTION_STATUSES:
+            raise ValueError(f"unsupported browser status: {status}")
+        failed = status in _FAILED_STATUSES
+        written = record_metric(
+            self.metrics_path,
+            "browser",
+            not failed,
+            run_id=self.metrics_run_id,
+            provider=self.provider_name,
+            action=action,
+            status=status,
+            duration_ms=max(0.0, float(duration_ms)),
+            page_number=page_number,
+            links_found=links_found,
+            links_new=links_new,
+            handoff_required=status == "user_action_required",
+            handoff_wait_ms=handoff_wait_ms,
+            rate_limited=status == "rate_limited",
+            estimated_cost_usd=estimated_cost_usd,
+            failure_kind="local_browser_action_failed" if failed else None,
+        )
+        return {"ok": written}
+
     def record_state(
         self,
         status: str,
@@ -235,7 +301,7 @@ class BrowserController:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--provider", choices=("kernel", "fake"))
+    parser.add_argument("--provider", choices=(*REMOTE_PROVIDERS, *LOCAL_PROVIDERS))
     parser.add_argument("--metrics-run-id", type=validate_run_id)
     subparsers = parser.add_subparsers(dest="command", required=True)
     create = subparsers.add_parser("create")
@@ -274,6 +340,14 @@ def _parser() -> argparse.ArgumentParser:
     event.add_argument("--links-new", type=int, default=0)
     event.add_argument("--handoff-wait-ms", type=float, default=0)
     event.add_argument("--estimated-cost-usd", type=float, default=0)
+    action = subparsers.add_parser("action")
+    action.add_argument("--action", required=True, choices=LOCAL_ACTIONS)
+    action.add_argument("--status", required=True, choices=ACTION_STATUSES)
+    action.add_argument("--duration-ms", type=float, default=0)
+    action.add_argument("--page-number", type=int, default=0)
+    action.add_argument("--links-found", type=int, default=0)
+    action.add_argument("--links-new", type=int, default=0)
+    action.add_argument("--handoff-wait-ms", type=float, default=0)
     subparsers.add_parser("test")
     return parser
 
@@ -284,6 +358,46 @@ def main() -> int:
     if args.provider:
         settings["browser_provider"] = args.provider
     metrics_run_id = args.metrics_run_id or getattr(args, "round_id", None)
+    provider_name = settings["browser_provider"]
+    if args.command == "action":
+        # A local browser has no provider object here, so this path must never
+        # reach build_provider: it needs no credentials and no session budget.
+        if provider_name not in LOCAL_PROVIDERS:
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "action requires --provider browseros_neo or user_browser",
+                    },
+                    ensure_ascii=True,
+                    sort_keys=True,
+                )
+            )
+            return 2
+        controller = BrowserController(None, provider_name, metrics_run_id=metrics_run_id)
+        result = controller.record_action(
+            args.action,
+            args.status,
+            duration_ms=args.duration_ms,
+            page_number=args.page_number,
+            links_found=args.links_found,
+            links_new=args.links_new,
+            handoff_wait_ms=args.handoff_wait_ms,
+        )
+        print(json.dumps(result, ensure_ascii=True, sort_keys=True))
+        return 0 if result["ok"] else 1
+    if args.command != "event" and provider_name in LOCAL_PROVIDERS:
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": f"{args.command} needs a remote provider; {provider_name} is driven by the Agent",
+                },
+                ensure_ascii=True,
+                sort_keys=True,
+            )
+        )
+        return 2
     if args.command == "event":
         controller = BrowserController(
             None,

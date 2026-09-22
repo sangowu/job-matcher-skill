@@ -149,17 +149,30 @@ def test_markets_json_is_kept_in_step_with_the_promoted_seed(tmp_path):
     assert "newco-greenhouse" not in by_id["uk"]
 
 
-def test_seed_file_formatting_is_preserved(tmp_path):
+@pytest.mark.parametrize("newline", [b"\n", b"\r\n"])
+def test_seed_file_formatting_and_line_endings_are_preserved(tmp_path, newline):
+    """These catalogs are hand-edited and are checked out with whichever line
+    ending the platform's git produces, so promotion must keep what it finds.
+    Writing a fixed ending back would rewrite every line on the other platform."""
     paths = _workspace(tmp_path)
+    for path in (paths["seeds"], paths["markets"]):
+        body = path.read_bytes().replace(b"\r\n", b"\n")
+        path.write_bytes(body if newline == b"\n" else body.replace(b"\n", b"\r\n"))
     before = paths["seeds"].read_bytes()
     _harvest(paths, "newco", ["Dublin, Ireland"])
 
     _promote(paths)
 
     after = paths["seeds"].read_bytes()
-    assert after.startswith(before[: before.rindex(b"\n    }")])
-    assert b"\r\n" in after
+    # Everything up to the last existing entry's closing brace is untouched.
+    assert after.startswith(before[: before.rindex(newline + b"    }")])
     assert b'"markets": ["ie"]' in after
+    for path in (paths["seeds"], paths["markets"]):
+        written = path.read_bytes()
+        if newline == b"\n":
+            assert b"\r" not in written
+        else:
+            assert written.count(b"\r\n") == written.count(b"\n")
 
 
 def test_unverified_or_expired_sources_are_not_promoted(tmp_path):

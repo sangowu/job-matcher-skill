@@ -47,6 +47,18 @@ def _inline(values: list[str]) -> str:
     return "[" + ", ".join(json.dumps(value) for value in values) + "]"
 
 
+def _read_normalized(path: Path) -> tuple[str, str]:
+    """Return the file's text with LF endings, plus the ending it actually uses.
+
+    These catalogs are hand-edited and checked out with whatever line ending the
+    platform's git produces. Writing a fixed ending back would rewrite every
+    line of the file on the other platform.
+    """
+    raw = path.read_bytes()
+    newline = "\r\n" if b"\r\n" in raw else "\n"
+    return raw.decode("utf-8").replace("\r\n", "\n"), newline
+
+
 def _expired(source: dict[str, Any], now: datetime) -> bool:
     reference = source.get("last_success_at") or source.get("verified_at")
     if not reference:
@@ -128,17 +140,17 @@ def render_seed(source: dict[str, Any]) -> str:
 
 
 def _append_seeds(seeds_path: Path, blocks: list[str]) -> None:
-    text = seeds_path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    text, newline = _read_normalized(seeds_path)
     marker = "\n    }\n  ]\n}"
     if text.count(marker) != 1:
         raise SeedPromotionError("unexpected source_seeds.json tail")
     text = text.replace(marker, "\n    },\n" + ",\n".join(blocks) + "\n  ]\n}")
-    seeds_path.write_text(text, encoding="utf-8", newline="\r\n")
+    seeds_path.write_text(text, encoding="utf-8", newline=newline)
 
 
 def _link_markets(markets_path: Path, promoted: list[dict[str, Any]]) -> None:
     """markets.json 的 source_ids 必须与种子逐市场一一对应。"""
-    text = markets_path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    text, newline = _read_normalized(markets_path)
     for market in json.loads(text)["markets"]:
         market_id = market["market_id"]
         new_ids = [
@@ -154,7 +166,7 @@ def _link_markets(markets_path: Path, promoted: list[dict[str, Any]]) -> None:
         close = text.index("\n      ]", start)
         addition = ",\n".join(f'        "{source_id}"' for source_id in new_ids)
         text = text[:close] + ",\n" + addition + text[close:]
-    markets_path.write_text(text, encoding="utf-8", newline="\r\n")
+    markets_path.write_text(text, encoding="utf-8", newline=newline)
 
 
 def promote(

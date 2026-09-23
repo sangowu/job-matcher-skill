@@ -1064,3 +1064,77 @@ def test_a_stored_embedded_job_gains_its_identity_without_changing_record_id(
     assert len(jobs) == 1
     assert jobs[0]["record_id"] == original_record_id
     assert "greenhouse:6543210" in jobs[0]["identity_keys"]
+
+
+def test_an_envelope_candidate_keeps_the_job_description_it_was_fetched_with(
+    isolated_store, monkeypatch, capsys
+):
+    """The structured channel had to choose between two things it needs.
+
+    A CandidateEnvelope is validated strictly and unknown fields are refused,
+    so an ATS candidate could be a valid envelope or keep the description text
+    it was fetched with, never both. That is why its jobs reached the table
+    only through a second, looser writer. The text is lifted out before
+    validation and put back after: the contract is unchanged, and the text
+    still goes no further than the run-scoped evaluation snapshot.
+    """
+    raw_jd = "UNTRUSTED JOB DATA: Build production RAG systems in Dublin"
+    output = invoke(
+        monkeypatch,
+        capsys,
+        merge_jobs.cmd_merge,
+        [phase_c_candidate(
+            route="ats_expansion",
+            source_id="intercom-greenhouse",
+            language="en",
+            title="AI Engineer",
+            url="https://boards.greenhouse.io/intercom/jobs/1",
+            source_type="ats_board",
+            jd_text=raw_jd,
+            jd_text_truncated=False,
+        )],
+        "cv",
+        "cp",
+    )
+
+    task = load_run(output["eval_run"]["path"])["tasks"][0]
+    table_text = (isolated_store / "jobs_table.json").read_text(encoding="utf-8")
+    output_text = json.dumps(output)
+
+    assert task["jd_text"] == raw_jd
+    assert output["to_analyze"][0]["jd_text_available"] is True
+    assert raw_jd not in table_text + output_text
+    job = load_table(isolated_store)["jobs"][0]
+    assert len(job["jd_content_hash"]) == 64
+    assert "jd_text" not in job
+    assert job["raw_sources"][0]["discovery_route"] == "ats_expansion"
+
+
+def test_the_description_is_the_only_thing_allowed_past_the_envelope(
+    isolated_store, monkeypatch, capsys
+):
+    """The carve-out is two named fields, not a hole in the contract.
+
+    Widening it would let anything ride into the merge unvalidated, so an
+    envelope carrying any other unknown field is still refused outright.
+    """
+    with pytest.raises(merge_jobs.InputDataError) as error:
+        invoke(
+            monkeypatch,
+            capsys,
+            merge_jobs.cmd_merge,
+            [phase_c_candidate(
+                route="ats_expansion",
+                source_id="intercom-greenhouse",
+                language="en",
+                title="AI Engineer",
+                url="https://boards.greenhouse.io/intercom/jobs/2",
+                source_type="ats_board",
+                jd_text="text is fine",
+                recruiter_email="someone@example.com",
+            )],
+            "cv",
+            "cp",
+        )
+
+    assert "recruiter_email" in str(error.value)

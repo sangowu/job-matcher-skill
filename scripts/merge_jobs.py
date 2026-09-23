@@ -184,10 +184,25 @@ def _prepare_candidate(candidate: Any) -> Any:
         raise InputDataError(
             f"discovery candidate contains evaluation fields: {', '.join(forbidden)}"
         )
+    # The envelope has no place for description text and must not grow one --
+    # it is the identity and provenance record, and the text is transient,
+    # run-scoped content that never enters the job table. So the text is lifted
+    # out before validation and put back after, reaching the evaluation
+    # snapshot through the handoff that already exists for it. Without this a
+    # structured candidate had to choose between being a valid envelope and
+    # keeping the job description it was fetched with.
+    carried = {
+        field: candidate[field]
+        for field in ("jd_text", "jd_text_truncated")
+        if field in candidate
+    }
     try:
-        return validate_candidate_envelope(candidate)
+        prepared = validate_candidate_envelope(
+            {key: value for key, value in candidate.items() if key not in carried}
+        )
     except CandidateContractError as error:
         raise InputDataError(f"invalid CandidateEnvelope: {error}") from error
+    return {**prepared, **carried}
 
 
 def _legacy_source_id(value: Any) -> str:

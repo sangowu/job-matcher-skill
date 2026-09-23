@@ -140,6 +140,18 @@ def payload(*, batch_id="coverage-batch-1", wave_id="wave:1") -> dict:
                 "status": "succeeded",
                 "candidates_raw": 1,
                 "candidates_prefiltered": 1,
+                "pages": [
+                    {
+                        "page_number": 1,
+                        "calls": 1,
+                        "raw_results": 1,
+                        "prefiltered": 1,
+                        "deduplicated": 1,
+                        "new_candidates": 1,
+                        "cached_candidates": 0,
+                        "duration_ms": 120.0,
+                    }
+                ],
                 "candidates": [
                     envelope(
                         "agent_web_search",
@@ -157,6 +169,18 @@ def payload(*, batch_id="coverage-batch-1", wave_id="wave:1") -> dict:
                 "status": "succeeded",
                 "candidates_raw": 1,
                 "candidates_prefiltered": 1,
+                "pages": [
+                    {
+                        "page_number": 1,
+                        "calls": 1,
+                        "raw_results": 1,
+                        "prefiltered": 1,
+                        "deduplicated": 1,
+                        "new_candidates": 1,
+                        "cached_candidates": 0,
+                        "duration_ms": 120.0,
+                    }
+                ],
                 "candidates": [
                     envelope(
                         "agent_web_search",
@@ -469,3 +493,158 @@ def test_source_registry_preview_validates_without_mutating(stores):
 
     assert summary["idempotent"] is False
     assert json.dumps(registry, sort_keys=True) == before
+
+
+# ── Web Search accounting travels with the candidates ────────────────────────
+
+def _page(**overrides) -> dict:
+    page = {
+        "page_number": 1,
+        "calls": 1,
+        "raw_results": 1,
+        "prefiltered": 1,
+        "deduplicated": 1,
+        "new_candidates": 1,
+        "cached_candidates": 0,
+        "duration_ms": 120.0,
+    }
+    page.update(overrides)
+    return page
+
+
+def _web_result(pages, **overrides) -> dict:
+    result = {
+        "task_id": "web:1",
+        "status": "succeeded",
+        "candidates_raw": 1,
+        "candidates_prefiltered": 1,
+        "pages": pages,
+        "candidates": [
+            envelope(
+                "agent_web_search",
+                source_id="amazon-careers",
+                source_type="company_careers",
+                identity="456",
+            )
+        ],
+    }
+    result.update(overrides)
+    return result
+
+
+def _only_web(value: dict, result: dict) -> dict:
+    """Keep the browser task's result, replace the Web Search one."""
+    value["task_results"] = [
+        existing for existing in value["task_results"]
+        if not str(existing["task_id"]).startswith("web:")
+    ] + [result]
+    return value
+
+
+def test_a_web_search_task_cannot_commit_candidates_without_its_pages(stores):
+    """The whole point. Before, the counts reached the metrics store only if the
+    Agent remembered a separate search_metrics.py call; forgetting cost nothing
+    at commit time and the round merely closed missing_operations=search."""
+    value = _only_web(payload(), _web_result(None))
+    del value["task_results"][-1]["pages"]
+
+    with pytest.raises(discovery_batch.DiscoveryBatchError, match="one entry per"):
+        run_batch(stores, value)
+
+
+@pytest.mark.parametrize(
+    ("pages", "message"),
+    [
+        ([_page(prefiltered=2)], "filtering funnel"),
+        ([_page(new_candidates=5)], "filtering funnel"),
+        ([_page(), _page()], "unique and positive"),
+        ([_page(page_number=0)], "unique and positive"),
+        ([_page(duration_ms=-1)], "non-negative number"),
+        ([_page(raw_results=2)], "sum to candidates_raw"),
+        ([{"page_number": 1}], "fields are invalid"),
+    ],
+)
+def test_page_counts_that_cannot_be_true_are_refused(stores, pages, message):
+    value = _only_web(payload(), _web_result(pages))
+
+    with pytest.raises(discovery_batch.DiscoveryBatchError, match=message):
+        run_batch(stores, value)
+
+
+def test_pages_are_refused_on_a_task_that_did_no_searching(stores):
+    value = _only_web(
+        payload(),
+        _web_result(
+            [_page()],
+            status="skipped",
+            failure_kind="policy_skip",
+            candidates=[],
+            candidates_raw=0,
+            candidates_prefiltered=0,
+        ),
+    )
+
+    with pytest.raises(discovery_batch.DiscoveryBatchError, match="succeeded task"):
+        run_batch(stores, value)
+
+
+def test_pages_are_refused_on_a_browser_task(stores):
+    value = payload()
+    for result in value["task_results"]:
+        if str(result["task_id"]).startswith("browser:"):
+            result["pages"] = [_page()]
+
+    with pytest.raises(discovery_batch.DiscoveryBatchError, match="only valid for"):
+        run_batch(stores, value)
+
+
+def test_a_committed_web_search_batch_leaves_no_missing_search_operation(
+    stores, tmp_path, monkeypatch
+):
+    """The failure this whole contract exists to prevent. A real round committed
+    two Web Search tasks, nobody called search_metrics.py, and the round closed
+    metrics_status=incomplete with missing_operations=search -- while every
+    candidate had already landed in the table."""
+    from runtime_metrics import assess_run_completeness
+
+    metrics_path = tmp_path / "data" / "metrics.jsonl"
+    monkeypatch.setattr(discovery_batch, "METRICS_PATH", metrics_path)
+    run_id = "round-20260923-101500-abc123"
+    value = _only_web(payload(), _web_result([_page(), _page(page_number=2, raw_results=0,
+                                                            prefiltered=0, deduplicated=0,
+                                                            new_candidates=0)]))
+    value["task_results"][-1]["candidates_raw"] = 1
+    value["task_results"][-1]["candidates_prefiltered"] = 1
+
+    result = run_batch(stores, value, metrics_run_id=run_id)
+
+    assert result["ok"] is True
+    assert result["task_summary"]["search_pages_recorded"] == 2
+    completeness = assess_run_completeness(metrics_path, run_id, ["search"])
+    assert "search" not in completeness["missing_operations"]
+
+
+def test_replaying_a_batch_does_not_record_its_pages_twice(stores, tmp_path, monkeypatch):
+    metrics_path = tmp_path / "data" / "metrics.jsonl"
+    monkeypatch.setattr(discovery_batch, "METRICS_PATH", metrics_path)
+    run_id = "round-20260923-101500-abc123"
+    value = _only_web(payload(), _web_result([_page()]))
+
+    first = run_batch(stores, value, metrics_run_id=run_id)
+    second = run_batch(stores, value, metrics_run_id=run_id)
+
+    assert first["task_summary"]["search_pages_recorded"] == 1
+    assert second.get("idempotent") is True
+    events = [line for line in metrics_path.read_text(encoding="utf-8").splitlines() if line]
+    assert sum(1 for line in events if '"operation": "search"' in line) == 1
+
+
+def test_a_batch_without_a_metrics_run_id_still_requires_the_pages(stores):
+    """Whether metrics are wired is not the Agent's choice to make by omission:
+    the counts are part of the result contract either way."""
+    value = _only_web(payload(), _web_result([_page()]))
+
+    result = run_batch(stores, value)
+
+    assert result["ok"] is True
+    assert result["task_summary"]["search_pages_recorded"] == 0

@@ -56,7 +56,7 @@
 | `merge_jobs.py merge` | `… merge --cv-hash H --cp-hash H [--batch-id B]`（stdin） | 旧候选数组或严格 CandidateEnvelope 数组 | `{idempotent,to_analyze,to_score_only,in_evaluation,cached,eval_run,stats,metrics_recorded}` |
 | `merge_jobs.py update` | `… update --cv-hash H --cp-hash H --run-id R`（stdin） | 带快照元数据的打分结果数组 | `{ok, updated, rebased, rejected, conflicts, released, duration_ms, metrics_recorded}` |
 | `summarize_metrics.py` | `… [--days N] [--format json\|markdown] [--fail-on-breach]` | `data/metrics.jsonl` + 活跃 eval runs | 健康状态、比率、p50/p95/p99、积压与阈值违规 |
-| `search_metrics.py` | `… --ok --run-id R --query-slot qN …` | Web Search 页级计数，不接收 query/URL | 写入一次 PII-safe `search` 事件 |
+| `search_metrics.py` | `… --ok --run-id R --query-slot qN …` | Web Search 页级计数，不接收 query/URL | 写入一次 PII-safe `search` 事件；**经 discovery batch 提交的搜索改由 task result 的 `pages` 承载** |
 | `verify_jobs.py` | `python scripts/verify_jobs.py`（stdin） | URL 数组 | `{results:[{url, alive, reason, final_url}]}` |
 | `fetch_rendered.py` | `python scripts/fetch_rendered.py <url>` | 单 URL | `{ok, text, browser_used}` 或 `{ok:false, error}` |
 | `cp_hash.py` | `python scripts/cp_hash.py`（stdin） | candidate_profile JSON | `{ok, cp_hash}`（规范化后稳定 hash） |
@@ -160,7 +160,8 @@
 - **重叠执行**：决定追加第 N+1 批时，不必等第 N 批评完——把「第 N 批评估 worker（第 5 步）」
   和「第 N+1 批搜索 worker」放进同一条消息并行发出，评估结果回来就增量 `update`。
 - 一行进度：`第N批 搜X条→候选Y→新Z/缓存W`。
-- 每个 Web Search 结果页处理后调用 `search_metrics.py --run-id <pipeline-run-id>`，记录 query 槽位（`q1` 等）、页码、调用/原始/初筛/去重/新增/缓存计数和耗时；不得把 query、hash、职位或 URL 传给指标脚本。
+- **Web Search 的页级计数随 task result 一起交给 `discovery_batch.py`，不再单独调用指标脚本。**每个 succeeded 的 `web_search` task result 必须带 `pages`：每个结果页一条，含 `page_number`、`calls`、`raw_results`、`prefiltered`、`deduplicated`、`new_candidates`、`cached_candidates`、`duration_ms`（`first_result_ms` 可选）。缺 `pages` 的 Web Search 结果**无法提交候选**——这是刻意的：指标漏记曾经零代价（候选照常入表，只是本轮 `missing_operations=search`），现在漏记在结构上不成立。`discovery_batch.py` 校验后按 `query_slot`（由 task_id `web:N` 推出 `qN`）逐页写 `search` 事件；页级计数必须满足漏斗关系，且各页 `raw_results` / `prefiltered` 之和必须等于该 task 的 `candidates_raw` / `candidates_prefiltered`，对不上直接拒绝。不得把 query、hash、职位或 URL 放进 `pages`。
+- `search_metrics.py` 仅用于**不经过 discovery batch 提交**的 Web Search（例如独立诊断）。同一次搜索不要两条路都走，否则会重复计数。
 - 每个搜索 worker 返回后调用 `subagent_metrics.py record --run-id <pipeline-run-id>`，至少记录请求/实际模型、effort、耗时、候选输出数、通过初筛数、拒绝数和是否回退；运行时暴露 token/成本时如实传入，不暴露时保持 `null`，不得填 0 冒充。不得记录 query 或 URL。
 
 ### 5. 匹配排序（打分 + 脚本，读 `references/scoring_rubric.md`）

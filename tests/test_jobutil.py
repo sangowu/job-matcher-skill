@@ -11,6 +11,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 from _jobutil import (  # noqa: E402
     all_identity_keys,
+    extract_board_hint,
     is_strong_identity_key,
     all_url_keys,
     canonicalize_url,
@@ -149,3 +150,43 @@ def test_an_unlisted_job_parameter_is_still_dropped():
 
     assert first == second
     assert not is_strong_identity_key(first)
+
+
+# extract_board() needs the vendor hostname. An embedded board has neither the
+# hostname nor the board token in the URL -- only the provider and a job id --
+# so the token can only be guessed, and the job id is what proves the guess.
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "https://stripe.com/jobs/listing/x/6543210?gh_jid=6543210",
+            ("greenhouse", "6543210", ["stripe"]),
+        ),
+        (
+            "https://careers.acme-corp.co.uk/openings?gh_jid=123456",
+            ("greenhouse", "123456", ["acme-corp", "acmecorp"]),
+        ),
+        (
+            "https://jobs.eu.globex.com/roles?ashby_jid=00dbfa4a-986c-4c98-a966-47874d1ff0f8",
+            ("ashby", "00dbfa4a-986c-4c98-a966-47874d1ff0f8", ["globex"]),
+        ),
+    ],
+)
+def test_an_embedded_board_url_yields_a_guess_and_its_proof(url, expected):
+    assert extract_board_hint(url) == expected
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        # extract_board() already owns the vendor-hosted form.
+        "https://boards.greenhouse.io/stripe/jobs/6543210",
+        # No provider tell at all.
+        "https://acme.com/careers?utm_source=x",
+        # Nothing in the hostname that could be a company.
+        "https://careers.co.uk/x?gh_jid=5",
+        "",
+    ],
+)
+def test_a_url_with_nothing_to_guess_from_yields_no_hint(url):
+    assert extract_board_hint(url) is None

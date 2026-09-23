@@ -396,3 +396,164 @@ def test_a_portal_redirect_to_an_ats_board_is_registered_not_lost(tmp_path):
     )
     assert source["status"] == "verified"
     assert source["markets"] == ["ie"]
+
+
+# ── 自有域名上的嵌入式 board：token 靠猜，job id 是证据 ──────────────────────
+
+def _board_with_ids(ids: list[int], location: str = "Dublin, Ireland") -> dict:
+    return {
+        "jobs": [
+            {
+                "id": job_id,
+                "title": "Software Engineer",
+                "absolute_url": f"https://boards.greenhouse.io/x/jobs/{job_id}",
+                "location": {"name": location},
+                "content": "role description",
+            }
+            for job_id in ids
+        ]
+    }
+
+
+def _embedded(job_id: int, host: str = "newco.com") -> dict:
+    return {
+        "url": f"https://{host}/careers/role?gh_jid={job_id}",
+        "title": "Software Engineer",
+        "company": "NewCo",
+    }
+
+
+def test_a_guessed_token_is_registered_once_the_board_carries_the_job_id(tmp_path):
+    """The URL has no board token at all -- only the provider and a job id. The
+    token is guessed from the hostname; the job id is what proves the guess."""
+    registry_path, lock_path = _registry(tmp_path)
+
+    summary = board_harvest.harvest(
+        [_embedded(2001)],
+        registry_path=registry_path,
+        lock_path=lock_path,
+        batch_id="hint-1",
+        provider_client=ats_provider.FakeAtsProvider([_board_with_ids([2001, 2002])]),
+    )
+
+    assert summary["hints_seen"] == 1
+    assert summary["hints_confirmed"] == 1
+    assert summary["boards_proposed"] == 1
+    source = next(
+        item
+        for item in source_registry.load_registry(registry_path)["sources"]
+        if item["source_id"] == "newco-greenhouse"
+    )
+    assert source["board_token"] == "newco"
+    assert source["markets"] == ["ie"]
+
+
+def test_a_guess_landing_on_another_company_is_rejected(tmp_path):
+    """A hostname guess can hit a real board belonging to somebody else -- the
+    catalog build hit exactly that once. A board that answers is not evidence;
+    only the observed job id being on it is."""
+    registry_path, lock_path = _registry(tmp_path)
+
+    summary = board_harvest.harvest(
+        [_embedded(2001)],
+        registry_path=registry_path,
+        lock_path=lock_path,
+        batch_id="hint-wrong",
+        # A healthy board full of jobs, none of them ours.
+        provider_client=ats_provider.FakeAtsProvider([_board_with_ids([9001, 9002])]),
+    )
+
+    assert summary["hints_confirmed"] == 0
+    assert summary["boards_proposed"] == 0
+    assert summary["probe_outcomes"].get("hint_unconfirmed") == 1
+    assert not [
+        item
+        for item in source_registry.load_registry(registry_path)["sources"]
+        if item["source_id"] == "newco-greenhouse"
+    ]
+
+
+def test_a_second_guess_is_tried_when_the_first_does_not_prove_out(tmp_path):
+    """A hyphenated domain gives two plausible tokens; only one is the board."""
+    registry_path, lock_path = _registry(tmp_path)
+    client = ats_provider.FakeAtsProvider(
+        {
+            "new-co": [_board_with_ids([9001])],   # someone else's board
+            "newco": [_board_with_ids([2001])],    # ours
+        }
+    )
+
+    summary = board_harvest.harvest(
+        [_embedded(2001, host="careers.new-co.com")],
+        registry_path=registry_path,
+        lock_path=lock_path,
+        batch_id="hint-2nd",
+        provider_client=client,
+    )
+
+    assert summary["hints_confirmed"] == 1
+    assert summary["hint_requests"] == 2
+    source = next(
+        item
+        for item in source_registry.load_registry(registry_path)["sources"]
+        if item["source_id"] == "newco-greenhouse"
+    )
+    assert source["board_token"] == "newco"
+
+
+def test_hint_probing_is_bounded_by_its_own_limit(tmp_path):
+    """Guesses cost a request each, so they get a budget separate from the
+    direct-board probes rather than sharing one."""
+    registry_path, lock_path = _registry(tmp_path)
+    candidates = [
+        _embedded(3000 + index, host=f"company{index}.com") for index in range(5)
+    ]
+
+    summary = board_harvest.harvest(
+        candidates,
+        registry_path=registry_path,
+        lock_path=lock_path,
+        batch_id="hint-limit",
+        hint_limit=2,
+        dry_run=True,
+        provider_client=ats_provider.FakeAtsProvider(
+            [_board_with_ids([3000]), _board_with_ids([3001])]
+        ),
+    )
+
+    assert summary["hints_seen"] == 5
+    assert summary["hints_attempted"] == 2
+    assert summary["hints_deferred_by_limit"] == 3
+
+
+def test_a_hint_for_an_already_seeded_board_costs_no_request(tmp_path):
+    registry_path, lock_path = _registry(tmp_path)
+    seeded = next(
+        item
+        for item in source_registry.load_registry(registry_path)["sources"]
+        if item.get("board_token") and item.get("provider") == "greenhouse"
+    )
+    client = ats_provider.FakeAtsProvider([])
+
+    summary = board_harvest.harvest(
+        [_embedded(4001, host=f"{seeded['board_token']}.com")],
+        registry_path=registry_path,
+        lock_path=lock_path,
+        batch_id="hint-known",
+        provider_client=client,
+    )
+
+    assert summary["hints_attempted"] == 0
+    assert summary["hint_requests"] == 0
+    assert summary["probe_outcomes"].get("hint_already_known") == 1
+    assert client.calls == []
+
+
+def test_a_vendor_hosted_url_is_not_counted_as_a_hint(tmp_path):
+    """extract_board() already owns those; a hint is only for URLs with no
+    board token in them at all."""
+    hints = board_harvest.extract_hints(
+        [_candidate("https://boards.greenhouse.io/newco/jobs/1000")]
+    )
+
+    assert hints == {}

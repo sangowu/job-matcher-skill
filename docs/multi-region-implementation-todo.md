@@ -1,6 +1,14 @@
 # 多地区职位发现与合并实施 TODO
 
-状态：分阶段实现中；多地区默认启用仍受逐市场验收门禁限制。
+> **本文是设计规格，不是进度看板。** 下面 200 余个复选框是立项时写下的验收标准，
+> 实现完成后从未回来勾选，因此**全部未勾不代表全部未做**——Phase 0/A/B/C/D/F 早已交付。
+> 把它当待办清单读会严重误导。
+>
+> 权威状态看两处：已交付内容看 `CHANGELOG.md` 与 `docs/releases/`，
+> 发布门禁看 `python scripts/shadow_gate.py status --live-smoke <file>` 的实时判定。
+> 第 15 节的阶段状态由 `tests/test_docs.py` 对 `config.json` 做一致性校验，不会再悄悄过期。
+
+状态：Phase 0/A/B/C/D/F 已交付（v2.4.0）；**Phase E 未达标**，多地区默认启用仍关闭。
 首批测试市场：Ireland / UK / China / Germany
 
 ## 1. 目标
@@ -573,6 +581,35 @@ Live smoke 必须显式运行，不进入默认 CI：
 - [ ] 结果只能支持“这些来源在这次运行中的表现”，不能支持市场级 recall 声明。
 
 ## 15. 分阶段交付
+
+### 15.0 实际交付状态（2026-09-23 对账）
+
+逐项比对仓库后的结论。下面各 Phase 小节保留原始验收标准原文，不再作为进度使用。
+
+| 阶段 | 状态 | 证据 |
+| --- | --- | --- |
+| Phase 0 契约与基线 | 已交付 | `docs/multi-region-phase0-baseline.md`、`references/candidate_envelope.schema.json`、`multi_region_enabled` flag |
+| Phase A 市场与语言 | 已交付 | `references/markets.json`、`scripts/market_plan.py`（`validate_markets()` 即「等价 Python 校验器」）、`report_language` 与 `search_languages` 已拆分 |
+| Phase B 来源注册表 | 已交付 | `references/source_seeds.json`、`scripts/source_registry.py`（含 `rollback-legacy`）、旧 `ats_companies.json` 迁移与回滚均有测试 |
+| Phase C 双管道单写入器 | 已交付 | `scripts/discovery_plan.py` / `discovery_batch.py`、指标携带 `market_id`/`source_type`/`discovery_route`、旧记录惰性归一化为 `market_status: unknown` |
+| Phase D 报告与质量验证 | 已交付 | `docs/multi-region-phase-d1.md` / `-d2.md`、报告模板的市场/来源/验证状态展示、离线 benchmark 测试 |
+| **Phase E 发布门禁** | **未达标** | 见 15.1 |
+| Phase F 文档与发布 | 已交付 | `WORKFLOW.md`、`SKILL.md`、中英 README、`CHANGELOG.md`、`docs/releases/v2.4.0.md` |
+
+### 15.1 Phase E 的实际缺口
+
+门槛：每市场 3 次成功 shadow run，且跨至少 2 个不同日期。
+`data/multi_region_shadow_runs.json` 目前只有 2 次运行（2026-09-18、2026-09-19）：
+
+| 市场 | 成功次数 | 日期数 | live smoke | 还差什么 |
+| --- | --- | --- | --- | --- |
+| ie | 2 / 3 | 2 ✓ | inconclusive | 1 次成功 run + 一次结论明确的 live smoke |
+| uk | 2 / 3 | 2 ✓ | sufficient | 1 次成功 run |
+| cn | 1 / 3 | 1 | sufficient | 2 次成功 run，且落在不同日期 |
+| de | 1 / 3 | 1 | sufficient | 2 次成功 run，且落在不同日期 |
+
+cn 在首次运行中为 `policy_skip`、de 为 `network_error`，所以两者只攒到 1 次。
+`eligible_markets` 为空，四个市场因此全部维持 `off`——门禁按设计生效，缺的是证据而非代码。
 
 ### Phase 0：锁定契约、基线和兼容策略
 

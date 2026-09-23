@@ -169,19 +169,97 @@ def test_non_definitive_failure_breaks_consecutive_unavailable_count(isolated_at
     assert item["consecutive_unavailable"] == 2
 
 
-def test_verified_board_waits_for_registry_ttl(isolated_ats):
-    recent = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
-    item = board("greenhouse", status="verified", last_success_at=recent)
-    provider = FakeAtsProvider([])
+def _ago(**delta):
+    return (datetime.now(timezone.utc) - timedelta(**delta)).isoformat()
+
+
+def test_a_board_verified_yesterday_is_asked_for_jobs_again_today(isolated_ats):
+    """The bug this pins: `ats_registry_ttl_days` gated job fetching, so the
+    cheapest discovery channel went silent for thirty days after one success.
+    A real run reported `boards_attempted: 0` and returned no candidates."""
+    item = board("greenhouse", status="verified", last_success_at=_ago(days=1))
+    provider = FakeAtsProvider({"boards/acme/jobs": [greenhouse_payload()]})
 
     result = ats_pipeline.sync_registry(
         registry(item), profile(), config=config(ats_registry_ttl_days=30),
         provider_client=provider,
     )
 
+    assert result["summary"]["boards_attempted"] == 1
+    assert result["summary"]["boards_skipped_not_due"] == 0
+    assert result["summary"]["jobs_emitted"] == 1
+
+
+def test_a_board_fetched_minutes_ago_is_skipped_and_the_summary_says_why(isolated_ats):
+    """A skipped round must not look like a round where nobody was hiring."""
+    item = board("greenhouse", status="verified", last_success_at=_ago(minutes=5))
+    provider = FakeAtsProvider([])
+
+    result = ats_pipeline.sync_registry(
+        registry(item), profile(), config=config(ats_fetch_interval_minutes=60),
+        provider_client=provider,
+    )
+
     assert result["summary"]["boards_attempted"] == 0
+    assert result["summary"]["boards_skipped_not_due"] == 1
     assert result["metrics_recorded"] is True
     assert provider.calls == []
+
+
+def test_a_zero_interval_fetches_on_every_round(isolated_ats):
+    item = board("greenhouse", status="verified", last_success_at=_ago(seconds=1))
+    provider = FakeAtsProvider({"boards/acme/jobs": [greenhouse_payload()]})
+
+    result = ats_pipeline.sync_registry(
+        registry(item), profile(), config=config(ats_fetch_interval_minutes=0),
+        provider_client=provider,
+    )
+
+    assert result["summary"]["boards_attempted"] == 1
+
+
+def test_an_unavailable_board_still_backs_off_for_the_registry_ttl(isolated_ats):
+    """Splitting the gate must not also remove the backoff from a dead board."""
+    item = board(
+        "greenhouse", status="unavailable", last_attempt_at=_ago(days=1),
+        consecutive_unavailable=3,
+    )
+    provider = FakeAtsProvider([])
+
+    result = ats_pipeline.sync_registry(
+        registry(item), profile(),
+        config=config(ats_registry_ttl_days=30, ats_fetch_interval_minutes=0),
+        provider_client=provider,
+    )
+
+    assert result["summary"]["boards_attempted"] == 0
+    assert result["summary"]["boards_skipped_not_due"] == 1
+    assert provider.calls == []
+
+
+def test_the_per_round_cap_serves_the_least_recently_fetched_board(isolated_ats):
+    """Every verified board is now due every round, so a cap smaller than the
+    catalog would starve the tail of the list forever without this ordering."""
+    # `zeta` sorts last by board_id on purpose: alphabetical order would pick
+    # the wrong board, so only the recency key can satisfy this.
+    stale = board("greenhouse", token="zeta", status="verified",
+                  last_success_at=_ago(days=2))
+    fresh = board("greenhouse", token="acme", status="verified",
+                  last_success_at=_ago(hours=2))
+    provider = FakeAtsProvider({
+        "boards/zeta/jobs": [greenhouse_payload()],
+        "boards/acme/jobs": [greenhouse_payload()],
+    })
+
+    result = ats_pipeline.sync_registry(
+        registry(fresh, stale), profile(),
+        config=config(ats_boards_per_round=1), provider_client=provider,
+    )
+
+    assert result["summary"]["boards_attempted"] == 1
+    assert result["summary"]["boards_skipped_by_cap"] == 1
+    assert stale.get("last_attempt_at") is not None, "least recent board goes first"
+    assert fresh.get("last_attempt_at") is None, "fresher board waits its turn"
 
 
 def test_disabled_pipeline_does_not_call_provider(isolated_ats):

@@ -77,6 +77,7 @@ ATS 调用不计入 `max_websearch_calls`，也不复用浏览器的 3 页上限
 | `ats_max_pages`（Lever） | 10 |
 | `ats_timeout_seconds` | 30 |
 | `ats_registry_ttl_days` | 30 |
+| `ats_fetch_interval_minutes` | 60 |
 
 API 返回的是整板职位，不能把所有职位直接送给 LLM。必须先做确定性的 title/location 初筛，再受 `top_n + precise_buffer` 与单轮评估预算约束。
 

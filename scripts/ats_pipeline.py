@@ -19,6 +19,7 @@ from _jobutil import load_config, normalize_company
 from _stdio import use_utf8_stdout
 from ats_provider import AtsProvider, HttpAtsProvider, RequestBudget, fetch_board
 from runtime_metrics import record_metric, validate_run_id
+import market_plan
 import source_registry
 
 
@@ -289,19 +290,86 @@ def prefilter_jobs(jobs: list[dict[str, Any]], profile: dict[str, Any]) -> list[
     ]
 
 
-def _clean_candidate(job: dict[str, Any]) -> dict[str, Any]:
+def _clean_candidate(job: dict[str, Any], board_id: str) -> dict[str, Any]:
     fields = (
         "title", "company", "location", "url", "snippet", "salary",
         "date_posted", "source", "identity_keys", "jd_text", "jd_text_truncated",
     )
-    return {
+    cleaned = {
         field: job.get(
             field,
             [] if field == "identity_keys" else False if field == "jd_text_truncated" else "",
         )
         for field in fields
     }
+    # Which board answered is not recoverable from the job itself, and a caller
+    # that has to attribute a candidate back to its planned task needs it.
+    # `board_id` is already the registry's source id, spelled the same way.
+    cleaned["source_id"] = board_id
+    return cleaned
 
+
+
+def to_candidate_envelopes(
+    candidates: list[dict[str, Any]],
+    *,
+    markets: dict[str, Any] | None = None,
+    now: datetime | None = None,
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Turn synced ATS candidates into CandidateEnvelopes, JD text kept beside.
+
+    This channel predates the CandidateEnvelope contract and emitted a shape
+    that only `merge_jobs.py` would take, which is why its jobs could reach the
+    table only through a second writer. The envelope forbids job description
+    text outright, so the text travels next to the envelope instead of inside
+    it: the contract stays intact and the text never has to pass through the
+    orchestrator on its way to the merge.
+
+    Returns one `(envelope, jd)` pair per candidate, in the order given.
+    """
+    resolved = markets if markets is not None else market_plan.load_resources()[0]
+    observed_at = (now or _now()).isoformat().replace("+00:00", "Z")
+    languages = {
+        market["market_id"]: (market.get("default_search_languages") or ["en"])[0]
+        for market in resolved["markets"]
+    }
+    pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for candidate in candidates:
+        location = market_plan.normalize_location(candidate.get("location"), resolved)
+        market_ids = location["market_ids"]
+        # Exactly one market is an attribution. Several is a guess, so say
+        # nothing rather than pick the first and call it an answer.
+        market_id = market_ids[0] if len(market_ids) == 1 else None
+        envelope = {
+            "title": candidate.get("title", ""),
+            "company": candidate.get("company", ""),
+            "location": candidate.get("location", ""),
+            "url": candidate.get("url", ""),
+            "snippet": candidate.get("snippet", ""),
+            "salary": candidate.get("salary", ""),
+            "date_posted": candidate.get("date_posted", ""),
+            "source": candidate.get("source", ""),
+            "source_id": candidate.get("source_id", ""),
+            "source_type": "ats_board",
+            "discovery_route": "ats_expansion",
+            # No search happened here; this is the board API's own language.
+            "search_language": languages.get(market_id, "en"),
+            "observed_at": observed_at,
+            # A public board API lists only postings that are currently open.
+            "link_verification_status": "alive",
+            "identity_keys": candidate.get("identity_keys") or [],
+            "location_normalized": {
+                "market_id": market_id,
+                "city_id": location["city_id"],
+                "remote_scope": location["remote_scope"],
+                "confidence": location["confidence"],
+            },
+        }
+        pairs.append((envelope, {
+            "jd_text": candidate.get("jd_text", ""),
+            "jd_text_truncated": bool(candidate.get("jd_text_truncated")),
+        }))
+    return pairs
 
 def _elapsed_since(timestamp: Any, now: datetime) -> timedelta:
     """Age of `timestamp`. An absent or unreadable stamp reads as long ago."""
@@ -383,8 +451,14 @@ def sync_registry(
     config: dict[str, Any] | None = None,
     provider_client: AtsProvider | None = None,
     metrics_run_id: str | None = None,
+    board_ids: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Synchronize eligible boards and return bounded merge-ready candidates."""
+    """Synchronize eligible boards and return bounded merge-ready candidates.
+
+    `board_ids` restricts the run to those boards. A discovery wave plans a
+    specific set of structured tasks, and a candidate from a board outside that
+    set has no task to be attributed to.
+    """
     cfg = config or load_config()
     if not cfg.get("ats_enabled", False):
         return {"ok": True, "status": "disabled", "candidates": [], "summary": {"boards": 0}}
@@ -414,6 +488,7 @@ def sync_registry(
         if isinstance(board, dict)
         and board.get("enabled") is True
         and board.get("status") in {"candidate", "verified", "unavailable"}
+        and (board_ids is None or board.get("board_id") in board_ids)
     ]
     due = [
         board for board in selectable
@@ -486,7 +561,7 @@ def sync_registry(
             if len(emitted) >= candidate_limit:
                 break
             seen_identities.add(identity)
-            emitted.append(_clean_candidate(job))
+            emitted.append(_clean_candidate(job, board["board_id"]))
             emitted_by_board[board["board_id"]] = emitted_by_board.get(board["board_id"], 0) + 1
             if job.get("jd_text"):
                 emitted_with_jd_by_board[board["board_id"]] = (
@@ -544,6 +619,9 @@ def sync_registry(
         "ok": True,
         "status": "completed",
         "candidates": emitted,
+        # Per board, so a caller can report one task outcome per planned board
+        # instead of narrating a single number for the whole channel.
+        "boards": state_rows,
         "summary": state["summary"],
         "metrics_recorded": metrics_recorded,
     }

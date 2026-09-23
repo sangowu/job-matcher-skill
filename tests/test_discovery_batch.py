@@ -204,29 +204,6 @@ def payload(*, batch_id="coverage-batch-1", wave_id="wave:1") -> dict:
     }
 
 
-@pytest.fixture
-def stores(tmp_path):
-    data_dir = tmp_path / "data"
-    registry = data_dir / "source_registry.json"
-    source_registry.initialize_registry(
-        registry_path=registry,
-        seeds_path=source_registry.SEEDS_PATH,
-        legacy_path=data_dir / "ats_companies.json",
-        lock_path=data_dir / "source_registry.lock",
-    )
-    config = tmp_path / "config.json"
-    config.write_text(
-        json.dumps({"stop_threshold": 12, "consecutive_empty_stop": 2}),
-        encoding="utf-8",
-    )
-    return {
-        "registry": registry,
-        "legacy": data_dir / "ats_companies.json",
-        "manifests": data_dir / "discovery_batches",
-        "config": config,
-    }
-
-
 def run_batch(stores, value, **kwargs):
     return discovery_batch.run_discovery_batch(
         value,

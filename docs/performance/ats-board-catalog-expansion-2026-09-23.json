@@ -1,0 +1,92 @@
+{
+ "schema_version": 1,
+ "run_kind": "ats_board_catalog_expansion",
+ "observed_at": "2026-09-23T00:00:00Z",
+ "method": "public_read_only_board_fetch",
+ "environment": {
+  "os": "Windows",
+  "python": "3.13.5"
+ },
+ "existing_boards_revalidated": {
+  "attempted": 18,
+  "reachable": 18,
+  "with_target_market_jobs": 18
+ },
+ "candidate_tokens_probed": {
+  "attempted": 155,
+  "by_provider": {
+   "greenhouse": 82,
+   "ashby": 25,
+   "lever": 48
+  },
+  "lever_probed_on_both_api_hosts": true,
+  "resolved_to_a_reachable_board": 40,
+  "kept": 30,
+  "rejected": 10,
+  "unresolved_no_board_at_that_token": 115
+ },
+ "rejection_reasons": {
+  "no_jobs_in_a_target_market": 6,
+  "board_returned_zero_jobs": 3,
+  "single_placeholder_posting": 1
+ },
+ "unresolved_detail": {
+  "http_404": 115
+ },
+ "seeded": {
+  "boards_added": 30,
+  "catalog_before": 18,
+  "catalog_after": 48,
+  "providers_after": {
+   "greenhouse": 30,
+   "ashby": 17,
+   "lever": 1
+  },
+  "market_coverage_after": {
+   "ie": 22,
+   "uk": 44,
+   "de": 27,
+   "cn": 0
+  }
+ },
+ "measured_cost": {
+  "requests_per_board": 1,
+  "note": "one request per board at page_size=50/max_pages=10, including a 694-job board; 48 boards sit well inside ats_requests_per_round=100",
+  "mean_seconds_per_board": 1.78
+ },
+ "config_effect": {
+  "ats_boards_per_round_before": 30,
+  "ats_boards_per_round_after": 60,
+  "reason": "the largest market now seeds 44 boards; the cap must cover a market in one round or its tail rotates across rounds",
+  "ats_requests_per_round": 100
+ },
+ "limitations": {
+  "markets_are_observed_not_declared": "each board's markets come from the locations its own jobs reported at probe time, so a board that stops hiring in a market keeps a stale claim until re-verification",
+  "single_lever_board": "one Lever board is enough to exercise the adapter but not to characterise Lever pagination under load",
+  "dusseldorf_unmatched": "references/markets.json has Munich, Hamburg, Cologne and Frankfurt but no Dusseldorf alias, so trivago's jobs matched no market and the board was rejected for a catalog gap rather than a hiring one",
+  "probe_is_not_a_round": "probes ran outside the round request budget and recorded no metrics; they prove reachability, not round behaviour"
+ },
+ "measured_yield": {
+  "method": "one real sync_registry round per catalog against the stored CV profile (data/ats_phase3_profile_input.json), temp registry, temp metrics, nothing written to the live stores",
+  "before": {
+   "boards": 18,
+   "jobs_normalized": 2649,
+   "candidates_emitted": 7,
+   "requests": 18,
+   "seconds": 3.1
+  },
+  "after": {
+   "boards": 48,
+   "jobs_normalized": 6534,
+   "candidates_emitted": 12,
+   "requests": 48,
+   "seconds": 8.1
+  },
+  "note": "2.5x the jobs but only +5 candidates: the deterministic prefilter is narrow for this profile's four LLM/AI role names, so most of the added volume is filtered out rather than carried forward",
+  "boards_failed": 0,
+  "ie_structured_tasks": {
+   "before": 11,
+   "after": 22
+  }
+ }
+}

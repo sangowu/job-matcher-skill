@@ -100,6 +100,87 @@ employer's whole board in a single request.
   and may enable it. `--no-enable` stops at `verified` when a human should
   approve the last step.
 
+## Expanding the catalog (2026-09-23)
+
+The 18-board catalog came from a single market's worth of hand-curated
+guesses, and the 2026-09-23 live run showed what that costs: 20 jobs reached
+the report and exactly one of them scored an `apply`. The structured channel
+was the only one producing jobs, so the pool it draws from was the ceiling on
+the whole run.
+
+155 candidate tokens were probed by the same rule as before — no token is
+trusted because it looks right, each is fetched through this repository's own
+read-only adapter, and markets come from the locations the board's own jobs
+report rather than from where the company is headquartered. The 18 existing
+boards were revalidated first, which is also what proves the probe works:
+all 18 answered and all 18 still carried target-market jobs.
+
+Of the 155 probes, 40 resolved to a reachable board and 30 were kept:
+
+| Outcome | Count |
+|---|---|
+| Kept | 30 |
+| No jobs in a target market | 6 |
+| Board answered with zero jobs | 3 |
+| Single placeholder posting | 1 |
+| No board at that token (HTTP 404) | 115 |
+
+The 115 misses are the expected cost of the method: a guessed token either
+names a real public board or it does not, and one request settles it.
+
+The catalog went from 18 boards to 48 — Greenhouse 14→30, Ashby 4→17, and
+**Lever 0→1**, which matters out of proportion to its size: the Lever adapter
+has shipped and been benchmarked since phase 1 but had never had a single board
+in the catalog to fetch. Ireland, the only market rolled out, went from 11
+boards to 22.
+
+Rejections worth naming, because they are gaps rather than verdicts:
+
+- `trivago` posts every job in Düsseldorf, and `references/markets.json` lists
+  Munich, Hamburg, Cologne and Frankfurt but no Düsseldorf. The board was
+  rejected by a missing alias, not by an absence of hiring.
+- `form3` reports locations as `100% Remote (UK)`. The normalizer refuses to
+  guess from a work-model string, which is the right default and still loses a
+  board that is plainly in a target market.
+
+### What it actually bought
+
+One real sync round per catalog, against the stored CV profile, temp registry
+and temp metrics:
+
+| | Boards | Jobs seen | Candidates | Requests | Time |
+|---|---|---|---|---|---|
+| Before | 18 | 2,649 | 7 | 18 | 3.1s |
+| After | 48 | 6,534 | 12 | 48 | 8.1s |
+
+2.5x the jobs and 48 of 48 boards answering, but only five more candidates.
+The deterministic prefilter is narrow for a profile naming four LLM/AI roles,
+so most of the added volume is filtered out rather than carried forward. The
+pool was a real ceiling and it has been raised; it was not the only one.
+
+## What the expansion does not prove
+
+Markets are observed, not declared: a board's claim comes from the jobs it
+happened to be showing at probe time, and it keeps that claim until the TTL
+brings it back for re-verification. One Lever board exercises the adapter but
+says nothing about Lever pagination under load. The probes ran outside the
+round request budget and recorded no metrics, so they establish reachability
+and nothing about how a round behaves.
+
+Counts are in
+[`performance/ats-board-catalog-expansion-2026-09-23.json`](performance/ats-board-catalog-expansion-2026-09-23.json).
+
+### Why the round cap moved
+
+One request fetches one board, measured rather than assumed — a 694-job
+Greenhouse board and a 16-job Lever board each cost exactly one request at
+`page_size=50, max_pages=10`. 48 boards therefore sit well inside
+`ats_requests_per_round: 100`, and the binding limit was `ats_boards_per_round`,
+which capped at 30 while the largest market now seeds 44. It moved to 60. Left
+at 30 the tail of that market would simply rotate to the next round — visible
+in `boards_skipped_by_cap` rather than silent, but still a market that takes
+two rounds to sweep.
+
 ## Getting the growth out of one machine
 
 `data/source_registry.json` sits under `.gitignore` — the whole `data/`

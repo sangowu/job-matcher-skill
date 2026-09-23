@@ -47,7 +47,7 @@
   "consecutive_empty_stop": 2,
   "ats_enabled": true,
   "ats_max_concurrency": 3,
-  "ats_boards_per_round": 30,
+  "ats_boards_per_round": 60,
   "ats_requests_per_round": 100,
   "ats_page_size": 50,
   "ats_max_pages": 10,

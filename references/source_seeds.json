@@ -1262,6 +1262,24 @@
       "priority": 72,
       "access_methods": ["ats_public_api"],
       "automation_allowed": true
+    },
+    {
+      "source_id": "trivago-greenhouse",
+      "display_name": "trivago",
+      "source_type": "ats_board",
+      "provider": "greenhouse",
+      "board_token": "trivago",
+      "entry_url": "https://boards.greenhouse.io/trivago",
+      "markets": ["de"],
+      "search_languages": ["en", "de"],
+      "enabled": true,
+      "verified": true,
+      "verification_method": "public_ats_api",
+      "verified_at": "2026-09-23T00:00:00Z",
+      "verification_ttl_days": 30,
+      "priority": 72,
+      "access_methods": ["ats_public_api"],
+      "automation_allowed": true
     }
   ]
 }

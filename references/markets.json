@@ -239,6 +239,48 @@
           "administrative_areas": [
             "Northern Ireland"
           ]
+        },
+        {
+          "city_id": "bristol",
+          "name": "Bristol",
+          "names": {
+            "en": "Bristol",
+            "de": "Bristol",
+            "zh-Hans": "布里斯托尔"
+          },
+          "aliases": [
+            "Bristol",
+            "布里斯托尔"
+          ],
+          "administrative_areas": []
+        },
+        {
+          "city_id": "leeds",
+          "name": "Leeds",
+          "names": {
+            "en": "Leeds",
+            "de": "Leeds",
+            "zh-Hans": "利兹"
+          },
+          "aliases": [
+            "Leeds",
+            "利兹"
+          ],
+          "administrative_areas": []
+        },
+        {
+          "city_id": "glasgow",
+          "name": "Glasgow",
+          "names": {
+            "en": "Glasgow",
+            "de": "Glasgow",
+            "zh-Hans": "格拉斯哥"
+          },
+          "aliases": [
+            "Glasgow",
+            "格拉斯哥"
+          ],
+          "administrative_areas": []
         }
       ],
       "source_ids": [
@@ -584,6 +626,95 @@
             "North Rhine-Westphalia",
             "Nordrhein-Westfalen"
           ]
+        },
+        {
+          "city_id": "dusseldorf",
+          "name": "Düsseldorf",
+          "names": {
+            "en": "Düsseldorf",
+            "de": "Düsseldorf",
+            "zh-Hans": "杜塞尔多夫"
+          },
+          "aliases": [
+            "Düsseldorf",
+            "Duesseldorf",
+            "Dusseldorf",
+            "杜塞尔多夫"
+          ],
+          "administrative_areas": []
+        },
+        {
+          "city_id": "stuttgart",
+          "name": "Stuttgart",
+          "names": {
+            "en": "Stuttgart",
+            "de": "Stuttgart",
+            "zh-Hans": "斯图加特"
+          },
+          "aliases": [
+            "Stuttgart",
+            "斯图加特"
+          ],
+          "administrative_areas": []
+        },
+        {
+          "city_id": "hannover",
+          "name": "Hanover",
+          "names": {
+            "en": "Hanover",
+            "de": "Hannover",
+            "zh-Hans": "汉诺威"
+          },
+          "aliases": [
+            "Hanover",
+            "Hannover",
+            "汉诺威"
+          ],
+          "administrative_areas": []
+        },
+        {
+          "city_id": "leipzig",
+          "name": "Leipzig",
+          "names": {
+            "en": "Leipzig",
+            "de": "Leipzig",
+            "zh-Hans": "莱比锡"
+          },
+          "aliases": [
+            "Leipzig",
+            "莱比锡"
+          ],
+          "administrative_areas": []
+        },
+        {
+          "city_id": "dresden",
+          "name": "Dresden",
+          "names": {
+            "en": "Dresden",
+            "de": "Dresden",
+            "zh-Hans": "德累斯顿"
+          },
+          "aliases": [
+            "Dresden",
+            "德累斯顿"
+          ],
+          "administrative_areas": []
+        },
+        {
+          "city_id": "nuremberg",
+          "name": "Nuremberg",
+          "names": {
+            "en": "Nuremberg",
+            "de": "Nürnberg",
+            "zh-Hans": "纽伦堡"
+          },
+          "aliases": [
+            "Nuremberg",
+            "Nürnberg",
+            "Nuernberg",
+            "纽伦堡"
+          ],
+          "administrative_areas": []
         }
       ],
       "source_ids": [
@@ -626,7 +757,8 @@
         "raisin-greenhouse",
         "staffbase-greenhouse",
         "verifone-greenhouse",
-        "wolt-greenhouse"
+        "wolt-greenhouse",
+        "trivago-greenhouse"
       ],
       "query_templates": [
         {

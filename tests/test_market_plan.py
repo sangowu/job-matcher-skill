@@ -498,3 +498,80 @@ def test_a_country_named_inside_a_longer_one_is_not_a_second_market(resources):
 
     assert normalized["market_ids"] == ["uk"]
     assert market_plan.location_matches_market("Northern Ireland", "ie", markets) is False
+
+
+# --------------------------------------------------------------------------
+# City catalog coverage. Gaps here do not fail loudly: an unlisted city simply
+# resolves to no market, and a board whose jobs all sit in one is rejected as
+# having no target-market work. That is how trivago was dropped from the ATS
+# catalog on 2026-09-23 -- every one of its jobs is in Dusseldorf.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("value", "market", "city"),
+    [
+        ("Düsseldorf", "de", "dusseldorf"),
+        ("Duesseldorf", "de", "dusseldorf"),
+        ("Hannover", "de", "hannover"),
+        ("Hanover", "de", "hannover"),
+        ("Stuttgart", "de", "stuttgart"),
+        ("Nürnberg", "de", "nuremberg"),
+        ("Bristol", "uk", "bristol"),
+        ("Leeds", "uk", "leeds"),
+        ("Glasgow", "uk", "glasgow"),
+    ],
+)
+def test_a_city_named_without_its_country_still_finds_its_market(
+    resources, value, market, city
+):
+    """`Dusseldorf` and `Hannover` were measured failing on real postings.
+
+    Most postings name the country too and resolve at country level regardless,
+    so the ones that carry only a city name are exactly the ones a gap loses.
+    """
+    location = market_plan.normalize_location(value, markets_of(resources))
+
+    assert location["market_ids"] == [market]
+    assert location["city_id"] == city
+    assert location["confidence"] == "exact"
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["Cambridge, MA", "Cambridge, Massachusetts", "Birmingham, AL", "Oxford, Ohio"],
+)
+def test_a_city_whose_name_is_shared_with_the_united_states_is_left_out(
+    resources, value
+):
+    """Cambridge, Birmingham and Oxford are deliberately absent from the UK list.
+
+    No market here models the United States, so nothing would compete with a
+    UK alias and `Cambridge, MA` would resolve as Cambridge, England -- a
+    confident wrong answer of exactly the kind this catalog exists to avoid.
+    They stay out until a market can contest them; the cost is that these
+    postings resolve at country level or not at all, which loses no job.
+    """
+    location = market_plan.normalize_location(value, markets_of(resources))
+
+    assert location["market_ids"] == []
+    assert location["city_id"] is None
+
+
+def test_no_city_name_is_claimed_by_two_cities(resources):
+    """Aliases are checked for uniqueness inside a city but never across them.
+
+    Region names are shared on purpose -- `England` names both London and
+    Manchester, `Munster` both Cork and Limerick -- and the match order settles
+    those. A city *name* claimed twice is a different thing: it would make the
+    answer depend on catalog ordering, with nothing to break the tie on.
+    """
+    markets = markets_of(resources)
+    owners: dict[str, list[str]] = {}
+    for market in markets["markets"]:
+        for city in market["cities"]:
+            for alias in city["aliases"]:
+                owners.setdefault(alias.casefold(), []).append(city["city_id"])
+
+    shared = {alias: ids for alias, ids in owners.items() if len(set(ids)) > 1}
+    assert not shared, f"city name claimed by more than one city: {shared}"

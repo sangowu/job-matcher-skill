@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import re
+import math
 import sys
 import time
 import uuid
@@ -26,7 +27,7 @@ from typing import Any, Callable
 
 from candidate_contract import CandidateContractError, validate_candidate_envelope
 from candidate_handoff import run_merge_subprocess
-from runtime_metrics import validate_run_id
+from runtime_metrics import record_metric, validate_run_id
 import source_registry
 
 
@@ -35,6 +36,7 @@ DATA_DIR = SKILL_ROOT / "data"
 REGISTRY_PATH = DATA_DIR / "source_registry.json"
 LEGACY_ATS_PATH = DATA_DIR / "ats_companies.json"
 MANIFESTS_DIR = DATA_DIR / "discovery_batches"
+METRICS_PATH = DATA_DIR / "metrics.jsonl"
 CONFIG_PATH = SKILL_ROOT / "config.json"
 TERMINAL_STATUSES = {"succeeded", "failed", "skipped"}
 TASK_CHANNELS = {
@@ -104,6 +106,127 @@ def _non_negative(value: Any, field: str, default: int = 0) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise DiscoveryBatchError(f"{field} must be a non-negative integer")
     return value
+
+
+SEARCH_PAGE_FIELDS = {
+    "page_number",
+    "calls",
+    "raw_results",
+    "prefiltered",
+    "deduplicated",
+    "new_candidates",
+    "cached_candidates",
+    "duration_ms",
+}
+_SEARCH_PAGE_OPTIONAL = {"first_result_ms"}
+_TASK_SLOT = re.compile(r"web:([1-9]\d{0,2})\Z")
+
+
+def _duration_ms(value: Any, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise DiscoveryBatchError(f"{field} must be a non-negative number")
+    number = float(value)
+    if not math.isfinite(number) or number < 0:
+        raise DiscoveryBatchError(f"{field} must be a non-negative number")
+    return number
+
+
+def _validate_search_pages(
+    raw_pages: Any,
+    *,
+    channel: str,
+    status: str,
+    task_id: str,
+    index: int,
+    candidates_raw: int,
+    candidates_prefiltered: int,
+) -> list[dict[str, Any]]:
+    """Validate the per-page Web Search counts carried by a task result.
+
+    These counts used to reach the metrics store only if the Agent remembered a
+    separate `search_metrics.py` call after every result page. Nothing failed
+    when it forgot: the candidates committed regardless and the round simply
+    closed `missing_operations=search`. Carrying the pages on the task result
+    makes the omission impossible instead of merely detectable -- a succeeded
+    Web Search task cannot commit its candidates without them -- and keeps the
+    per-page grain, which a single batch-level event would have thrown away.
+    """
+    field = f"task_results[{index}].pages"
+    if channel != "web_search":
+        if raw_pages is not None:
+            raise DiscoveryBatchError(f"{field} is only valid for a web_search task")
+        return []
+    if status != "succeeded":
+        # Nothing was searched, so there is nothing to account for.
+        if raw_pages:
+            raise DiscoveryBatchError(f"{field} requires a succeeded task")
+        return []
+    if not isinstance(raw_pages, list) or not raw_pages:
+        raise DiscoveryBatchError(
+            f"{field} must list one entry per Web Search result page"
+        )
+    slot_match = _TASK_SLOT.fullmatch(str(task_id))
+    if slot_match is None:
+        raise DiscoveryBatchError(f"{field} cannot derive a query slot from {task_id}")
+    query_slot = f"q{slot_match.group(1)}"
+
+    pages: list[dict[str, Any]] = []
+    seen_numbers: set[int] = set()
+    for position, entry in enumerate(raw_pages):
+        label = f"{field}[{position}]"
+        if not isinstance(entry, dict):
+            raise DiscoveryBatchError(f"{label} must be an object")
+        extra = set(entry) - SEARCH_PAGE_FIELDS - _SEARCH_PAGE_OPTIONAL
+        if extra or not SEARCH_PAGE_FIELDS <= set(entry):
+            raise DiscoveryBatchError(f"{label} fields are invalid")
+        page = {name: _non_negative(entry[name], f"{label}.{name}") for name in
+                SEARCH_PAGE_FIELDS - {"duration_ms"}}
+        page["duration_ms"] = _duration_ms(entry["duration_ms"], f"{label}.duration_ms")
+        first_result = entry.get("first_result_ms")
+        page["first_result_ms"] = (
+            None if first_result is None
+            else _duration_ms(first_result, f"{label}.first_result_ms")
+        )
+        if not (
+            page["deduplicated"] <= page["prefiltered"] <= page["raw_results"]
+            and page["new_candidates"] + page["cached_candidates"] <= page["deduplicated"]
+        ):
+            raise DiscoveryBatchError(f"{label} counts violate the filtering funnel")
+        if page["page_number"] < 1 or page["page_number"] in seen_numbers:
+            raise DiscoveryBatchError(f"{label}.page_number must be unique and positive")
+        seen_numbers.add(page["page_number"])
+        page["query_slot"] = query_slot
+        pages.append(page)
+
+    # The task totals and the pages describe the same work, so a page set that
+    # does not add up to them is bookkeeping, not measurement.
+    if sum(page["raw_results"] for page in pages) != candidates_raw:
+        raise DiscoveryBatchError(f"{field} raw_results must sum to candidates_raw")
+    if sum(page["prefiltered"] for page in pages) != candidates_prefiltered:
+        raise DiscoveryBatchError(
+            f"{field} prefiltered must sum to candidates_prefiltered"
+        )
+    return pages
+
+
+def _record_search_pages(
+    pages: list[dict[str, Any]], metrics_run_id: str | None, metrics_path: Path
+) -> int:
+    """Emit one `search` event per validated Web Search page.
+
+    Emitted here rather than left to the Agent because this is the only place
+    the candidates cannot get past without the counts. A metrics store that is
+    unreachable must not fail a batch whose candidates are already valid, so a
+    refused write is counted and not raised.
+    """
+    if not metrics_run_id:
+        return 0
+    recorded = 0
+    for page in pages:
+        values = {key: value for key, value in page.items() if key != "page"}
+        if record_metric(metrics_path, "search", True, run_id=metrics_run_id, **values):
+            recorded += 1
+    return recorded
 
 
 def _positive_config(config: dict[str, Any], field: str, default: int) -> int:
@@ -342,6 +465,8 @@ def _validate_results(
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if not isinstance(raw_results, list):
         raise DiscoveryBatchError("task_results must be a list")
+    # Fall through to the per-result loop below; the page contract lives in
+    # _validate_search_pages so both the loop and its tests read one rule.
     by_task: dict[str, dict[str, Any]] = {}
     combined: list[dict[str, Any]] = []
     counts = {"succeeded": 0, "failed": 0, "skipped": 0}
@@ -361,6 +486,7 @@ def _validate_results(
             "candidates_raw",
             "candidates_prefiltered",
             "candidates",
+            "pages",
         }
         if set(result) - allowed:
             raise DiscoveryBatchError(f"task_results[{index}] contains unsupported fields")
@@ -397,6 +523,15 @@ def _validate_results(
         if not len(candidates) <= prefiltered <= raw_count:
             raise DiscoveryBatchError("task candidate counts violate the filtering funnel")
         channel, task = tasks[task_id]
+        pages = _validate_search_pages(
+            result.get("pages"),
+            channel=channel,
+            status=status,
+            task_id=task_id,
+            index=index,
+            candidates_raw=raw_count,
+            candidates_prefiltered=prefiltered,
+        )
         normalized = [
             _validate_candidate_for_task(
                 candidate,
@@ -415,6 +550,7 @@ def _validate_results(
             "candidates_raw": raw_count,
             "candidates_prefiltered": prefiltered,
             "candidates_unique": len(normalized),
+            "pages": pages,
         }
     missing = sorted(set(tasks) - set(by_task))
     if missing:
@@ -428,6 +564,9 @@ def _validate_results(
         ),
         "candidates_validated": len(combined),
         "channels": channel_counts,
+        "search_pages": [
+            page for value in by_task.values() for page in value["pages"]
+        ],
     }
 
 
@@ -583,6 +722,11 @@ def run_discovery_batch(
             "created_at": _now().isoformat(),
         }
         _atomic_save(manifest_path, manifest)
+        # Only a genuinely new batch emits these; a replay returns above or
+        # resumes past this point, so the pages are never counted twice.
+        task_summary["search_pages_recorded"] = _record_search_pages(
+            task_summary.pop("search_pages", []), metrics_run_id, METRICS_PATH
+        )
 
     merge_summary = manifest.get("merge")
     if manifest.get("phase") not in {"merge_committed", "source_registry_committed"}:

@@ -16,6 +16,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from _jobutil import load_config, normalize_company
+from _stdio import use_utf8_stdout
 from ats_provider import AtsProvider, HttpAtsProvider, RequestBudget, fetch_board
 from runtime_metrics import record_metric, validate_run_id
 import source_registry
@@ -563,6 +564,7 @@ def _read_profile(path: Path) -> dict[str, Any]:
 
 
 def main() -> int:
+    use_utf8_stdout()
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("discover")

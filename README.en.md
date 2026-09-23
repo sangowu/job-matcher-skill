@@ -107,7 +107,8 @@ job-matcher/
 │   ├── fetch_rendered.py     # headless render fallback (reuses system browser)
 │   ├── render_html.py        # render HTML report
 │   ├── _jobutil.py           # shared: normalization / dedup keys / URL canonicalization
-│   └── _filelock.py          # shared: cross-process exclusive file lock (every local store)
+│   ├── _filelock.py          # shared: cross-process exclusive file lock (every local store)
+│   └── _stdio.py             # shared: pin stdout/stderr to UTF-8, not the platform default
 ├── assets/template.html  # static report template (Tailwind + vanilla JS)
 └── data/                 # runtime data (.gitignored, contains PII)
 ```

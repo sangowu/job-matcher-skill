@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 
 from _jobutil import SKILL_ROOT, load_config
+from _stdio import use_utf8_stdout
 from runtime_metrics import record_metric, validate_run_id
 
 
@@ -124,6 +125,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    use_utf8_stdout()
     args = _parser().parse_args()
     profile = resolve_profile(args.role)
     if args.command == "profile":

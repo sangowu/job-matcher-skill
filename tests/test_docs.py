@@ -63,3 +63,46 @@ def test_release_notes_are_linked_from_both_readmes():
         text = _readme_text(readme)
         missing = [version for version in versions if f"{version}.md" not in text]
         assert not missing, f"{readme} does not link release notes: {', '.join(missing)}"
+
+
+MULTI_REGION_DOC = SKILL_ROOT / "docs" / "multi-region-implementation-todo.md"
+
+
+def _rollout() -> dict:
+    config = json.loads((SKILL_ROOT / "config.json").read_text(encoding="utf-8"))
+    return config["multi_region_rollout"]
+
+
+def test_the_multi_region_doc_does_not_read_as_a_progress_board():
+    """Its 200-odd checkboxes are acceptance criteria that were never ticked
+    after delivery, so the document read as if nothing had been built. Anyone
+    reaching for it as a to-do list has to meet that warning first."""
+    text = MULTI_REGION_DOC.read_text(encoding="utf-8")
+
+    assert "本文是设计规格，不是进度看板" in text
+    assert "CHANGELOG.md" in text and "shadow_gate.py status" in text
+
+
+def test_the_release_gate_status_in_the_doc_matches_the_shipped_config():
+    """The one claim in that document that can go stale silently. Phase E is
+    the only undelivered phase, and what decides it is whether any market is
+    actually rolled out -- so the two have to agree."""
+    text = MULTI_REGION_DOC.read_text(encoding="utf-8")
+    any_market_live = any(mode != "off" for mode in _rollout().values())
+
+    if any_market_live:
+        assert "**Phase E 未达标**" not in text, (
+            "a market is rolled out, so the doc may no longer call Phase E unmet"
+        )
+    else:
+        assert "**Phase E 未达标**" in text, (
+            "every market is off, so the doc must still say Phase E is unmet"
+        )
+
+
+def test_every_supported_market_is_accounted_for_in_the_gate_table():
+    text = MULTI_REGION_DOC.read_text(encoding="utf-8")
+    gap_table = text.split("### 15.1 Phase E 的实际缺口", 1)[-1].split("##", 1)[0]
+
+    for market_id in _rollout():
+        assert f"| {market_id} |" in gap_table, f"{market_id} is missing from the gap table"

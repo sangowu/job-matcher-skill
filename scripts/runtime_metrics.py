@@ -55,6 +55,7 @@ _MERGE_FIELDS = {
     "strong_identity_records",
     "strong_identity_conflicts_prevented",
     "ambiguous_weak_matches_prevented",
+    "weak_url_key_collisions_prevented",
     "jd_handoffs",
     "jd_handoff_chars",
     "idempotent",

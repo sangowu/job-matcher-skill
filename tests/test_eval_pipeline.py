@@ -910,3 +910,92 @@ def test_a_lock_handoff_denial_does_not_abort_a_table_write(isolated_store, monk
     assert metrics["stale_lock_recoveries"] == 0
     assert not merge_jobs.LOCK_PATH.exists()
     assert len(load_table(isolated_store)["jobs"]) == 1
+
+
+def test_two_jobs_on_one_careers_page_are_not_collapsed_into_one(
+    isolated_store, monkeypatch, capsys
+):
+    """A company careers page that keeps its job id in a query parameter
+    canonicalize_url() does not preserve gives every job on that page the same
+    host+path url_key. That key used to authorize a merge by itself, which did
+    not produce a duplicate -- it absorbed the second job into the first and
+    dropped its title and URL entirely."""
+    engineer = candidate(
+        title="Senior Data Engineer",
+        company="Acme",
+        url="https://acme.com/careers?ashby_jid=1a2b3c4d-1111-2222-3333-444455556666",
+    )
+    designer = candidate(
+        title="Product Designer",
+        company="Acme",
+        url="https://acme.com/careers?ashby_jid=9f8e7d6c-9999-8888-7777-666655554444",
+    )
+
+    output = invoke(
+        monkeypatch, capsys, merge_jobs.cmd_merge, [engineer, designer], "cv", "cp"
+    )
+
+    assert output["stats"]["deduped"] == 2
+    assert output["stats"]["weak_url_key_collisions_prevented"] == 1
+    titles = {job["title"] for job in load_table(isolated_store)["jobs"]}
+    assert titles == {"Senior Data Engineer", "Product Designer"}
+
+
+def test_a_second_careers_page_job_does_not_overwrite_a_stored_one(
+    isolated_store, monkeypatch, capsys
+):
+    """The same collision across two rounds, where the first job is already in
+    the canonical table rather than in the same batch."""
+    invoke(
+        monkeypatch, capsys, merge_jobs.cmd_merge,
+        [candidate(title="Senior Data Engineer", company="Acme",
+                   url="https://acme.com/careers?ashby_jid=aaaaaaaa-1111-2222-3333-444455556666")],
+        "cv", "cp",
+    )
+
+    output = invoke(
+        monkeypatch, capsys, merge_jobs.cmd_merge,
+        [candidate(title="Product Designer", company="Acme",
+                   url="https://acme.com/careers?ashby_jid=bbbbbbbb-9999-8888-7777-666655554444")],
+        "cv", "cp",
+    )
+
+    assert output["stats"]["new"] == 1
+    assert output["stats"]["weak_url_key_collisions_prevented"] == 1
+    titles = {job["title"] for job in load_table(isolated_store)["jobs"]}
+    assert titles == {"Senior Data Engineer", "Product Designer"}
+
+
+def test_one_job_seen_twice_on_a_careers_page_still_merges(
+    isolated_store, monkeypatch, capsys
+):
+    """The guard must not turn the ordinary two-source sighting of one job into
+    two records: same company and title is still a match."""
+    url = "https://acme.com/careers?ashby_jid=1a2b3c4d-1111-2222-3333-444455556666"
+    web = candidate(title="Senior Data Engineer", company="Acme", url=url, source="web_search")
+    browsed = candidate(title="Senior Data Engineer", company="Acme", url=url, source="browser")
+
+    output = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [web, browsed], "cv", "cp")
+
+    assert output["stats"]["deduped"] == 1
+    assert output["stats"]["weak_url_key_collisions_prevented"] == 0
+
+
+def test_a_strong_provider_key_still_merges_across_differing_titles(
+    isolated_store, monkeypatch, capsys
+):
+    """The guard applies to weak keys only. A provider job id remains an
+    identity on its own, whatever the listing calls the role."""
+    detail = candidate(
+        title="AI Engineer", company="Acme",
+        url="https://boards.greenhouse.io/acme/jobs/7654321",
+    )
+    listing = candidate(
+        title="Staff AI Engineer, Platform", company="Acme",
+        url="https://boards.greenhouse.io/acme/jobs/7654321",
+    )
+
+    output = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [detail, listing], "cv", "cp")
+
+    assert output["stats"]["deduped"] == 1
+    assert output["stats"]["weak_url_key_collisions_prevented"] == 0

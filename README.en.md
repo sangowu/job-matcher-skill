@@ -242,7 +242,8 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `ats_page_size` | 50 | Lever page size |
 | `ats_max_pages` | 10 | hard cap for sequential pages per Lever board |
 | `ats_timeout_seconds` | 30 | timeout in seconds for one public ATS GET |
-| `ats_registry_ttl_days` | 30 | interval before a verified board is due again |
+| `ats_registry_ttl_days` | 30 | backoff before an unavailable board is retried |
+| `ats_fetch_interval_minutes` | 60 | how soon a verified board may be asked for jobs again; 0 means every round |
 | `jd_ttl_days` | 30 | JD cache validity |
 | `seniority_mode` | balanced | strict / balanced / stretch |
 | `enable_headless_fallback` | true | headless fallback switch |

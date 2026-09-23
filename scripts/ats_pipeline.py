@@ -302,18 +302,40 @@ def _clean_candidate(job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _retry_due(board: dict[str, Any], ttl_days: int, now: datetime) -> bool:
+def _elapsed_since(timestamp: Any, now: datetime) -> timedelta:
+    """Age of `timestamp`. An absent or unreadable stamp reads as long ago."""
+    try:
+        last = datetime.fromisoformat(str(timestamp or ""))
+    except ValueError:
+        return timedelta.max
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    return now - last
+
+
+def _fetch_due(
+    board: dict[str, Any],
+    *,
+    fetch_interval: timedelta,
+    ttl: timedelta,
+    now: datetime,
+) -> bool:
+    """Is this board due to be asked for jobs now?
+
+    Two unrelated questions used to share one answer. Re-verifying that a board
+    still exists is monthly work; asking it what it posted today is per-round
+    work. Gating the second on the first silenced the cheapest discovery
+    channel for `ats_registry_ttl_days` after its first success -- a real run
+    reached every board on day one and then reported `boards_attempted: 0` with
+    no reason given, for thirty days.
+    """
     status = board.get("status")
     if status == "candidate":
         return True
-    timestamp = board.get("last_success_at") if status == "verified" else board.get("last_attempt_at")
-    try:
-        last_sync = datetime.fromisoformat(str(timestamp or ""))
-        if last_sync.tzinfo is None:
-            last_sync = last_sync.replace(tzinfo=timezone.utc)
-    except ValueError:
-        return True
-    return now - last_sync >= timedelta(days=ttl_days)
+    if status == "unavailable":
+        # Back off from a board that keeps 404ing; that is what the TTL is for.
+        return _elapsed_since(board.get("last_attempt_at"), now) >= ttl
+    return _elapsed_since(board.get("last_success_at"), now) >= fetch_interval
 
 
 def _bounded_number(
@@ -370,6 +392,11 @@ def sync_registry(
         raise AtsPipelineError("ATS registry boards must be a list")
     now = _now()
     ttl_days = int(_bounded_number(cfg, "ats_registry_ttl_days", 30, 1, 365))
+    # How soon a verified board may be asked for jobs again. Minutes, not days:
+    # this is job freshness, not registry freshness. 0 means every round.
+    fetch_interval_minutes = int(
+        _bounded_number(cfg, "ats_fetch_interval_minutes", 60, 0, 10080)
+    )
     # Hard ceilings, not defaults: they bound what this pipeline may ask of a
     # public board host. Raised with the catalog -- one market alone now seeds
     # more than ten boards, and a measured board costs about one request and a
@@ -381,15 +408,31 @@ def sync_registry(
     max_pages = int(_bounded_number(cfg, "ats_max_pages", 10, 1, 10))
     timeout_seconds = _bounded_number(cfg, "ats_timeout_seconds", 30, 1, 60)
     max_concurrency = int(_bounded_number(cfg, "ats_max_concurrency", 3, 1, 3))
-    eligible = [
+    selectable = [
         board for board in boards
         if isinstance(board, dict)
         and board.get("enabled") is True
         and board.get("status") in {"candidate", "verified", "unavailable"}
-        and _retry_due(board, ttl_days, now)
     ]
-    eligible.sort(key=lambda board: (board.get("status") != "verified", board["board_id"]))
-    eligible = eligible[:boards_per_round]
+    due = [
+        board for board in selectable
+        if _fetch_due(
+            board,
+            fetch_interval=timedelta(minutes=fetch_interval_minutes),
+            ttl=timedelta(days=ttl_days),
+            now=now,
+        )
+    ]
+    # Least recently fetched first, so the per-round cap rotates through the
+    # catalog instead of always serving the same head of the list.
+    due.sort(key=lambda board: (
+        board.get("status") != "verified",
+        str(board.get("last_success_at") or ""),
+        board["board_id"],
+    ))
+    eligible = due[:boards_per_round]
+    boards_skipped_not_due = len(selectable) - len(due)
+    boards_skipped_by_cap = len(due) - len(eligible)
     budget = RequestBudget(requests_per_round)
     client = provider_client or HttpAtsProvider()
 
@@ -472,6 +515,10 @@ def sync_registry(
         "boards": state_rows,
         "summary": {
             "boards_attempted": len(eligible),
+            # Without these two a round that fetched nothing is indistinguishable
+            # from a round where every board answered with nothing.
+            "boards_skipped_not_due": boards_skipped_not_due,
+            "boards_skipped_by_cap": boards_skipped_by_cap,
             "boards_succeeded": sum(row["ok"] for row in state_rows),
             "boards_failed": sum(not row["ok"] for row in state_rows),
             "requests": budget.used,

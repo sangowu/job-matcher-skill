@@ -30,6 +30,7 @@ def _config() -> dict:
     ("key", "minimum", "maximum"),
     [
         ("ats_registry_ttl_days", 1, 365),
+        ("ats_fetch_interval_minutes", 0, 10080),
         ("ats_boards_per_round", 1, 30),
         ("ats_requests_per_round", 1, 100),
         ("ats_page_size", 1, 100),
@@ -118,7 +119,7 @@ def test_a_freshly_seeded_board_is_due_for_its_first_sync(tmp_path):
     this installation ever fetched it. Copying it into last_success_at made every
     newly seeded board look just-synced, so the TTL check skipped all of them and
     a fresh catalog produced nothing until the TTL expired."""
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
 
     registry_path = tmp_path / "source_registry.json"
     source_registry.initialize_registry(
@@ -135,5 +136,14 @@ def test_a_freshly_seeded_board_is_due_for_its_first_sync(tmp_path):
     now = datetime(2026, 9, 22, 13, tzinfo=timezone.utc)
 
     assert view["boards"], "seed catalog must publish ATS boards"
-    due = [board for board in view["boards"] if ats_pipeline._retry_due(board, ttl, now)]
+    due = [
+        board
+        for board in view["boards"]
+        if ats_pipeline._fetch_due(
+            board,
+            fetch_interval=timedelta(minutes=60),
+            ttl=timedelta(days=ttl),
+            now=now,
+        )
+    ]
     assert len(due) == len(view["boards"])

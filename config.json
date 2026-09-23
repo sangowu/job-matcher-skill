@@ -53,6 +53,7 @@
   "ats_max_pages": 10,
   "ats_timeout_seconds": 30,
   "ats_registry_ttl_days": 30,
+  "ats_fetch_interval_minutes": 60,
   "jd_ttl_days": 30,
   "seniority_mode": "balanced",
   "enable_headless_fallback": true,

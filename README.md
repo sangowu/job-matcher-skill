@@ -215,7 +215,8 @@ agent 会自动识别。然后在对话里：
 | `ats_page_size` | 50 | Lever 每页请求数量 |
 | `ats_max_pages` | 10 | 单个 Lever board 顺序翻页硬上限 |
 | `ats_timeout_seconds` | 30 | 单次公开 ATS GET 超时秒数 |
-| `ats_registry_ttl_days` | 30 | 已验证 board 再同步间隔 |
+| `ats_registry_ttl_days` | 30 | unavailable board 的重试退避间隔 |
+| `ats_fetch_interval_minutes` | 60 | 已验证 board 再次取职位的最小间隔（分钟）；0 表示每轮都取 |
 | `jd_ttl_days` | 30 | JD 缓存有效期 |
 | `seniority_mode` | balanced | strict / balanced / stretch |
 | `enable_headless_fallback` | true | headless 兜底开关 |

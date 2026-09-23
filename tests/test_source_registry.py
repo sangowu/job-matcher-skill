@@ -112,7 +112,7 @@ def test_public_source_seeds_validate_locked_market_coverage():
     markets, _ = market_plan.load_resources()
     known = {source["source_id"] for source in seeds["sources"]}
 
-    assert len(seeds["sources"]) == 41
+    assert len(seeds["sources"]) >= 41, "the reviewed catalog must not shrink"
     assert all(set(market["source_ids"]) <= known for market in markets["markets"])
     for market_id in source_registry.SUPPORTED_MARKETS:
         eligible = [
@@ -210,7 +210,7 @@ def test_initialization_creates_url_free_health_registry_and_is_idempotent(tmp_p
         "seed_added": 0,
         "seed_updated": 0,
         "legacy_imported": 0,
-        "registry_size": 41,
+        "registry_size": len(source_registry.load_seeds()["sources"]),
         "changed": False,
     }
     assert registry_path.read_bytes() == first_bytes
@@ -238,7 +238,15 @@ def test_only_enabled_verified_unexpired_sources_enter_deterministic_plan(tmp_pa
     assert candidate["enabled"] is False
     assert "new-public-source" not in plan["source_ids"]
     assert plan["source_ids"].count("amazon-careers") == 1
-    assert len(plan["source_ids"]) == 34
+    eligible = {
+        source["source_id"]
+        for source in source_registry.load_seeds()["sources"]
+        if source["enabled"]
+        and source["verified"]
+        and {"ie", "de"} & set(source["markets"])
+    }
+    assert set(plan["source_ids"]) == eligible
+    assert len(plan["source_ids"]) == len(eligible), "a source must appear once"
 
     _apply(
         registry_path,
@@ -370,7 +378,8 @@ def test_legacy_registry_is_imported_once_with_marker_and_never_modified(tmp_pat
 
     assert first["legacy_imported"] == 1
     assert second["legacy_imported"] == 0
-    assert len(registry["sources"]) == 42
+    # The whole seed catalog, plus the one board imported from the legacy file.
+    assert len(registry["sources"]) == len(source_registry.load_seeds()["sources"]) + 1
     assert registry["migrations"]["ats_companies_v1"]["status"] == "completed"
     assert legacy_path.read_bytes() == legacy_bytes
 
@@ -436,7 +445,7 @@ def test_legacy_migration_can_be_rolled_back_without_touching_legacy_or_seeds(tm
     registry = source_registry.load_registry(registry_path)
 
     assert result == {"removed": 1, "changed": True}
-    assert len(registry["sources"]) == 41
+    assert len(registry["sources"]) == len(source_registry.load_seeds()["sources"])
     assert {source["origin"] for source in registry["sources"]} == {"seed"}
     assert registry["migrations"]["ats_companies_v1"]["status"] == "rolled_back"
     assert legacy_path.read_bytes() == legacy_bytes
@@ -449,7 +458,10 @@ def test_legacy_migration_can_be_rolled_back_without_touching_legacy_or_seeds(tm
         now=NOW + timedelta(hours=2),
     )
     assert repeated["legacy_imported"] == 0
-    assert len(source_registry.load_registry(registry_path)["sources"]) == 41
+    assert (
+        len(source_registry.load_registry(registry_path)["sources"])
+        == len(source_registry.load_seeds()["sources"])
+    )
 
 
 def test_ats_pipeline_uses_generic_registry_after_initialization(tmp_path, monkeypatch):
@@ -482,7 +494,9 @@ def test_ats_pipeline_uses_generic_registry_after_initialization(tmp_path, monke
     assert not legacy_path.exists()
     generic = source_registry.load_registry(registry_path)
     discovered = next(
-        source for source in generic["sources"] if source["source_type"] == "ats_board"
+        source
+        for source in generic["sources"]
+        if source["source_type"] == "ats_board" and source.get("board_token") == "acme"
     )
     assert discovered["origin"] == "agent"
     assert discovered["status"] == "candidate"
@@ -495,7 +509,9 @@ def test_ats_pipeline_keeps_migrated_legacy_file_read_only(tmp_path, monkeypatch
     before = legacy_path.read_bytes()
     monkeypatch.setattr(ats_pipeline, "REGISTRY_PATH", legacy_path)
     view = ats_pipeline._load_ats_registry()
-    board = next(item for item in view["boards"] if item["provider"] == "greenhouse")
+    board = next(
+        item for item in view["boards"] if item["board_id"] == "ats_0123456789abcdefabcd"
+    )
     board.update(
         status="verified",
         last_attempt_at="2026-09-17T12:00:00Z",

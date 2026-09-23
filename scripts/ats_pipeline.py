@@ -476,7 +476,7 @@ def sync_registry(
     # more than ten boards, and a measured board costs about one request and a
     # fraction of a second, so the old ceilings capped the cheapest channel
     # below the size of its own source list.
-    boards_per_round = int(_bounded_number(cfg, "ats_boards_per_round", 10, 1, 30))
+    boards_per_round = int(_bounded_number(cfg, "ats_boards_per_round", 10, 1, 60))
     requests_per_round = int(_bounded_number(cfg, "ats_requests_per_round", 30, 1, 100))
     page_size = int(_bounded_number(cfg, "ats_page_size", 50, 1, 100))
     max_pages = int(_bounded_number(cfg, "ats_max_pages", 10, 1, 10))

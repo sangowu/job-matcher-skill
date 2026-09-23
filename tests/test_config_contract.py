@@ -18,6 +18,7 @@ SCRIPTS_DIR = SKILL_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import ats_pipeline  # noqa: E402
+import ats_provider  # noqa: E402
 import discovery_plan  # noqa: E402
 import source_registry  # noqa: E402
 
@@ -31,7 +32,7 @@ def _config() -> dict:
     [
         ("ats_registry_ttl_days", 1, 365),
         ("ats_fetch_interval_minutes", 0, 10080),
-        ("ats_boards_per_round", 1, 30),
+        ("ats_boards_per_round", 1, 60),
         ("ats_requests_per_round", 1, 100),
         ("ats_page_size", 1, 100),
         ("ats_max_pages", 1, 10),
@@ -147,3 +148,42 @@ def test_a_freshly_seeded_board_is_due_for_its_first_sync(tmp_path):
         )
     ]
     assert len(due) == len(view["boards"])
+
+
+def _ats_seeds() -> list[dict]:
+    return [
+        source for source in source_registry.load_seeds()["sources"]
+        if source["source_type"] == "ats_board"
+    ]
+
+
+def test_every_lever_board_says_which_api_host_it_lives_on():
+    """`instance` silently defaults to global, and an EU board 404s there.
+
+    The catalog carried no Lever board at all until 2026-09-23, so nothing had
+    ever exercised the one field that decides which of the two Lever API hosts
+    a board is fetched from.
+    """
+    lever = [source for source in _ats_seeds() if source["provider"] == "lever"]
+
+    assert lever, "the catalog must keep exercising the Lever adapter"
+    for source in lever:
+        assert source.get("instance") in {"global", "eu"}, source["source_id"]
+
+
+def test_no_two_seeds_claim_the_same_board():
+    """One board behind two ids is fetched twice and merged against itself."""
+    boards = [
+        (source["provider"], source["board_token"], source.get("instance", "global"))
+        for source in _ats_seeds()
+    ]
+
+    duplicates = {board for board in boards if boards.count(board) > 1}
+    assert not duplicates, f"the same board is seeded more than once: {duplicates}"
+
+
+def test_every_seeded_board_names_a_provider_the_round_can_actually_fetch():
+    """A board whose provider has no adapter is a task no executor can run."""
+    providers = {source["provider"] for source in _ats_seeds()}
+
+    assert providers <= set(ats_provider.PROVIDERS), providers - set(ats_provider.PROVIDERS)

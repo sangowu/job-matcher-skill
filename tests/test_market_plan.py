@@ -14,6 +14,7 @@ FIXTURE_DIR = SKILL_ROOT / "tests" / "fixtures" / "multi_region"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import market_plan  # noqa: E402
+import source_registry  # noqa: E402
 import validate_profile  # noqa: E402
 
 
@@ -40,12 +41,18 @@ def test_versioned_market_and_role_resources_validate(resources):
         "ie", "uk", "cn", "de"
     ]
     assert all(market["query_templates"] for market in markets["markets"])
-    assert {market["market_id"]: len(market["source_ids"]) for market in markets["markets"]} == {
-        "ie": 24,
-        "uk": 29,
-        "cn": 14,
-        "de": 24,
-    }
+    # The catalog grows, so pin the relationship rather than the head count:
+    # every market lists exactly the seeds that name it, each one once.
+    seeds = source_registry.load_seeds()["sources"]
+    for market in markets["markets"]:
+        listed = market["source_ids"]
+        covering = {
+            source["source_id"] for source in seeds
+            if market["market_id"] in source["markets"]
+        }
+        assert covering, market["market_id"]
+        assert set(listed) == covering, market["market_id"]
+        assert len(listed) == len(set(listed)), market["market_id"]
     assert all(
         len(set(market["source_ids"])) == len(market["source_ids"])
         for market in markets["markets"]

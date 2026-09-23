@@ -176,6 +176,20 @@ _BOARD_ROOT_PATTERNS: list[tuple[str, re.Pattern]] = [
 ]
 # 这些路径段是平台自有功能，不是公司 board token。
 _RESERVED_BOARD_TOKENS = frozenset({"embed", "api", "search", "jobs", "static", "assets"})
+# 自有域名上的嵌入式 board：URL 里有 job id，却**没有** board token——它不在 URL 里。
+# 只能从主机名猜出候选，再拿 job id 去该 board 上验证（猜错就验不过）。
+# 这些标签是招聘子域或顶级域，不可能是公司名。
+_HOST_NOISE_LABELS = frozenset(
+    {
+        "www", "careers", "career", "jobs", "job", "boards", "board", "apply",
+        "hire", "hiring", "talent", "work", "recruiting", "recruit", "join",
+        "com", "org", "net", "io", "co", "ai", "dev", "app", "inc", "group",
+        "uk", "de", "ie", "fr", "es", "it", "nl", "eu", "us", "ca", "au", "nz",
+        "cn", "jp", "in", "me", "xyz", "tech",
+    }
+)
+_MAX_TOKEN_GUESSES = 3
+_TOKEN_CHARS = re.compile(r"[A-Za-z0-9_-]{2,100}")
 # 跳转落到这些 host 属于合法的 ATS 交接，不是越界。
 ATS_BOARD_HOSTS = (
     "boards.greenhouse.io",
@@ -206,6 +220,45 @@ def extract_board(url: str) -> tuple[str, str] | None:
             if token not in _RESERVED_BOARD_TOKENS:
                 return provider, token
     return None
+
+def extract_board_hint(url: str) -> tuple[str, str, list[str]] | None:
+    """自有域名上的嵌入式 board → `(provider, job_id, 候选 token)`；认不出时 None。
+
+    `extract_board()` 要求 URL 里出现厂商域名。公司把 board 嵌进自家招聘页时
+    厂商域名不在 URL 里，board token 也不在——URL 里只有 provider 和 job id。
+
+    所以这里只给出**待验证的猜测**：token 由主机名推出，job_id 是验证它的证据。
+    调用方必须去该 board 上确认这个 job id 真的存在，才可以采信 token；
+    单靠主机名猜测会撞到别家公司。
+    """
+    text = (url or "").strip()
+    if not text:
+        return None
+    for provider, pattern in _EMBED_ID_PATTERNS:
+        match = pattern.search(text)
+        if not match:
+            continue
+        job_id = match.group(1).lower()
+        try:
+            host = (urlparse(text).hostname or "").lower()
+        except ValueError:
+            return None
+        labels = [label for label in host.split(".") if label]
+        # 越靠右越接近可注册域名，公司名通常就在那里。
+        guesses: list[str] = []
+        for label in reversed(labels):
+            if label in _HOST_NOISE_LABELS or len(label) < 2:
+                continue
+            if label in _RESERVED_BOARD_TOKENS or not _TOKEN_CHARS.fullmatch(label):
+                continue
+            for variant in (label, label.replace("-", "")):
+                if variant and variant not in guesses:
+                    guesses.append(variant)
+        if not guesses:
+            return None
+        return provider, job_id, guesses[:_MAX_TOKEN_GUESSES]
+    return None
+
 
 # job-id 类参数：规范化时保留（小写比较）
 # 兜底：取值格式不合上面的强身份模式时（截断、改写），至少别把这个参数丢掉，

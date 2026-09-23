@@ -332,26 +332,73 @@ def normalize_location(value: Any, markets: dict[str, Any]) -> dict[str, Any]:
         max(remote_matches, key=lambda item: item[0])[1] if remote_matches else None
     )
 
-    location_matches: list[tuple[int, int, dict[str, Any], dict[str, Any] | None]] = []
+    def _position(alias_norm: str) -> int:
+        """Where this alias sits in the text; unfound aliases sort to the end."""
+        found = normalized.find(alias_norm)
+        return len(normalized) if found < 0 else found
+
+    location_matches: list[
+        tuple[int, int, dict[str, Any], dict[str, Any] | None, int]
+    ] = []
     for market in markets["markets"]:
         for city in market["cities"]:
             aliases = [*city["aliases"], *city["administrative_areas"]]
             for alias in aliases:
                 alias_norm = _normalize_text(alias)
                 if _alias_matches(alias, normalized):
-                    location_matches.append((len(alias_norm), 2, market, city))
+                    location_matches.append(
+                        (len(alias_norm), 2, market, city, _position(alias_norm))
+                    )
         for alias in market["country_aliases"]:
             alias_norm = _normalize_text(alias)
             if _alias_matches(alias, normalized):
-                location_matches.append((len(alias_norm), 1, market, None))
+                location_matches.append(
+                    (len(alias_norm), 1, market, None, _position(alias_norm))
+                )
 
     if location_matches:
-        _, confidence_rank, market, city = max(
-            location_matches, key=lambda item: (item[0], item[1])
+        # Specificity first, then the longest alias inside that tier. Length
+        # used to come first, so which reading won depended on spelling rather
+        # than geography: "Frankfurt, Germany" kept its city because
+        # "frankfurt" is longer than "germany", while "Dublin, Ireland" lost
+        # its city to a country alias one character longer. Every city whose
+        # name is shorter than its country's was being thrown away.
+        # Then the earliest one named, so a posting listing several places is
+        # read the way it is written rather than by catalog iteration order:
+        # "Dublin, Ireland; London, England" is a Dublin job that is also open
+        # in London. Alias length only breaks a remaining tie.
+        _, confidence_rank, market, city, _ = max(
+            location_matches, key=lambda item: (item[1], -item[4], item[0])
+        )
+        # Every market the text names, not only the winner's. The field is
+        # plural and its readers treat it as a set, but one match was reported:
+        # "Dublin, Ireland; London, England" resolved to the United Kingdom
+        # alone, attributing a plainly Dublin job to the wrong market. The
+        # winner stays first, so the primary reading is still readable off the
+        # front of the list.
+        # A shorter alias matched entirely inside a longer one is that longer
+        # name, not a second place: "Northern Ireland" contains "Ireland", and
+        # counting both would put a Belfast job in the Republic.
+        def _subsumed(item: tuple[int, int, Any, Any, int]) -> bool:
+            length, _, _, _, start = item
+            return any(
+                other[0] > length
+                and other[4] <= start
+                and other[4] + other[0] >= start + length
+                for other in location_matches
+            )
+
+        others = sorted(
+            {
+                item[2]["market_id"]
+                for item in location_matches
+                if not _subsumed(item)
+            }
+            - {market["market_id"]}
         )
         return {
             "input": raw,
-            "market_ids": [market["market_id"]],
+            "market_ids": [market["market_id"], *others],
             "city_id": city["city_id"] if city else None,
             "location_id": city["city_id"] if city else market["market_id"],
             "location_type": "city" if city else "country",

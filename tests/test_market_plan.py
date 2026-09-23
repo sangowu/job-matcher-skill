@@ -397,3 +397,71 @@ def test_multilingual_duplicate_fixture_preserves_source_titles():
         first, translated_observation = candidates[market_id][1:3]
         assert first["identity_keys"] == translated_observation["identity_keys"]
         assert first["title"] != translated_observation["title"]
+
+
+def test_a_city_is_not_lost_to_a_country_alias_that_is_merely_longer(resources):
+    """Whether a city survived used to depend on how its country is spelled.
+
+    The winning match was chosen by alias length before specificity, so
+    "Frankfurt, Germany" kept its city (9 characters beats 7) while "Dublin,
+    Ireland" did not (6 loses to 7). Every city whose name is shorter than its
+    country's was silently downgraded to the country -- including Dublin, the
+    most common location string in this skill's own target market.
+    """
+    markets, _ = resources
+
+    for text, city_id in (
+        ("Dublin, Ireland", "dublin"),
+        ("Cork, Ireland", "cork"),
+        ("Berlin, Germany", "berlin"),
+        ("Manchester, United Kingdom", "manchester"),
+        ("Frankfurt, Germany", "frankfurt"),
+    ):
+        normalized = market_plan.normalize_location(text, markets)
+
+        assert normalized["city_id"] == city_id, text
+        assert normalized["confidence"] == "exact", text
+
+
+def test_a_posting_open_in_two_countries_names_both_markets(resources):
+    """`market_ids` is plural and read as a set, but only the winner was in it.
+
+    A job listed in Dublin and London was attributed to the United Kingdom
+    alone, so a wave scoped to Ireland refused it as belonging elsewhere.
+    """
+    markets, _ = resources
+
+    normalized = market_plan.normalize_location(
+        "Dublin, Ireland; London, England", markets
+    )
+
+    assert set(normalized["market_ids"]) == {"ie", "uk"}
+    assert market_plan.location_matches_market(
+        "Dublin, Ireland; London, England", "ie", markets
+    ) is True
+
+
+def test_the_first_place_named_is_the_primary_reading(resources):
+    """Two equally specific places tie, and catalog order should not decide it."""
+    markets, _ = resources
+
+    dublin_first = market_plan.normalize_location(
+        "Dublin, Ireland; London, England", markets
+    )
+    london_first = market_plan.normalize_location(
+        "London, England; Dublin, Ireland", markets
+    )
+
+    assert dublin_first["city_id"] == "dublin"
+    assert london_first["city_id"] == "london"
+    assert set(dublin_first["market_ids"]) == set(london_first["market_ids"])
+
+
+def test_a_country_named_inside_a_longer_one_is_not_a_second_market(resources):
+    """Reporting every match must not turn "Northern Ireland" into two places."""
+    markets, _ = resources
+
+    normalized = market_plan.normalize_location("Northern Ireland", markets)
+
+    assert normalized["market_ids"] == ["uk"]
+    assert market_plan.location_matches_market("Northern Ireland", "ie", markets) is False

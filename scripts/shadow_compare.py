@@ -5,13 +5,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import shadow_gate
 from _jobutil import is_strong_identity_key
+from _stdio import StdinUnavailable, read_stdin_text
 
 
 SUPPORTED_MARKETS = shadow_gate.SUPPORTED_MARKETS
@@ -345,9 +345,9 @@ def compare_shadow(payload: Any) -> dict[str, Any]:
 
 def _read_input(path: Path | None) -> Any:
     try:
-        raw = path.read_text(encoding="utf-8") if path else sys.stdin.read()
+        raw = path.read_text(encoding="utf-8") if path else read_stdin_text()
         return json.loads(raw or "{}")
-    except (OSError, json.JSONDecodeError) as exc:
+    except (StdinUnavailable, OSError, json.JSONDecodeError) as exc:
         raise ShadowCompareError(f"cannot read input: {exc}") from exc
 
 

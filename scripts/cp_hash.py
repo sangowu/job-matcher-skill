@@ -17,6 +17,7 @@ import hashlib
 import json
 import re
 import sys
+from _stdio import StdinUnavailable, read_stdin_text
 
 
 def normalize(obj):
@@ -43,7 +44,11 @@ def _strip_fence(text: str) -> str:
 
 
 def main() -> None:
-    raw = sys.stdin.buffer.read().decode("utf-8", errors="replace")
+    try:
+        raw = read_stdin_text()
+    except StdinUnavailable as error:
+        print(json.dumps({"ok": False, "error": str(error)}))
+        sys.exit(1)
     if not raw.strip():
         print(json.dumps({"ok": False, "error": "stdin 为空"}))
         sys.exit(1)

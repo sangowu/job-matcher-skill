@@ -15,6 +15,7 @@ import re
 import sys
 
 from _jobutil import is_closed_posting
+from _stdio import StdinUnavailable, read_stdin_text
 
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
@@ -55,8 +56,8 @@ def check(url: str) -> dict:
 
 def main() -> None:
     try:
-        urls = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace") or "[]")
-    except json.JSONDecodeError as e:
+        urls = json.loads(read_stdin_text() or "[]")
+    except (StdinUnavailable, json.JSONDecodeError) as e:
         print(json.dumps({"ok": False, "error": f"输入 JSON 解析失败：{e}"}))
         sys.exit(1)
     if not isinstance(urls, list):

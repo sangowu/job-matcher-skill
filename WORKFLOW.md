@@ -36,6 +36,8 @@
 
 ## 脚本契约（你的确定性工具箱）
 
+标 `(stdin)` 的脚本读到 EOF 才开始工作，而 EOF 只在调用方关闭管道时才出现。从后台 shell 启动却不关闭 stdin，脚本会一直等下去——没有输出、没有进度、也没有超时，和"正在慢慢跑"完全无法区分（2026-09-23 因此白等了九小时）。现在这类等待上限 30 秒，超时后按统一的 `{ok:false,error}` 退出；环境变量 `JOB_MATCHER_STDIN_TIMEOUT` 可调整，设为 `0` 恢复无限等待。正确做法是从文件重定向，或由一个写完就退出的生产者管道输入。
+
 | 脚本 | 调用 | 输入 | 输出 |
 |------|------|------|------|
 | `extract_cv.py` | `python scripts/extract_cv.py <file>` | CV 文件路径 | `{ok, source_type, char_count, cv_hash, text_path, cache_hit, cached_profile_path?, warnings}` |

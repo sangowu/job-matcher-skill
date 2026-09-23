@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from _jobutil import is_strong_identity_key
+from _stdio import StdinUnavailable, read_stdin_text
 
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -206,13 +206,13 @@ def validate_candidate_envelope(
 
 def main() -> int:
     try:
-        payload = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace") or "[]")
+        payload = json.loads(read_stdin_text() or "[]")
         if not isinstance(payload, list):
             raise CandidateContractError("input must be a candidate array")
         candidates = [validate_candidate_envelope(candidate) for candidate in payload]
         print(json.dumps({"ok": True, "candidates": candidates}, ensure_ascii=True))
         return 0
-    except (CandidateContractError, json.JSONDecodeError) as error:
+    except (CandidateContractError, StdinUnavailable, json.JSONDecodeError) as error:
         print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=True))
         return 1
 

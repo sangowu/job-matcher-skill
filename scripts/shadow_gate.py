@@ -8,7 +8,6 @@ import hashlib
 import json
 import os
 import re
-import sys
 import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -16,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 import _filelock
+from _stdio import StdinUnavailable, read_stdin_text
 
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
@@ -481,9 +481,9 @@ def evaluate_gate(
 
 def _read_input(path: Path | None) -> Any:
     try:
-        raw = path.read_text(encoding="utf-8") if path else sys.stdin.read()
+        raw = path.read_text(encoding="utf-8") if path else read_stdin_text()
         return json.loads(raw or "{}")
-    except (OSError, json.JSONDecodeError) as exc:
+    except (StdinUnavailable, OSError, json.JSONDecodeError) as exc:
         raise ShadowGateError(f"cannot read input: {exc}") from exc
 
 

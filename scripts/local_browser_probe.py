@@ -11,6 +11,7 @@ import json
 import re
 import sys
 from typing import Any
+from _stdio import StdinUnavailable, read_stdin_text
 
 
 PROVIDERS = {"browseros_neo", "user_browser"}
@@ -111,8 +112,8 @@ def main() -> int:
     try:
         if len(sys.argv) != 2 or sys.argv[1] != "probe":
             raise ValueError("usage: local_browser_probe.py probe")
-        result = probe(json.load(sys.stdin))
-    except (ValueError, json.JSONDecodeError) as error:
+        result = probe(json.loads(read_stdin_text()))
+    except (StdinUnavailable, ValueError, json.JSONDecodeError) as error:
         print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=True))
         return 2
     print(json.dumps(result, ensure_ascii=True))

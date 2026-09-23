@@ -20,7 +20,6 @@ import hashlib
 import json
 import os
 import re
-import sys
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -29,6 +28,7 @@ from typing import Any, Iterable
 from urllib.parse import urlparse
 
 import _filelock
+from _stdio import StdinUnavailable, read_stdin_text
 
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -1338,7 +1338,7 @@ def main() -> int:
                 }
             )
         elif args.command == "apply":
-            batch = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace") or "{}")
+            batch = json.loads(read_stdin_text() or "{}")
             _emit(
                 {
                     "ok": True,
@@ -1357,6 +1357,7 @@ def main() -> int:
             )
         return 0
     except (
+        StdinUnavailable,
         SourceRegistryError,
         json.JSONDecodeError,
         UnicodeDecodeError,

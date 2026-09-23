@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import ats_pipeline
-from _stdio import use_utf8_stdout
+from _stdio import StdinUnavailable, use_utf8_stdout
 from runtime_metrics import record_metric, validate_run_id
 
 
@@ -112,7 +112,12 @@ def main() -> int:
         )
         print(json.dumps(result, ensure_ascii=False))
         return 0
-    except (ats_pipeline.AtsPipelineError, AtsHandoffError, json.JSONDecodeError) as error:
+    except (
+        ats_pipeline.AtsPipelineError,
+        AtsHandoffError,
+        StdinUnavailable,
+        json.JSONDecodeError,
+    ) as error:
         record_metric(
             ats_pipeline.METRICS_PATH,
             "ats",

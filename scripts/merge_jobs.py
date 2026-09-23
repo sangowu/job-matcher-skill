@@ -50,6 +50,7 @@ from _jobutil import (
     make_record_id,
 )
 from runtime_metrics import record_metric, validate_run_id
+from _stdio import StdinUnavailable, read_stdin_text
 
 
 MAX_JD_HANDOFF_CHARS = 50_000
@@ -796,7 +797,7 @@ def cmd_merge(
     ttl_days = int(cfg.get("jd_ttl_days", 30))
     mk = f"{cv_hash}:{cp_hash}"
 
-    candidates = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace") or "[]")
+    candidates = json.loads(read_stdin_text() or "[]")
     if not isinstance(candidates, list):
         raise InputDataError("输入必须是职位候选数组")
     candidates = [_prepare_candidate(candidate) for candidate in candidates]
@@ -1082,7 +1083,7 @@ def cmd_update(
 ) -> None:
     started = time.monotonic()
     mk = f"{cv_hash}:{cp_hash}"
-    results = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace") or "[]")
+    results = json.loads(read_stdin_text() or "[]")
     if not isinstance(results, list):
         raise InputDataError("输入必须是打分结果数组")
 
@@ -1340,7 +1341,7 @@ def main() -> None:
             if not args.run_id:
                 raise InputDataError("--run-id is required for update")
             cmd_update(args.cv_hash, args.cp_hash, args.run_id, args.metrics_run_id)
-    except (DataStoreError, InputDataError, json.JSONDecodeError) as error:
+    except (DataStoreError, InputDataError, StdinUnavailable, json.JSONDecodeError) as error:
         metrics_recorded = record_metric(
             METRICS_PATH,
             args.mode,

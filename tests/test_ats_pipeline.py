@@ -46,7 +46,6 @@ def profile():
     return {
         "preferred_roles": ["AI Engineer"],
         "preferred_locations": ["Dublin"],
-        "open_to_remote": True,
         "blocked_levels": ["intern", "lead"],
     }
 
@@ -273,10 +272,9 @@ def test_disabled_pipeline_does_not_call_provider(isolated_ats):
     assert provider.calls == []
 
 
-def test_prefilter_is_deterministic_for_role_location_remote_and_seniority():
+def test_prefilter_is_deterministic_for_role_location_and_seniority():
     jobs = [
         {"title": "Machine Learning Engineer", "location": "Dublin"},
-        {"title": "AI Engineer", "location": "Remote - Europe"},
         {"title": "AI Engineer Intern", "location": "Dublin"},
         {"title": "AI Engineer", "location": "London"},
         {"title": "Accountant", "location": "Dublin"},
@@ -284,10 +282,41 @@ def test_prefilter_is_deterministic_for_role_location_remote_and_seniority():
 
     filtered = ats_pipeline.prefilter_jobs(jobs, profile())
 
-    assert [job["title"] for job in filtered] == [
-        "Machine Learning Engineer",
-        "AI Engineer",
+    assert [job["title"] for job in filtered] == ["Machine Learning Engineer"]
+
+
+def test_a_remote_posting_is_not_searched_whatever_place_it_names():
+    """The label cannot say which jurisdictions may take it, so none is assumed.
+
+    "Remote - US" and "Remote" are the same string to this filter, and half of
+    the descriptions behind them restrict hiring to named countries or even to
+    named US states. A round therefore leaves remote work alone; see
+    docs/roadmap.md for what it would take to search it honestly.
+    """
+    jobs = [
+        {"title": "AI Engineer", "location": "Dublin"},
+        {"title": "AI Engineer", "location": "Remote"},
+        {"title": "AI Engineer", "location": "Remote - Ireland"},
+        {"title": "AI Engineer", "location": "Remote - US"},
+        {"title": "AI Engineer", "location": "Dublin, Ireland; Remote"},
+        {"title": "AI Engineer", "location": "Anywhere"},
     ]
+
+    filtered = ats_pipeline.prefilter_jobs(jobs, profile())
+
+    assert [job["location"] for job in filtered] == ["Dublin"]
+
+
+def test_an_onsite_or_hybrid_posting_is_still_searched():
+    """Only remote is out of scope; a place that names a place still counts."""
+    jobs = [
+        {"title": "AI Engineer", "location": "Dublin (Hybrid)"},
+        {"title": "AI Engineer", "location": "Dublin - onsite"},
+    ]
+
+    filtered = ats_pipeline.prefilter_jobs(jobs, profile())
+
+    assert len(filtered) == 2
 
 
 def test_prefilter_does_not_treat_ai_product_suffix_as_role_match():
@@ -299,7 +328,6 @@ def test_prefilter_does_not_treat_ai_product_suffix_as_role_match():
             "LLM Engineer",
         ],
         "preferred_locations": ["Ireland"],
-        "open_to_remote": False,
         "blocked_levels": ["lead"],
     }
     jobs = [
@@ -357,3 +385,32 @@ def test_invalid_hard_limit_fails_before_provider_call(isolated_ats):
         )
 
     assert provider.calls == []
+
+
+def test_the_envelope_keeps_its_remote_scope_field_and_never_fills_it():
+    """The field survives the removal so the contract and the stored table do.
+
+    `location_normalized.remote_scope` is required by the CandidateEnvelope
+    schema and every job already in the table carries it. Removing remote
+    modelling therefore empties the field rather than deleting it: the shape
+    stays valid, and nothing claims to know a jurisdiction any more. See
+    docs/roadmap.md for what would populate it honestly.
+    """
+    candidates = [
+        {"title": "AI Engineer", "company": "Acme", "location": "Dublin, Ireland",
+         "url": "https://boards.greenhouse.io/acme/jobs/1", "source_id": "acme-greenhouse",
+         "identity_keys": ["greenhouse:1"], "jd_text": "text"},
+        {"title": "AI Engineer", "company": "Acme", "location": "Remote - US",
+         "url": "https://boards.greenhouse.io/acme/jobs/2", "source_id": "acme-greenhouse",
+         "identity_keys": ["greenhouse:2"], "jd_text": "text"},
+    ]
+
+    envelopes = [envelope for envelope, _ in ats_pipeline.to_candidate_envelopes(candidates)]
+
+    for envelope in envelopes:
+        assert "remote_scope" in envelope["location_normalized"]
+        assert envelope["location_normalized"]["remote_scope"] is None
+    assert envelopes[0]["location_normalized"]["market_id"] == "ie"
+    # "Remote - US" used to resolve as worldwide; it now resolves as unknown.
+    assert envelopes[1]["location_normalized"]["market_id"] is None
+    assert envelopes[1]["location_normalized"]["confidence"] == "unknown"

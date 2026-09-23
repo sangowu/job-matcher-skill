@@ -23,6 +23,10 @@ def resources():
     return market_plan.load_resources()
 
 
+def markets_of(resources):
+    return resources[0]
+
+
 def make_request(cv_language="en", cv_locations=None, **intent):
     return {
         "cv_profile": {
@@ -338,22 +342,44 @@ def test_ireland_is_not_northern_ireland_and_belfast_is_uk(resources):
     assert belfast["market_ids"] == ["uk"]
 
 
-def test_remote_scopes_match_only_explicit_markets(resources):
-    markets, _ = resources
+@pytest.mark.parametrize(
+    "value", ["Remote", "Remote - US", "Remote - India", "Remote EU", "Remote EMEA"]
+)
+def test_a_remote_expression_no_longer_claims_a_scope(resources, value):
+    """These four used to resolve identically, and the answer was "worldwide".
 
-    assert market_plan.location_matches_market("Remote UK", "de", markets) is False
-    assert market_plan.location_matches_market("Remote UK", "uk", markets) is True
-    assert market_plan.location_matches_market("Remote EU", "ie", markets) is True
-    assert market_plan.location_matches_market("Remote EU", "de", markets) is True
-    assert market_plan.location_matches_market("Remote EU", "uk", markets) is False
-    assert market_plan.location_matches_market("Remote EMEA", "uk", markets) is True
-    assert market_plan.location_matches_market("", "ie", markets) is None
-    assert market_plan.normalize_location("Remote EU", markets)["location_id"] == (
-        "remote-eu"
-    )
+    `Remote - US` carried the same `global` scope as a bare `Remote`, because
+    the catalog had no entry for the United States and an unrecognised
+    qualifier fell through to the unscoped case. That is a confident wrong
+    answer where the honest one is that this module does not know. Remote
+    scopes were removed rather than extended: which jurisdictions may take a
+    remote posting is not something a location label can be read for.
+    """
+    location = market_plan.normalize_location(value, markets_of(resources))
+
+    assert location["remote_scope"] is None
+    assert location["work_mode"] == "remote"
+    assert location["location_type"] != "remote_scope"
 
 
-def test_hybrid_city_keeps_city_and_remote_scope(resources):
+def test_an_unqualified_remote_posting_belongs_to_no_market(resources):
+    location = market_plan.normalize_location("Remote", markets_of(resources))
+
+    assert location["market_ids"] == []
+    assert location["confidence"] == "unknown"
+
+
+def test_a_remote_posting_still_reports_a_place_it_names(resources):
+    """Reporting the place is the normalizer's job; skipping remote is the
+    prefilter's. `ats_pipeline` drops these for being remote at all."""
+    location = market_plan.normalize_location("Remote - Ireland", markets_of(resources))
+
+    assert location["market_ids"] == ["ie"]
+    assert location["work_mode"] == "remote"
+    assert location["remote_scope"] is None
+
+
+def test_hybrid_city_keeps_its_city_and_carries_no_scope(resources):
     markets, _ = resources
 
     location = market_plan.normalize_location(
@@ -362,8 +388,8 @@ def test_hybrid_city_keeps_city_and_remote_scope(resources):
 
     assert location["market_ids"] == ["ie"]
     assert location["city_id"] == "limerick"
-    assert location["remote_scope"] == "emea"
     assert location["work_mode"] == "hybrid"
+    assert location["remote_scope"] is None
 
 
 def test_offline_four_market_fixture_matches_ground_truth():

@@ -51,6 +51,7 @@ job-matcher/
 ├── WORKFLOW.md           # agent-neutral full workflow
 ├── config.json           # tunable knobs
 ├── docs/monitoring.md     # runtime metrics, thresholds, and health summary
+├── docs/roadmap.md        # version expectations: known gaps and what would close them
 ├── references/           # instructions read on demand
 │   ├── cv_schema.md          # CV extraction rules
 │   ├── scoring_rubric.md     # 5-dim scoring + tier thresholds

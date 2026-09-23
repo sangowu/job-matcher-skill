@@ -63,7 +63,6 @@ def _select_jobs(
     role_only = dict(profile)
     role_only["preferred_locations"] = []
     role_only["locations"] = []
-    role_only["open_to_remote"] = True
     eligible = prefilter_jobs(jobs, role_only)
     roles = [
         str(value)
@@ -164,7 +163,7 @@ def collect_sample(
             "jobs_normalized": int(metrics.get("jobs_normalized") or 0),
             "title_candidates": len(prefilter_jobs(
                 jobs,
-                {**profile, "preferred_locations": [], "locations": [], "open_to_remote": True},
+                {**profile, "preferred_locations": [], "locations": []},
             )),
             "sampled_jobs": len(selected),
             "jobs_with_jd": sum(bool(job.get("jd_text")) for job in selected),

@@ -98,11 +98,6 @@
           ]
         }
       ],
-      "remote_scopes": [
-        "ie",
-        "eu",
-        "emea"
-      ],
       "source_ids": [
         "irishjobs-ie",
         "jobs-ie",
@@ -245,10 +240,6 @@
             "Northern Ireland"
           ]
         }
-      ],
-      "remote_scopes": [
-        "uk",
-        "emea"
       ],
       "source_ids": [
         "reed-uk",
@@ -452,9 +443,6 @@
           ]
         }
       ],
-      "remote_scopes": [
-        "cn"
-      ],
       "source_ids": [
         "boss-zhipin-cn",
         "liepin-cn",
@@ -598,11 +586,6 @@
           ]
         }
       ],
-      "remote_scopes": [
-        "de",
-        "eu",
-        "emea"
-      ],
       "source_ids": [
         "arbeitsagentur-de",
         "stepstone-de",
@@ -660,92 +643,6 @@
           "discovery_route": "agent_web_search",
           "template": "{role} jobs {location}"
         }
-      ]
-    }
-  ],
-  "remote_scopes": [
-    {
-      "scope_id": "ie",
-      "market_ids": [
-        "ie"
-      ],
-      "aliases": [
-        "Remote Ireland",
-        "Ireland Remote",
-        "爱尔兰远程"
-      ]
-    },
-    {
-      "scope_id": "uk",
-      "market_ids": [
-        "uk"
-      ],
-      "aliases": [
-        "Remote UK",
-        "UK Remote",
-        "United Kingdom Remote",
-        "英国远程"
-      ]
-    },
-    {
-      "scope_id": "cn",
-      "market_ids": [
-        "cn"
-      ],
-      "aliases": [
-        "Remote China",
-        "China Remote",
-        "中国远程"
-      ]
-    },
-    {
-      "scope_id": "de",
-      "market_ids": [
-        "de"
-      ],
-      "aliases": [
-        "Remote Germany",
-        "Germany Remote",
-        "Deutschlandweit",
-        "Remote Deutschland",
-        "德国远程"
-      ]
-    },
-    {
-      "scope_id": "eu",
-      "market_ids": [
-        "ie",
-        "de"
-      ],
-      "aliases": [
-        "Remote EU",
-        "EU Remote",
-        "Remote Europe",
-        "Europe Remote",
-        "欧盟远程"
-      ]
-    },
-    {
-      "scope_id": "emea",
-      "market_ids": [
-        "ie",
-        "uk",
-        "de"
-      ],
-      "aliases": [
-        "Remote EMEA",
-        "EMEA Remote",
-        "EMEA-wide"
-      ]
-    },
-    {
-      "scope_id": "global",
-      "market_ids": [],
-      "aliases": [
-        "Remote",
-        "Worldwide Remote",
-        "Global Remote",
-        "远程"
       ]
     }
   ]

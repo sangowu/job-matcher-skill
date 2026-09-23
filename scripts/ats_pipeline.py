@@ -28,6 +28,10 @@ REGISTRY_PATH = DATA_DIR / "ats_companies.json"
 SYNC_STATE_PATH = DATA_DIR / "ats_sync_state.json"
 METRICS_PATH = DATA_DIR / "metrics.jsonl"
 _UNAVAILABLE_STATUSES = {404, 410}
+# A posting says "Remote - US" as readily as it says "Remote", and the label
+# alone cannot tell the two apart -- half of them name the eligible countries,
+# or even the eligible US states, only in the description. Rather than guess a
+# jurisdiction, a round does not search remote work at all. See docs/roadmap.md.
 _REMOTE_TERMS = ("remote", "anywhere", "distributed", "远程")
 _LEVEL_TERMS = {
     "intern": ("intern", "internship", "实习"),
@@ -250,12 +254,12 @@ def _title_matches(title: str, roles: list[str]) -> bool:
     return False
 
 
-def _location_matches(location: str, locations: list[str], open_to_remote: bool) -> bool:
+def _location_matches(location: str, locations: list[str]) -> bool:
     normalized = _normalized_text(location)
     if not normalized or not locations:
         return True
-    if open_to_remote and any(term in normalized for term in _REMOTE_TERMS):
-        return True
+    if any(term in normalized for term in _REMOTE_TERMS):
+        return False
     return any(
         (preferred := _normalized_text(str(value)))
         and (preferred in normalized or normalized in preferred)
@@ -279,12 +283,11 @@ def prefilter_jobs(jobs: list[dict[str, Any]], profile: dict[str, Any]) -> list[
             profile.get("locations") or profile.get("preferred_locations") or []
         )
     ]
-    open_to_remote = bool(profile.get("open_to_remote"))
     blocked_levels = [str(value) for value in (profile.get("blocked_levels") or [])]
     return [
         job for job in jobs
         if _title_matches(str(job.get("title") or ""), roles)
-        and _location_matches(str(job.get("location") or ""), locations, open_to_remote)
+        and _location_matches(str(job.get("location") or ""), locations)
         and _seniority_matches(str(job.get("title") or ""), blocked_levels)
     ]
 

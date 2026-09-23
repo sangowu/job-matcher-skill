@@ -251,7 +251,6 @@ def main() -> None:
         "preferred_locations": dedupe_keep_order(data.get("preferred_locations") or []),
         "target_locations": dedupe_keep_order(data.get("target_locations") or []),
         "current_location": _as_str(data.get("current_location")),
-        "open_to_remote": bool(data.get("open_to_remote", False)),
         "languages": languages,
         "industries": dedupe_keep_order(data.get("industries") or []),
         "education_level": _as_str(data.get("education_level")),

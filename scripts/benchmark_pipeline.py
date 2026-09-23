@@ -375,7 +375,6 @@ def run_fake_ats_once(
         profile = {
             "preferred_roles": ["AI Engineer"],
             "preferred_locations": ["Dublin"],
-            "open_to_remote": True,
             "blocked_levels": ["intern", "lead"],
         }
         started = time.perf_counter_ns()

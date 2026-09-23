@@ -25,6 +25,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Protocol
 
+from _stdio import use_utf8_stdout
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PLAN = REPO_ROOT / "references" / "multi_region_smoke_plan.json"
@@ -671,6 +673,7 @@ def _write_json(path: Path, value: dict[str, Any]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    use_utf8_stdout()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--live", action="store_true", help="confirm an explicit live smoke run")
     parser.add_argument("--plan", type=Path, default=DEFAULT_PLAN)

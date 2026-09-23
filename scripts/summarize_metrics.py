@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from _jobutil import load_config, skill_version
+from _stdio import use_utf8_stdout
 from runtime_metrics import DEFAULT_THRESHOLDS, build_summary, render_markdown
 
 
@@ -16,6 +17,7 @@ DEFAULT_DATA_DIR = SKILL_ROOT / "data"
 
 
 def main() -> None:
+    use_utf8_stdout()
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, help="Observation window; defaults to config or 7 days.")
     parser.add_argument("--format", choices=["json", "markdown"], default="markdown")

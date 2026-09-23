@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from _jobutil import canonicalize_url, make_dedup_key, skill_version
+from _stdio import use_utf8_stdout
 from ats_provider import (
     MAX_RESPONSE_BYTES,
     PROVIDERS as PROVIDERS,
@@ -220,6 +221,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    use_utf8_stdout()
     args = _parser().parse_args()
     if not 1 <= args.page_size <= 100 or not 1 <= args.max_pages <= 10:
         raise SystemExit("page size must be 1..100 and max pages must be 1..10")

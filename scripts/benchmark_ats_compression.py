@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from _jobutil import skill_version
+from _stdio import use_utf8_stdout
 from ats_provider import HttpAtsProvider, RequestBudget, fetch_board
 
 
@@ -259,6 +260,7 @@ def _write(path: Path, payload: Any) -> None:
 
 
 def main() -> int:
+    use_utf8_stdout()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--boards", type=Path, default=DEFAULT_BOARDS_PATH)
     parser.add_argument("--output", type=Path, required=True)

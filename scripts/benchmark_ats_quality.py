@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from _jobutil import skill_version
+from _stdio import use_utf8_stdout
 from analysis_contract import AnalysisContractError, validate_evaluation_result
 from ats_pipeline import _normalized_text, prefilter_jobs
 from ats_provider import AtsProvider, HttpAtsProvider, PROVIDERS, RequestBudget, fetch_board
@@ -374,6 +375,7 @@ def _write(path: Path, payload: Any) -> None:
 
 
 def main() -> int:
+    use_utf8_stdout()
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     collect_parser = subparsers.add_parser("collect")

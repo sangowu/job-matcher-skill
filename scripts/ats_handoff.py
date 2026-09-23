@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import ats_pipeline
+from _stdio import use_utf8_stdout
 from runtime_metrics import record_metric, validate_run_id
 
 
@@ -92,6 +93,7 @@ def run_handoff(
 
 
 def main() -> int:
+    use_utf8_stdout()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", type=Path, required=True)
     parser.add_argument("--cv-hash", required=True)

@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+import ats_pipeline
 from candidate_contract import CandidateContractError, validate_candidate_envelope
 from candidate_handoff import run_merge_subprocess
 from runtime_metrics import record_metric, validate_run_id
@@ -458,10 +459,122 @@ def _validate_candidate_for_task(
     return normalized
 
 
+STRUCTURED_FAILURE = "ats_fetch_failed"
+
+
+def _structured_board_ids(tasks: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """Map each structured task to the board it plans to fetch."""
+    board_ids: dict[str, str] = {}
+    for task_id, task in tasks.items():
+        source_id = task.get("source_id")
+        if not isinstance(source_id, str) or not source_id:
+            raise DiscoveryBatchError(f"{task_id} has no source_id to fetch")
+        board_ids[task_id] = source_id
+    return board_ids
+
+
+def _run_structured_channel(
+    tasks: dict[str, dict[str, Any]],
+    *,
+    config: dict[str, Any],
+    profile: dict[str, Any] | None,
+    known_sources: set[str],
+    metrics_run_id: str | None,
+    ats_sync: Callable[..., dict[str, Any]] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Execute this wave's structured tasks here instead of accepting a report.
+
+    The browser and Web Search channels are executed by the Agent runtime,
+    which can only hand back what it says it found. The structured channel is a
+    local HTTPS fetch, so routing its counts through a narrator buys nothing --
+    and the job description text it returns must not pass through one at all,
+    which is why its jobs previously reached the table through a second writer
+    that sat outside this batch entirely. Running it inside the single writer
+    keeps one merge per wave, makes the per-task counts measured rather than
+    reported, and keeps the text local.
+    """
+    outcomes = {
+        task_id: {
+            "status": "skipped",
+            "failure_kind": None,
+            "candidates_raw": 0,
+            "candidates_prefiltered": 0,
+            "candidates_unique": 0,
+            "pages": [],
+        }
+        for task_id in tasks
+    }
+    if not config.get("ats_enabled", False):
+        return [], outcomes
+    if profile is None:
+        raise DiscoveryBatchError(
+            "a wave with structured tasks requires --profile to prefilter its jobs"
+        )
+    board_ids = _structured_board_ids(tasks)
+    task_of_board = {source_id: task_id for task_id, source_id in board_ids.items()}
+    sync = ats_sync or ats_pipeline.sync_registry
+    try:
+        result = sync(
+            ats_pipeline._load_ats_registry(),
+            profile,
+            config=config,
+            metrics_run_id=metrics_run_id,
+            board_ids=set(board_ids.values()),
+        )
+    except Exception as error:  # noqa: BLE001 - one bad board must not lose the wave
+        raise DiscoveryBatchError("structured channel failed") from error
+
+    for row in result.get("boards") or []:
+        task_id = task_of_board.get(row.get("board_id"))
+        if task_id is None:
+            continue
+        failure = str(row.get("failure_kind") or "") or STRUCTURED_FAILURE
+        if not SAFE_FAILURE.fullmatch(failure):
+            failure = STRUCTURED_FAILURE
+        outcomes[task_id].update(
+            status="succeeded" if row.get("ok") else "failed",
+            failure_kind=None if row.get("ok") else failure,
+            candidates_raw=int(row.get("jobs_normalized") or 0),
+            candidates_prefiltered=int(row.get("jobs_prefiltered") or 0),
+        )
+
+    merge_candidates: list[dict[str, Any]] = []
+    for envelope, jd in ats_pipeline.to_candidate_envelopes(result.get("candidates") or []):
+        task_id = task_of_board.get(envelope.get("source_id"))
+        if task_id is None:
+            raise DiscoveryBatchError("structured candidate belongs to no planned task")
+        validated = _validate_candidate_for_task(
+            envelope,
+            channel="structured",
+            task=tasks[task_id],
+            known_sources=known_sources,
+        )
+        outcomes[task_id]["candidates_unique"] += 1
+        # The envelope contract forbids description text, so it rides alongside
+        # the validated record and goes no further than the merge subprocess.
+        merge_candidates.append({**validated, **jd})
+    return merge_candidates, outcomes
+
+
+def _fold_structured_outcomes(
+    summary: dict[str, Any], outcomes: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    """Add the measured structured outcomes to the reported-channel summary."""
+    for outcome in outcomes.values():
+        status = outcome["status"]
+        summary[status] += 1
+        summary["channels"]["structured"][status] += 1
+        summary["candidates_raw"] += outcome["candidates_raw"]
+        summary["candidates_prefiltered"] += outcome["candidates_prefiltered"]
+        summary["candidates_validated"] += outcome["candidates_unique"]
+    return summary
+
+
 def _validate_results(
     raw_results: Any,
     tasks: dict[str, tuple[str, dict[str, Any]]],
     known_sources: set[str],
+    self_executed: frozenset[str] = frozenset(),
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if not isinstance(raw_results, list):
         raise DiscoveryBatchError("task_results must be a list")
@@ -491,6 +604,12 @@ def _validate_results(
         if set(result) - allowed:
             raise DiscoveryBatchError(f"task_results[{index}] contains unsupported fields")
         task_id = result.get("task_id")
+        if task_id in self_executed:
+            # This script runs these itself, so a reported outcome for one is
+            # narration standing in for measurement. Refuse it outright.
+            raise DiscoveryBatchError(
+                f"{task_id} is executed by this script and must not be reported"
+            )
         if task_id not in tasks or task_id in by_task:
             raise DiscoveryBatchError("task_results contains an unknown or duplicate task_id")
         status = result.get("status")
@@ -552,7 +671,7 @@ def _validate_results(
             "candidates_unique": len(normalized),
             "pages": pages,
         }
-    missing = sorted(set(tasks) - set(by_task))
+    missing = sorted(set(tasks) - set(by_task) - self_executed)
     if missing:
         raise DiscoveryBatchError("task_results is missing planned task results")
     return combined, {
@@ -661,6 +780,8 @@ def run_discovery_batch(
     metrics_run_id: str | None = None,
     merge_runner: MergeRunner | None = None,
     source_applier: SourceApplier | None = None,
+    profile_path: Path | None = None,
+    ats_sync: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
     if not isinstance(payload, dict):
@@ -693,8 +814,13 @@ def run_discovery_batch(
     source_batch, proposals = _source_updates(payload.get("source_updates"), batch_id)
     source_registry.preview_batch(registry, source_batch)
     known_sources = _known_sources(registry, seeds, proposals)
+    structured_tasks = {
+        task_id: task for task_id, (channel, task) in tasks.items()
+        if channel == "structured"
+    }
     candidates, task_summary = _validate_results(
-        payload.get("task_results"), tasks, known_sources
+        payload.get("task_results"), tasks, known_sources,
+        self_executed=frozenset(structured_tasks),
     )
     progress = _validate_progress(
         payload.get("progress"), allow_legacy_has_more=not wave["managed"]
@@ -728,8 +854,20 @@ def run_discovery_batch(
             task_summary.pop("search_pages", []), metrics_run_id, METRICS_PATH
         )
 
+    structured_outcomes = manifest.get("structured")
     merge_summary = manifest.get("merge")
     if manifest.get("phase") not in {"merge_committed", "source_registry_committed"}:
+        # Fetched here, right before the merge that consumes it: a replay that
+        # already merged returns above and never reaches the network again.
+        structured_candidates, structured_outcomes = _run_structured_channel(
+            structured_tasks,
+            config=config,
+            profile=_read_json(profile_path, "profile") if profile_path else None,
+            known_sources=known_sources,
+            metrics_run_id=metrics_run_id,
+            ats_sync=ats_sync,
+        )
+        candidates = [*candidates, *structured_candidates]
         try:
             runner = merge_runner or run_merge_subprocess
             merge_result = runner(
@@ -742,7 +880,12 @@ def run_discovery_batch(
             if not isinstance(merge_result, dict) or merge_result.get("ok") is not True:
                 raise DiscoveryBatchError("merge runner failed")
             merge_summary = _safe_merge_summary(merge_result)
-            manifest.update(phase="merge_committed", merge=merge_summary)
+            # Counts only -- no titles, URLs or description text reach the manifest.
+            manifest.update(
+                phase="merge_committed",
+                merge=merge_summary,
+                structured=structured_outcomes,
+            )
             _atomic_save(manifest_path, manifest)
         except Exception as error:
             manifest.update(phase="failed", failed_at="merge")
@@ -769,6 +912,8 @@ def run_discovery_batch(
             _atomic_save(manifest_path, manifest)
             raise DiscoveryBatchError("source registry commit failed") from error
 
+    if structured_outcomes:
+        task_summary = _fold_structured_outcomes(task_summary, structured_outcomes)
     continuation = _continuation(merge_summary["stats"], progress, config, wave)
     result = {
         "batch_id": batch_id,
@@ -796,6 +941,7 @@ def main() -> int:
     parser.add_argument("--legacy-ats", type=Path, default=LEGACY_ATS_PATH)
     parser.add_argument("--manifests", type=Path, default=MANIFESTS_DIR)
     parser.add_argument("--config", type=Path, default=CONFIG_PATH)
+    parser.add_argument("--profile", type=Path, help="CV profile; required by structured tasks")
     args = parser.parse_args()
     try:
         payload = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace") or "{}")
@@ -808,6 +954,7 @@ def main() -> int:
             manifests_dir=args.manifests,
             config_path=args.config,
             metrics_run_id=args.metrics_run_id,
+            profile_path=args.profile,
         )
         print(json.dumps(result, ensure_ascii=True, sort_keys=True))
         return 0

@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 import source_registry
 from _jobutil import ATS_BOARD_HOSTS
+from _stdio import StdinUnavailable, read_stdin_text
 
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -499,11 +499,12 @@ def main() -> int:
     parser.add_argument("--config", type=Path, default=CONFIG_PATH)
     args = parser.parse_args()
     try:
-        request = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace") or "{}")
+        request = json.loads(read_stdin_text() or "{}")
         seeds = _read_json(args.seeds, "source catalog")
         config = _read_json(args.config, "config")
         result = build_discovery_plan(request, seeds=seeds, config=config)
     except (
+        StdinUnavailable,
         DiscoveryPlanError,
         source_registry.SourceValidationError,
         json.JSONDecodeError,

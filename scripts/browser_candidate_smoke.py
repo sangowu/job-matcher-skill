@@ -12,6 +12,7 @@ from typing import Any, Iterator
 
 import merge_jobs
 from candidate_contract import CandidateContractError, validate_candidate_envelope
+from _stdio import StdinUnavailable, read_stdin_text
 
 
 MAX_CANDIDATES = 20
@@ -122,11 +123,12 @@ def run_smoke(payload: Any) -> dict[str, Any]:
 def main() -> int:
     try:
         payload = json.loads(
-            sys.stdin.buffer.read().decode("utf-8", errors="replace") or "[]"
+            read_stdin_text() or "[]"
         )
         print(json.dumps(run_smoke(payload), ensure_ascii=True))
         return 0
     except (
+        StdinUnavailable,
         CandidateContractError,
         json.JSONDecodeError,
         merge_jobs.DataStoreError,

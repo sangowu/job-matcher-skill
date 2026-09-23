@@ -13,10 +13,10 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import sys
 import unicodedata
 from pathlib import Path
 from typing import Any, Iterable
+from _stdio import StdinUnavailable, read_stdin_text
 
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -764,12 +764,12 @@ def main() -> int:
                 "role_families": len(taxonomy["role_families"]),
             })
             return 0
-        request = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace") or "{}")
+        request = json.loads(read_stdin_text() or "{}")
         _emit({"ok": True, "plan": build_market_plan(
             request, markets=markets, taxonomy=taxonomy
         )})
         return 0
-    except (MarketPlanError, json.JSONDecodeError, TypeError, ValueError) as error:
+    except (MarketPlanError, StdinUnavailable, json.JSONDecodeError, TypeError, ValueError) as error:
         _emit({"ok": False, "error": str(error)})
         return 1
 

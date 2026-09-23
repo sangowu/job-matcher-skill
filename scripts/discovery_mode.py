@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import sys
 from typing import Any
+from _stdio import StdinUnavailable, read_stdin_text
 
 
 MODES = {"coverage", "auto", "model_only", "browser_only", "combined"}
@@ -133,7 +134,7 @@ def handle_event(request: Any) -> dict[str, Any]:
 
 def main() -> int:
     try:
-        request = json.load(sys.stdin)
+        request = json.loads(read_stdin_text())
         command = sys.argv[1] if len(sys.argv) == 2 else ""
         if command == "plan":
             result = choose_routes(request)
@@ -141,7 +142,7 @@ def main() -> int:
             result = handle_event(request)
         else:
             raise ValueError("usage: discovery_mode.py plan|event")
-    except (ValueError, json.JSONDecodeError) as error:
+    except (StdinUnavailable, ValueError, json.JSONDecodeError) as error:
         print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=True))
         return 2
     print(json.dumps(result, ensure_ascii=True))

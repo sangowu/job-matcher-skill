@@ -32,6 +32,7 @@ from candidate_contract import (
 )
 from runtime_metrics import record_metric, validate_run_id
 import source_registry
+from _stdio import StdinUnavailable, read_stdin_text
 
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -505,7 +506,7 @@ def main() -> int:
     parser.add_argument("--metrics-run-id", type=validate_run_id)
     args = parser.parse_args()
     try:
-        payload = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace") or "{}")
+        payload = json.loads(read_stdin_text() or "{}")
         result = run_handoff(
             payload,
             args.cv_hash,
@@ -514,7 +515,7 @@ def main() -> int:
         )
         print(json.dumps(result, ensure_ascii=True, sort_keys=True))
         return 0
-    except (CandidateHandoffError, json.JSONDecodeError) as error:
+    except (CandidateHandoffError, StdinUnavailable, json.JSONDecodeError) as error:
         print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=True))
         return 1
 

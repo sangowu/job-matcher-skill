@@ -18,6 +18,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from _stdio import StdinUnavailable, read_stdin_text
 
 SCHEMA_VERSION = "1.0"
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -177,7 +178,10 @@ def _fail(error: str) -> None:
 
 
 def main() -> None:
-    raw = sys.stdin.buffer.read().decode("utf-8", errors="replace")
+    try:
+        raw = read_stdin_text()
+    except StdinUnavailable as error:
+        _fail(str(error))
     if not raw.strip():
         _fail("stdin 为空，未收到 CVProfile JSON")
 

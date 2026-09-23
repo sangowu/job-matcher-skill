@@ -18,7 +18,6 @@ import json
 import os
 import re
 import math
-import sys
 import time
 import uuid
 from datetime import datetime, timezone
@@ -30,6 +29,7 @@ from candidate_contract import CandidateContractError, validate_candidate_envelo
 from candidate_handoff import run_merge_subprocess
 from runtime_metrics import record_metric, validate_run_id
 import source_registry
+from _stdio import StdinUnavailable, read_stdin_text
 
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -944,7 +944,7 @@ def main() -> int:
     parser.add_argument("--profile", type=Path, help="CV profile; required by structured tasks")
     args = parser.parse_args()
     try:
-        payload = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace") or "{}")
+        payload = json.loads(read_stdin_text() or "{}")
         result = run_discovery_batch(
             payload,
             args.cv_hash,
@@ -959,6 +959,7 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=True, sort_keys=True))
         return 0
     except (
+        StdinUnavailable,
         DiscoveryBatchError,
         source_registry.SourceRegistryError,
         json.JSONDecodeError,

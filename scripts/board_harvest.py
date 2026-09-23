@@ -37,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ats_provider  # noqa: E402
 import source_registry  # noqa: E402
 from _jobutil import extract_board, extract_board_hint  # noqa: E402
+from _stdio import StdinUnavailable, read_stdin_text  # noqa: E402
 
 MARKETS_PATH = SKILL_ROOT / "references" / "markets.json"
 # 采集来的 board 排在人工策展来源之后，除非后续被显式调整。
@@ -373,7 +374,7 @@ def _read_candidates(path: Path | None) -> list[Any]:
     raw = (
         path.read_text(encoding="utf-8")
         if path is not None
-        else sys.stdin.buffer.read().decode("utf-8", errors="replace")
+        else read_stdin_text()
     )
     if not raw.strip():
         return []
@@ -408,7 +409,7 @@ def main() -> int:
             enable_verified=not args.no_enable,
             dry_run=args.dry_run,
         )
-    except (BoardHarvestError, source_registry.SourceRegistryError, json.JSONDecodeError, OSError) as error:
+    except (BoardHarvestError, source_registry.SourceRegistryError, StdinUnavailable, json.JSONDecodeError, OSError) as error:
         print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=True, sort_keys=True))
         return 2
     print(json.dumps({"ok": True, "summary": summary}, ensure_ascii=True, sort_keys=True))

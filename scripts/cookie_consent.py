@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 import unicodedata
 from typing import Any
+from _stdio import StdinUnavailable, read_stdin_text
 
 
 POLICIES = {"necessary_only", "ask_every_time"}
@@ -170,9 +170,9 @@ def classify_cookie_consent(payload: Any) -> dict[str, Any]:
 
 def main() -> int:
     try:
-        payload = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace"))
+        payload = json.loads(read_stdin_text())
         result = classify_cookie_consent(payload)
-    except (CookieConsentError, json.JSONDecodeError) as error:
+    except (CookieConsentError, StdinUnavailable, json.JSONDecodeError) as error:
         print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=True))
         return 2
     print(json.dumps({"ok": True, **result}, ensure_ascii=True, sort_keys=True))

@@ -7,7 +7,6 @@ import hashlib
 import json
 import os
 import re
-import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -16,7 +15,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from _jobutil import load_config, normalize_company
-from _stdio import use_utf8_stdout
+from _stdio import StdinUnavailable, read_stdin_text, use_utf8_stdout
 from ats_provider import AtsProvider, HttpAtsProvider, RequestBudget, fetch_board
 from runtime_metrics import record_metric, validate_run_id
 import market_plan
@@ -628,7 +627,7 @@ def sync_registry(
 
 
 def _read_stdin_list() -> list[Any]:
-    payload = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace") or "[]")
+    payload = json.loads(read_stdin_text() or "[]")
     if not isinstance(payload, list):
         raise AtsPipelineError("stdin must be a JSON array")
     return payload
@@ -671,7 +670,7 @@ def main() -> int:
             result["discovery"] = discovery
         print(json.dumps(result, ensure_ascii=False))
         return 0
-    except (AtsPipelineError, json.JSONDecodeError) as error:
+    except (AtsPipelineError, StdinUnavailable, json.JSONDecodeError) as error:
         record_metric(
             METRICS_PATH,
             "ats",

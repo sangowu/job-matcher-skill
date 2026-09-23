@@ -30,15 +30,6 @@ SUPPORTED_MARKETS = ("ie", "uk", "cn", "de")
 INTERNAL_LANGUAGES = ("en", "de", "zh-Hans")
 DISCOVERY_ROUTES = {"agent_web_search"}
 SOURCE_TYPES = {"open_web"}
-REMOTE_SCOPE_MARKETS = {
-    "ie": ("ie",),
-    "uk": ("uk",),
-    "cn": ("cn",),
-    "de": ("de",),
-    "eu": ("ie", "de"),
-    "emea": ("ie", "uk", "de"),
-    "global": (),
-}
 _LANGUAGE_ALIASES = {
     "en": "en",
     "english": "en",
@@ -166,9 +157,6 @@ def validate_markets(
                 if not isinstance(names.get(language), str) or not names[language]:
                     raise MarketPlanError(f"{city_id}.names.{language} is required")
 
-        scopes = _strings(market.get("remote_scopes"), f"{market_id}.remote_scopes")
-        if any(scope not in REMOTE_SCOPE_MARKETS for scope in scopes):
-            raise MarketPlanError(f"{market_id} references an unknown remote scope")
         source_ids = _strings(
             market.get("source_ids"), f"{market_id}.source_ids", allow_empty=True
         )
@@ -208,24 +196,6 @@ def validate_markets(
         raise MarketPlanError("markets.json must define ie, uk, cn, and de exactly once")
     _require_unique(city_ids, "city_id")
     _require_unique(template_ids, "template_id")
-
-    remote_scopes = payload.get("remote_scopes")
-    if not isinstance(remote_scopes, list) or not remote_scopes:
-        raise MarketPlanError("remote_scopes must be a non-empty list")
-    scope_ids: list[str] = []
-    for scope in remote_scopes:
-        if not isinstance(scope, dict):
-            raise MarketPlanError("remote scope entries must be objects")
-        scope_id = str(scope.get("scope_id") or "")
-        scope_ids.append(scope_id)
-        expected_markets = list(REMOTE_SCOPE_MARKETS.get(scope_id, ()))
-        if scope.get("market_ids") != expected_markets:
-            raise MarketPlanError(f"{scope_id} remote scope market mapping is invalid")
-        aliases = _strings(scope.get("aliases"), f"{scope_id}.aliases")
-        _require_unique(aliases, f"{scope_id} remote alias")
-    _require_unique(scope_ids, "remote scope_id")
-    if set(scope_ids) != set(REMOTE_SCOPE_MARKETS):
-        raise MarketPlanError("remote scope definitions are incomplete")
     return payload
 
 
@@ -322,16 +292,6 @@ def normalize_location(value: Any, markets: dict[str, Any]) -> dict[str, Any]:
     normalized = _normalize_text(raw)
     mode = _work_mode(raw)
 
-    remote_matches: list[tuple[int, dict[str, Any]]] = []
-    for scope in markets["remote_scopes"]:
-        for alias in scope["aliases"]:
-            alias_norm = _normalize_text(alias)
-            if _alias_matches(alias, normalized):
-                remote_matches.append((len(alias_norm), scope))
-    matched_scope = (
-        max(remote_matches, key=lambda item: item[0])[1] if remote_matches else None
-    )
-
     def _position(alias_norm: str) -> int:
         """Where this alias sits in the text; unfound aliases sort to the end."""
         found = normalized.find(alias_norm)
@@ -402,43 +362,16 @@ def normalize_location(value: Any, markets: dict[str, Any]) -> dict[str, Any]:
             "city_id": city["city_id"] if city else None,
             "location_id": city["city_id"] if city else market["market_id"],
             "location_type": "city" if city else "country",
-            "remote_scope": (
-                matched_scope["scope_id"]
-                if matched_scope and matched_scope["scope_id"] != "global"
-                else market["market_id"] if mode == "remote" else None
-            ),
+            # Kept in the shape for the envelope contract, never populated:
+            # which jurisdictions a remote posting may be worked from is not
+            # modelled here. See docs/roadmap.md.
+            "remote_scope": None,
             "work_mode": mode,
             "confidence": "exact" if confidence_rank == 2 else "country",
             "canonical_name": city["name"] if city else market["country"],
             "names": city["names"] if city else market["country_names"],
         }
 
-    if matched_scope and matched_scope["scope_id"] != "global":
-        return {
-            "input": raw,
-            "market_ids": list(matched_scope["market_ids"]),
-            "city_id": None,
-            "location_id": f"remote-{matched_scope['scope_id']}",
-            "location_type": "remote_scope",
-            "remote_scope": matched_scope["scope_id"],
-            "work_mode": "remote",
-            "confidence": "scope",
-            "canonical_name": f"remote-{matched_scope['scope_id']}",
-            "names": {},
-        }
-    if mode == "remote":
-        return {
-            "input": raw,
-            "market_ids": [],
-            "city_id": None,
-            "location_id": "remote-global",
-            "location_type": "remote_scope",
-            "remote_scope": "global",
-            "work_mode": "remote",
-            "confidence": "unknown",
-            "canonical_name": "remote-global",
-            "names": {},
-        }
     return {
         "input": raw,
         "market_ids": [],
@@ -559,8 +492,6 @@ def _location_for_market(
             continue
         if detail["names"]:
             return str(detail["names"].get(language) or detail["canonical_name"])
-        if detail["remote_scope"]:
-            return str(detail["input"])
     return str(market["country_names"].get(language) or market["country"])
 
 

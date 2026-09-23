@@ -19,7 +19,6 @@
 | `target_locations` | string[] | CV 明确写出的目标求职地点；没有就留空 |
 | `current_location` | string | CV 明确写出的现居地；不是目标地点，只作最后回退 |
 | `preferred_locations` | string[] | 旧版兼容字段；新抽取优先写 `target_locations` / `current_location` |
-| `open_to_remote` | bool | CV 是否表达可接受远程 |
 | `languages` | object[] | `[{name, code, level}]`，如 `{"name":"中文","code":"zh","level":"母语"}` |
 | `industries` | string[] | 行业（如 互联网、金融科技） |
 | `education_level` | string | 最高学历（如 本科、硕士） |
@@ -86,7 +85,6 @@
   "target_locations": ["上海"],
   "current_location": "杭州",
   "preferred_locations": [],
-  "open_to_remote": true,
   "languages": [{"name": "中文", "code": "zh", "level": "母语"}, {"name": "英文", "code": "en", "level": "流利"}],
   "industries": ["互联网"],
   "education_level": "本科",

@@ -51,6 +51,7 @@ job-matcher/
 ├── WORKFLOW.md           # agent-中立完整流程
 ├── config.json           # 配置旋钮
 ├── docs/monitoring.md     # 运行指标、阈值与健康汇总
+├── docs/roadmap.md        # 版本更新期望：已知缺口与下一版验收标准
 ├── references/           # subagent 按需读取的指令
 │   ├── cv_schema.md          # CV 抽取规则
 │   ├── scoring_rubric.md     # 5 维打分 + 五档阈值

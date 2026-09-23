@@ -117,6 +117,13 @@
 - `user_intent.locations` 覆盖 CV 默认地点；没有用户地点时才依次回退
   `target_locations`、旧 `preferred_locations`、最后的 `current_location`。无法识别的明确地点
   返回 `needs_user_input=true`，不能回退到 CV 地点或猜国家。
+- **默认不搜索 remote 职位。** 地点里带 remote 词的职位在初筛即跳过，无论它同时写了哪个地方。
+  原因不是 remote 不好，而是**地点标签读不出它的雇佣资格区域**：`Remote - US` 和 `Remote`
+  在标签层面无法区分，而决定性信息（"must reside in the United States"、
+  "based in the UK, Ireland, Germany, the Netherlands"）只在 JD 正文里，实测 51% 的
+  remote 职位这样写，且限定粒度细到美国州一级。JD 正文按本流程约束不进主 agent 上下文，
+  所以这件事要做对需要改数据流，不是补几个别名。期望与验收标准见
+  [`docs/roadmap.md`](docs/roadmap.md)。
 - `report_language` 只控制报告与解释；`search_languages` 由目标市场决定。内部只使用
   `en`、`de`、`zh-Hans`，边界输入 `zh`/`zh-CN` 规范化为 `zh-Hans`。
 - 融合 CVProfile + query → `search_plan`（全局 Web Search 上限仍为 6）+ `candidate_profile`。
@@ -242,7 +249,7 @@
 
 ### ATS 增强协议
 
-仓库默认 `ats_enabled: true`：公开 ATS board 是成本最低的发现通道（实测单 board 一次请求约 0.2–0.6 秒即可取回全量职位与 JD），且受独立硬上限约束；关闭它是用户/本地配置选择。`ats_pipeline.py` 只允许官方公开 HTTPS GET，不需要 API key，不调用申请、Harvest、Hire 或 Partner API。客户端默认请求 gzip；压缩响应的 wire bytes 与解压后 payload 都必须独立受 25 MB 上限约束，未知或损坏的编码按该 board 的安全失败处理。Greenhouse 标识发现同时接受 `job-boards.greenhouse.io` 与 `job-boards.eu.greenhouse.io` 的公开职位页，但两者都调用官方 `boards-api.greenhouse.io` 公共 Job Board API；不要虚构 EU API host。它在内存中规范化并按 CV 的 title/location/remote/seniority 做确定性初筛：单独的 `AI` 产品或团队后缀是低信息量 token，不能独立触发岗位匹配；`AI evaluation`、`AI systems`、`agent systems` 等明确岗位短语仍可匹配。最多输出 `top_n + precise_buffer` 个候选，再进入统一强身份 merge。可用正文会清洗为纯文本并截断到 50,000 字符，随后只经本地评估快照临时交给 worker；主表只留 hash，状态/指标/benchmark 报告只留计数。若 Greenhouse `content=true` 响应超过 25 MB，可在同一全局请求预算内额外重试一次不含正文的列表；该 board 的任务继续走网页抓取回退。记录的 `response_bytes` 是网络传输字节数；另记录正文交接计数与 `content_fallback`，预算不足则按失败降级。通用 `data/source_registry.json` 存在时，`ats_pipeline.py` 只写该文件，旧 `data/ats_companies.json` 保持只读；通用 registry 不存在时才回退旧文件。`data/ats_sync_state.json` 和 `ats` 指标只保存低基数状态/计数，不保存职位名、URL、JD、CV、token 或异常全文。连续三次 404/410 才标记 unavailable；429、超时和网络失败保留可重试状态。`benchmark_ats.py` 复用同一生产解析器做公开小样本回归，但其脱敏报告不进入职位主表；`benchmark_ats_e2e.py` 只在显式提供固定 Web 候选与本地 profile 时做受限 discovery-to-merge A/B，仍不得突破生产硬上限。
+仓库默认 `ats_enabled: true`：公开 ATS board 是成本最低的发现通道（实测单 board 一次请求约 0.2–0.6 秒即可取回全量职位与 JD），且受独立硬上限约束；关闭它是用户/本地配置选择。`ats_pipeline.py` 只允许官方公开 HTTPS GET，不需要 API key，不调用申请、Harvest、Hire 或 Partner API。客户端默认请求 gzip；压缩响应的 wire bytes 与解压后 payload 都必须独立受 25 MB 上限约束，未知或损坏的编码按该 board 的安全失败处理。Greenhouse 标识发现同时接受 `job-boards.greenhouse.io` 与 `job-boards.eu.greenhouse.io` 的公开职位页，但两者都调用官方 `boards-api.greenhouse.io` 公共 Job Board API；不要虚构 EU API host。它在内存中规范化并按 CV 的 title/location/seniority 做确定性初筛（remote 职位一律跳过，见第 3 步）：单独的 `AI` 产品或团队后缀是低信息量 token，不能独立触发岗位匹配；`AI evaluation`、`AI systems`、`agent systems` 等明确岗位短语仍可匹配。最多输出 `top_n + precise_buffer` 个候选，再进入统一强身份 merge。可用正文会清洗为纯文本并截断到 50,000 字符，随后只经本地评估快照临时交给 worker；主表只留 hash，状态/指标/benchmark 报告只留计数。若 Greenhouse `content=true` 响应超过 25 MB，可在同一全局请求预算内额外重试一次不含正文的列表；该 board 的任务继续走网页抓取回退。记录的 `response_bytes` 是网络传输字节数；另记录正文交接计数与 `content_fallback`，预算不足则按失败降级。通用 `data/source_registry.json` 存在时，`ats_pipeline.py` 只写该文件，旧 `data/ats_companies.json` 保持只读；通用 registry 不存在时才回退旧文件。`data/ats_sync_state.json` 和 `ats` 指标只保存低基数状态/计数，不保存职位名、URL、JD、CV、token 或异常全文。连续三次 404/410 才标记 unavailable；429、超时和网络失败保留可重试状态。`benchmark_ats.py` 复用同一生产解析器做公开小样本回归，但其脱敏报告不进入职位主表；`benchmark_ats_e2e.py` 只在显式提供固定 Web 候选与本地 profile 时做受限 discovery-to-merge A/B，仍不得突破生产硬上限。
 
 ## 护栏
 - 抓取**不绕验证码、不模拟登录、不抓需付费/登录内容、尊重 robots/ToS**。

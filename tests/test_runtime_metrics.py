@@ -407,3 +407,38 @@ def test_a_lock_handoff_denial_does_not_silently_drop_a_metric(tmp_path, monkeyp
     # os.open leaves the descriptor in text mode on Windows, so the record's
     # own line ending is not what this test is about.
     assert target.read_bytes().strip() == payload.strip()
+
+
+def test_only_a_search_page_may_report_no_duration(tmp_path):
+    """A Web Search page run by the Agent has no clock around the call, so its
+    latency is genuinely absent. Every other operation times its own work, where
+    a null would only ever mean the caller forgot -- and a forgotten field must
+    stay indistinguishable from an absent one, not become a legal value."""
+    path = tmp_path / "metrics.jsonl"
+
+    record_metric(path, "search", True, run_id=RUN_ID, calls=1, duration_ms=None)
+    record_metric(path, "merge", True, run_id=RUN_ID, candidates_in=1, duration_ms=None)
+
+    search, merge = (json.loads(line) for line in
+                     path.read_text(encoding="utf-8").splitlines())
+    assert search["duration_ms"] is None
+    assert "duration_ms" not in merge
+
+
+def test_a_round_that_timed_nothing_does_not_read_as_a_round_that_searched_nothing(
+    tmp_path,
+):
+    """Both report a null p50. Only the rate tells them apart, and the
+    difference decides whether anyone should go looking for the latency."""
+    path = tmp_path / "metrics.jsonl"
+    record_metric(path, "search", True, run_id=RUN_ID, calls=1, duration_ms=None,
+                  timing="unavailable")
+    untimed = build_summary(path, tmp_path / "eval_runs")["metrics"]["search"]
+
+    assert untimed["runs"] == 1
+    assert untimed["duration_ms"]["reported_rate"] == 0.0
+    assert untimed["duration_ms"]["p50"] is None
+
+    silent = build_summary(tmp_path / "empty.jsonl", tmp_path / "eval_runs")["metrics"]
+    assert silent["search"]["runs"] == 0
+    assert silent["search"]["duration_ms"]["reported_rate"] is None

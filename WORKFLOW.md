@@ -170,6 +170,7 @@
   和「第 N+1 批搜索 worker」放进同一条消息并行发出，评估结果回来就增量 `update`。
 - 一行进度：`第N批 搜X条→候选Y→新Z/缓存W`。
 - **Web Search 的页级计数随 task result 一起交给 `discovery_batch.py`，不再单独调用指标脚本。**每个 succeeded 的 `web_search` task result 必须带 `pages`：每个结果页一条，含 `page_number`、`calls`、`raw_results`、`prefiltered`、`deduplicated`、`new_candidates`、`cached_candidates`、`duration_ms`（`first_result_ms` 可选）。缺 `pages` 的 Web Search 结果**无法提交候选**——这是刻意的：指标漏记曾经零代价（候选照常入表，只是本轮 `missing_operations=search`），现在漏记在结构上不成立。`discovery_batch.py` 校验后按 `query_slot`（由 task_id `web:N` 推出 `qN`）逐页写 `search` 事件；页级计数必须满足漏斗关系，且各页 `raw_results` / `prefiltered` 之和必须等于该 task 的 `candidates_raw` / `candidates_prefiltered`，对不上直接拒绝。不得把 query、hash、职位或 URL 放进 `pages`。
+- **测不出时间就说测不出，不要编。**你通过工具调用执行 Web Search，手上没有能围住这次调用的钟——两次 Bash 取时间戳之间隔着你自己生成 token 的时间，测出来的是回合耗时而不是搜索延迟（实测 11.6s vs 搜索本身约 1–3s）。这种页写 `"timing": "unavailable"`，同时把 `duration_ms` 和 `first_result_ms` 都显式置 `null`；默认是 `"timing": "measured"`，此时 `duration_ms` 仍必须是数字。两条约束保证它不是后门：**计数不跟着放宽**（漏斗与求和照常校验，`raw_results` 这些本来就数得出来），并且**声明会被记下来**——事件带 `timing`，批次结果带 `search_pages_untimed`，汇总里 `search.duration_ms.reported_rate` 让"整轮没计时"和"整轮没搜索"不再长得一样。没有任何机制能分辨"测不了"和"懒得测"，这里要的只是：不再**逼**你二选一地撒谎。
 - `search_metrics.py` 仅用于**不经过 discovery batch 提交**的 Web Search（例如独立诊断）。同一次搜索不要两条路都走，否则会重复计数。
 - 每个搜索 worker 返回后调用 `subagent_metrics.py record --run-id <pipeline-run-id>`，至少记录请求/实际模型、effort、耗时、候选输出数、通过初筛数、拒绝数和是否回退；运行时暴露 token/成本时如实传入，不暴露时保持 `null`，不得填 0 冒充。不得记录 query 或 URL。
 

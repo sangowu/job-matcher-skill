@@ -119,7 +119,8 @@ SEARCH_PAGE_FIELDS = {
     "cached_candidates",
     "duration_ms",
 }
-_SEARCH_PAGE_OPTIONAL = {"first_result_ms"}
+_SEARCH_PAGE_OPTIONAL = {"first_result_ms", "timing"}
+SEARCH_TIMINGS = ("measured", "unavailable")
 _TASK_SLOT = re.compile(r"web:([1-9]\d{0,2})\Z")
 
 
@@ -130,6 +131,27 @@ def _duration_ms(value: Any, field: str) -> float:
     if not math.isfinite(number) or number < 0:
         raise DiscoveryBatchError(f"{field} must be a non-negative number")
     return number
+
+
+def _search_timing(entry: dict[str, Any], label: str) -> str:
+    """Read one page's `timing`, defaulting to the measured case.
+
+    An executor that cannot time its own call used to have two ways out, both
+    dishonest: invent a plausible latency, or report the whole task `skipped`
+    and throw away candidates it really did find. The Agent-run Web Search is
+    exactly that executor -- it has no clock around the tool call -- so the
+    honest third answer has to exist. Declaring it is not the same as proving
+    it, and nothing here can tell a caller who cannot measure from one who did
+    not bother. What it does buy is that the choice is now named in the event
+    instead of hidden inside a made-up number, so a round that lost its
+    latencies reads as such downstream.
+    """
+    value = entry.get("timing", "measured")
+    if value not in SEARCH_TIMINGS:
+        raise DiscoveryBatchError(
+            f"{label}.timing must be one of {', '.join(SEARCH_TIMINGS)}"
+        )
+    return value
 
 
 def _validate_search_pages(
@@ -182,12 +204,26 @@ def _validate_search_pages(
             raise DiscoveryBatchError(f"{label} fields are invalid")
         page = {name: _non_negative(entry[name], f"{label}.{name}") for name in
                 SEARCH_PAGE_FIELDS - {"duration_ms"}}
-        page["duration_ms"] = _duration_ms(entry["duration_ms"], f"{label}.duration_ms")
+        page["timing"] = _search_timing(entry, label)
         first_result = entry.get("first_result_ms")
-        page["first_result_ms"] = (
-            None if first_result is None
-            else _duration_ms(first_result, f"{label}.first_result_ms")
-        )
+        if page["timing"] == "unavailable":
+            # An executor with no clock still counted its results, so the counts
+            # stay mandatory above and only the two latencies go absent. They
+            # must be absent together: half a stopwatch is not a measurement.
+            if entry["duration_ms"] is not None or first_result is not None:
+                raise DiscoveryBatchError(
+                    f"{label} declares timing=unavailable but carries a latency"
+                )
+            page["duration_ms"] = None
+            page["first_result_ms"] = None
+        else:
+            page["duration_ms"] = _duration_ms(
+                entry["duration_ms"], f"{label}.duration_ms"
+            )
+            page["first_result_ms"] = (
+                None if first_result is None
+                else _duration_ms(first_result, f"{label}.first_result_ms")
+            )
         if not (
             page["deduplicated"] <= page["prefiltered"] <= page["raw_results"]
             and page["new_candidates"] + page["cached_candidates"] <= page["deduplicated"]
@@ -686,6 +722,13 @@ def _validate_results(
         "search_pages": [
             page for value in by_task.values() for page in value["pages"]
         ],
+        # Reported even when no metrics store is configured, so a round that
+        # searched without timing anything never looks like a fully timed one.
+        "search_pages_untimed": sum(
+            page["timing"] == "unavailable"
+            for value in by_task.values()
+            for page in value["pages"]
+        ),
     }
 
 

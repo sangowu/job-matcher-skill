@@ -113,6 +113,7 @@ _SEARCH_FIELDS = {
     "cached_candidates",
     "duration_ms",
     "first_result_ms",
+    "timing",
 }
 _DISCOVERY_FIELDS = {
     "market_id",
@@ -218,6 +219,7 @@ _CATEGORY_FIELDS = {
     "expected_operations",
     "observed_operations",
     "missing_operations",
+    "timing",
 }
 _SAFE_CATEGORY = re.compile(r"[A-Za-z0-9_.:-]{1,80}\Z")
 _SAFE_RUN_ID = re.compile(r"round-\d{8}-\d{6}-[a-f0-9]{6}\Z")
@@ -231,6 +233,11 @@ _NULLABLE_FIELDS = {
     "code_dirty",
     "first_result_ms",
 }
+# `duration_ms` is nullable only where a null is a real answer. A Web Search page
+# run by the Agent has no clock around the call, so its latency is absent rather
+# than zero; everywhere else the caller times its own work and a null would only
+# mean it forgot. See `timing` in discovery_batch.py.
+_NULLABLE_BY_OPERATION = {"search": {"duration_ms"}}
 
 
 def utc_now() -> datetime:
@@ -379,6 +386,7 @@ def record_metric(
     allowed |= _RUN_FIELDS
     if not ok:
         allowed |= _FAILURE_FIELDS
+    nullable = _NULLABLE_FIELDS | _NULLABLE_BY_OPERATION.get(operation, set())
     event: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
         "timestamp": (now or utc_now()).isoformat(),
@@ -393,7 +401,7 @@ def record_metric(
             continue
         if key in _CATEGORY_FIELDS and isinstance(value, str) and not _SAFE_CATEGORY.fullmatch(value):
             continue
-        if value is None and key in _NULLABLE_FIELDS:
+        if value is None and key in nullable:
             event[key] = None
         elif isinstance(value, float) and not math.isfinite(value):
             continue
@@ -799,6 +807,10 @@ def _build_summary_from_events(
             ),
             "effective_candidates_per_call": _ratio(search_new_candidates, search_calls),
             "duration_ms": {
+                # Without this rate a round whose pages all declared
+                # `timing=unavailable` is indistinguishable from a round that
+                # searched nothing: both report a null p50.
+                "reported_rate": _ratio(len(search_durations), len(search_events)),
                 "p50": percentile(search_durations, 0.50),
                 "p95": percentile(search_durations, 0.95),
             },

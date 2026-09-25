@@ -12,6 +12,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import render_html  # noqa: E402
+from _jobutil import make_dedup_key  # noqa: E402
 
 
 CV_HASH = "cv-a"
@@ -214,6 +215,181 @@ def test_flatten_exposes_filterable_provenance_without_translating_source_fields
     assert flattened["multi_source"] is True
     assert flattened["source_count"] == 2
     assert len(flattened["provenance"]) == 2
+
+
+# ── One role, advertised more than once ──────────────────────────────────────
+
+def _posting(title, location, url, *, company="MongoDB", dedup_key=None):
+    return {
+        "title": title,
+        "company": company,
+        "location": location,
+        "url": url,
+        # The merge key the table really carries, which is deliberately not
+        # what the grouping reads.
+        "dedup_key": dedup_key
+        if dedup_key is not None
+        else make_dedup_key(company, title),
+        "raw_sources": [],
+        "match_scores": {MK: _score()},
+    }
+
+
+ROLE = "Senior Software Engineer, Forward Deployed AI Engineer"
+
+
+def test_one_role_advertised_twice_says_so(monkeypatch, tmp_path, capsys):
+    """Observed on 2026-09-25. MongoDB opened two Greenhouse requisitions for
+    one role -- 41 lines of description apart by eight characters, one saying
+    "Ireland" and the other "Cork, Ireland; Dublin, Ireland". Both are real
+    postings with their own `gh_jid` and their own apply URL, so merging them
+    would drop a genuine way in and `merge_jobs` is right to keep both. What
+    was missing is anything saying they are the same role: the report showed it
+    twice with nothing connecting the two, and one Top-N slot went to a posting
+    the reader had already considered."""
+    _configure(monkeypatch, tmp_path, [
+        _posting(ROLE, "Ireland", "https://example.com/?gh_jid=7590735"),
+        _posting(ROLE, "Cork, Ireland; Dublin, Ireland",
+                 "https://example.com/?gh_jid=7392902"),
+        _posting("Senior Data Scientist", "Cork, Ireland",
+                 "https://example.com/?gh_jid=8135458"),
+    ])
+
+    _, jobs = _render(monkeypatch, capsys)
+
+    first, second, other = jobs
+    assert first["same_role_count"] == 1
+    assert second["same_role_count"] == 1
+    assert other["same_role_count"] == 0
+    # Each is pointed at the other, never at itself.
+    assert first["same_role"][0]["url"] == "https://example.com/?gh_jid=7392902"
+    assert second["same_role"][0]["url"] == "https://example.com/?gh_jid=7590735"
+    assert other["same_role"] == []
+
+
+def test_both_postings_keep_their_own_apply_link(monkeypatch, tmp_path, capsys):
+    """The reason this is a label and not a merge. Applying to one requisition
+    is not applying to the other."""
+    _configure(monkeypatch, tmp_path, [
+        _posting(ROLE, "Ireland", "https://example.com/?gh_jid=7590735"),
+        _posting(ROLE, "Cork, Ireland", "https://example.com/?gh_jid=7392902"),
+    ])
+
+    _, jobs = _render(monkeypatch, capsys)
+
+    assert len(jobs) == 2
+    assert {job["url"] for job in jobs} == {
+        "https://example.com/?gh_jid=7590735",
+        "https://example.com/?gh_jid=7392902",
+    }
+    assert {job["location"] for job in jobs} == {"Ireland", "Cork, Ireland"}
+
+
+def test_two_different_roles_at_one_company_are_not_grouped(monkeypatch, tmp_path, capsys):
+    _configure(monkeypatch, tmp_path, [
+        _posting("Data Scientist", "Dublin", "https://example.com/1"),
+        _posting("Platform Engineer", "Dublin", "https://example.com/2"),
+    ])
+
+    _, jobs = _render(monkeypatch, capsys)
+
+    assert [job["same_role_count"] for job in jobs] == [0, 0]
+
+
+def test_the_same_title_at_two_companies_is_not_one_role(monkeypatch, tmp_path, capsys):
+    """Grouping on the title alone would fold every "Data Scientist" in the
+    round into one row."""
+    _configure(monkeypatch, tmp_path, [
+        _posting("Data Scientist", "Dublin", "https://a.example/1", company="Alpha"),
+        _posting("Data Scientist", "Dublin", "https://b.example/1", company="Beta"),
+    ])
+
+    _, jobs = _render(monkeypatch, capsys)
+
+    assert [job["same_role_count"] for job in jobs] == [0, 0]
+
+
+def test_the_merge_key_is_too_coarse_to_be_reused_here(monkeypatch, tmp_path, capsys):
+    """Real rows from the same round. `dedup_key` is a weak key, only ever used
+    for merging alongside a location check and an identity check, so
+    `normalize_title` strips parentheticals and anything after a dash -- and all
+    three of these collapse onto "intercom|senior data scientist". They are
+    three different jobs. Reusing that key here would have labelled them one
+    role posted three times."""
+    rows = [
+        _posting("Senior Data Scientist - AI Tooling", "Dublin, Ireland",
+                 "https://example.com/1", company="Intercom"),
+        _posting("Senior Data Scientist - Growth", "Dublin, Ireland",
+                 "https://example.com/2", company="Intercom"),
+        _posting("Senior Data Scientist (GTM)", "Dublin, Ireland",
+                 "https://example.com/3", company="Intercom"),
+    ]
+    assert len({row["dedup_key"] for row in rows}) == 1, "the merge key really is one key"
+    _configure(monkeypatch, tmp_path, rows)
+
+    _, jobs = _render(monkeypatch, capsys)
+
+    assert [job["same_role_count"] for job in jobs] == [0, 0, 0]
+
+
+def test_a_title_spelled_the_same_but_spaced_differently_is_one_role(
+    monkeypatch, tmp_path, capsys
+):
+    """Whitespace and case are normalized; nothing else about the title is."""
+    _configure(monkeypatch, tmp_path, [
+        _posting("Senior  AI   Engineer", "Ireland", "https://example.com/a"),
+        _posting("senior ai engineer", "Cork", "https://example.com/b"),
+    ])
+
+    _, jobs = _render(monkeypatch, capsys)
+
+    assert [job["same_role_count"] for job in jobs] == [1, 1]
+
+
+def test_a_row_without_a_stored_key_is_still_grouped(monkeypatch, tmp_path, capsys):
+    """The grouping reads the company and the title, so a table with no merge
+    key at all -- written before it existed, or hand-edited since -- groups the
+    same way."""
+    rows = [
+        _posting(ROLE, "Ireland", "https://example.com/a"),
+        _posting(ROLE, "Cork", "https://example.com/b"),
+    ]
+    rows[0].pop("dedup_key")
+    rows[1]["dedup_key"] = ""
+    _configure(monkeypatch, tmp_path, rows)
+
+    _, jobs = _render(monkeypatch, capsys)
+
+    assert [job["same_role_count"] for job in jobs] == [1, 1]
+
+
+def test_a_sibling_url_is_sanitized_like_any_other(monkeypatch, tmp_path, capsys):
+    """These URLs reach the page through a different path than `job.url`, so
+    the scheme allowlist has to be applied here too."""
+    _configure(monkeypatch, tmp_path, [
+        _posting(ROLE, "Ireland", "javascript:alert(1)"),
+        _posting(ROLE, "Cork", "https://example.com/b"),
+    ])
+
+    _, jobs = _render(monkeypatch, capsys)
+
+    assert jobs[1]["same_role"][0]["url"] == ""
+
+
+def test_the_template_names_the_repeat_in_both_languages():
+    template = (
+        Path(__file__).resolve().parents[1] / "assets" / "template.html"
+    ).read_text(encoding="utf-8")
+
+    assert template.count("same_role_heading") == 3
+    assert "Other postings of this role" in template
+    assert "同一岗位的其他发布" in template
+    # The chip on the list card, so a repeat is visible before anything is
+    # clicked, and the section in the detail pane that lists the other
+    # postings. Dropping either leaves the data computed and unseen.
+    assert 'rounded">${t("same_role")}</span>' in template
+    assert "${sameRole}" in template
+    assert template.count("job.same_role_count") == 2
 
 
 def test_report_template_labels_local_browser_discovery_routes():

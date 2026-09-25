@@ -22,7 +22,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from _jobutil import load_config
+from _jobutil import load_config, normalize_company
 from runtime_metrics import DEFAULT_THRESHOLDS, build_summaries
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -228,7 +228,60 @@ def normalize_report_meta(meta: object, *, now: datetime | None = None) -> dict:
     return raw
 
 
-def flatten(job: dict, mk: str) -> dict:
+def _role_key(job: dict) -> str:
+    """One company, one title, spelled the same way.
+
+    Deliberately not the row's `dedup_key`. That key is a *weak* one, built for
+    merging, where it is only ever used together with a location check and an
+    identity check -- so `normalize_title` strips parentheticals and anything
+    after a dash, and Intercom's "Senior Data Scientist - AI Tooling", "- Growth"
+    and "(GTM)" all collapse onto "senior data scientist". Three different jobs.
+    Used alone to claim two rows are the same posting it is far too coarse; here
+    the titles have to actually match.
+    """
+    company = normalize_company(str(job.get("company") or ""))
+    title = " ".join(str(job.get("title") or "").split()).lower()
+    return f"{company}|{title}"
+
+
+def same_role_postings(jobs: list) -> dict[int, list[dict]]:
+    """For each job, the other rows advertising the same role.
+
+    An employer sometimes opens more than one requisition for one job. MongoDB
+    did on 2026-09-25: two Greenhouse postings of "Senior Software Engineer,
+    Forward Deployed AI Engineer", 41 lines of description apart by eight
+    characters, one saying "Ireland" and the other "Cork, Ireland; Dublin,
+    Ireland".
+
+    Merging them would be wrong -- they carry different `gh_jid`s and different
+    apply URLs, and applying to one is not applying to the other, so `merge_jobs`
+    is right to keep both. But nothing said they were the same role, so the
+    report showed it twice with nothing connecting the two, and one of the
+    Top-N slots went to a posting the reader had already considered.
+
+    Keyed by position rather than by record id, because a row is not required
+    to have one.
+    """
+    by_role: dict[str, list[int]] = {}
+    for position, job in enumerate(jobs):
+        if isinstance(job, dict):
+            by_role.setdefault(_role_key(job), []).append(position)
+    siblings: dict[int, list[dict]] = {}
+    for positions in by_role.values():
+        for position in positions:
+            siblings[position] = [
+                {
+                    "location": str(jobs[other].get("location") or ""),
+                    "url": _safe_url(str(jobs[other].get("url") or "")),
+                    "status": str(jobs[other].get("status") or "existing"),
+                }
+                for other in positions
+                if other != position
+            ]
+    return siblings
+
+
+def flatten(job: dict, mk: str, *, same_role: list[dict] | None = None) -> dict:
     scores = job.get("match_scores") or {}
     # 只认当前 cv:cp 口径的评分。不回退其他 CV/求职意向的旧分：
     # 评分是 JD × CV × 意向的函数，跨口径展示会误导（stale_score 标记待重评）。
@@ -308,6 +361,11 @@ def flatten(job: dict, mk: str) -> dict:
         "location_score": ms.get("location_score"),
         "must_have_score": ms.get("must_have_score"),
         "stale_score": stale,
+        # The other postings of this same role, so the reader sees one job
+        # advertised twice rather than two jobs. Empty for all but a handful of
+        # rows, and never a reason to drop one: each has its own apply URL.
+        "same_role": list(same_role or []),
+        "same_role_count": len(same_role or []),
         "jd": job.get("jd_profile") or {},
     }
 
@@ -348,7 +406,12 @@ def main() -> None:
     lang = meta["lang"]
 
     mk = f"{args.cv_hash}:{args.cp_hash}"
-    jobs = [flatten(j, mk) for j in table.get("jobs", [])]
+    table_jobs = table.get("jobs", [])
+    siblings = same_role_postings(table_jobs)
+    jobs = [
+        flatten(job, mk, same_role=siblings.get(position))
+        for position, job in enumerate(table_jobs)
+    ]
     health = build_health_payload()
 
     template = TEMPLATE_PATH.read_text(encoding="utf-8")

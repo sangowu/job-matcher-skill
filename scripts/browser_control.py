@@ -44,6 +44,16 @@ LOCAL_ACTIONS = (
     "close",
 )
 ACTION_STATUSES = ("ok", "user_action_required", "rate_limited", "resumed", "failed", "timeout")
+# Whether the caller knows when the action happened. `--occurred-at-ms` could
+# only ever say an exact moment or say nothing, and saying nothing meant "now" --
+# so one untimed action in a batch reported afterwards claimed to have happened
+# after actions that really came later, and pacing judged the batch on a
+# timeline that never existed. It produced a false `browser_paced_too_fast` in a
+# live round on 2026-09-25. `unavailable` is the missing third answer: the
+# action happened, it was not timed, and nothing is invented to fill the gap.
+# Same shape as `timing` for a Web Search page, which has no clock around the
+# call either.
+ACTION_TIMINGS = ("measured", "unavailable")
 _FAILED_STATUSES = {"failed", "timeout"}
 
 # Pacing is courtesy to the site being read, so it belongs to the actions that
@@ -464,6 +474,7 @@ class BrowserController:
         source_id: str | None = None,
         min_interval_ms: float = 0,
         occurred_at: float | None = None,
+        timing: str = "measured",
         requests: int | None = None,
         assumed_requests: int = 1,
         max_requests_per_minute: float = 0,
@@ -479,6 +490,13 @@ class BrowserController:
             raise ValueError(f"unsupported browser action: {action}")
         if status not in ACTION_STATUSES:
             raise ValueError(f"unsupported browser status: {status}")
+        if timing not in ACTION_TIMINGS:
+            raise ValueError(f"unsupported browser timing: {timing}")
+        if timing == "unavailable" and occurred_at is not None:
+            # Half a stopwatch is not a measurement: a caller that has the
+            # moment should say so, and one that does not should not be handed
+            # a way to pass a number while disclaiming it.
+            raise ValueError("timing=unavailable cannot carry an occurred_at")
         failed = status in _FAILED_STATUSES
         paced_too_fast = False
         over_budget = False
@@ -489,7 +507,16 @@ class BrowserController:
         # A local observation is neither gated nor marked. Marking it would make
         # the next real request wait out an interval measured from something that
         # sent nothing, which is the same waste wearing the gate's clothes.
-        paced = bool(source_id) and min_interval_ms > 0 and action in PACED_ACTIONS
+        # An untimed action is not paced, and -- just as important -- does not
+        # move the stored timestamp. Both halves matter: judging it would judge a
+        # guess, and recording the guess would make the next real action be
+        # judged against it.
+        paced = (
+            bool(source_id)
+            and min_interval_ms > 0
+            and action in PACED_ACTIONS
+            and timing == "measured"
+        )
         if paced:
             observation = self.pace.mark(
                 source_id,
@@ -520,6 +547,7 @@ class BrowserController:
             rate_limited=status == "rate_limited",
             estimated_cost_usd=estimated_cost_usd,
             requests=charged if paced else 0,
+            timing=timing,
             failure_kind=(
                 # The ceiling is named first because it is the limit in the
                 # unit the site feels; spacing is the proxy for it.
@@ -536,6 +564,7 @@ class BrowserController:
             "over_budget": over_budget,
             "requests": charged if paced else 0,
             "requests_measured": requests is not None,
+            "timing": timing,
         }
 
     def record_state(
@@ -650,6 +679,16 @@ def _parser() -> argparse.ArgumentParser:
         "is judged on when the site was touched rather than on when you said so.",
     )
     action.add_argument(
+        "--timing",
+        choices=ACTION_TIMINGS,
+        default="measured",
+        help="whether you know when the action happened. `unavailable` says it "
+        "happened but was not timed: it is not paced and does not move the "
+        "source's timestamp, and it cannot be combined with --occurred-at-ms. "
+        "Use it instead of letting one untimed action in a batch default to "
+        "now, which claims it happened after actions that really came later.",
+    )
+    action.add_argument(
         "--requests",
         type=int,
         help=_REQUESTS_HELP + " Omitted, the action is charged the configured "
@@ -726,6 +765,18 @@ def main() -> int:
                 )
             )
             return 2
+        if args.timing == "unavailable" and args.occurred_at_ms is not None:
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "--timing unavailable cannot be combined with --occurred-at-ms",
+                    },
+                    ensure_ascii=True,
+                    sort_keys=True,
+                )
+            )
+            return 2
         controller = BrowserController(None, provider_name, metrics_run_id=metrics_run_id)
         result = controller.record_action(
             args.action,
@@ -743,6 +794,7 @@ def main() -> int:
             occurred_at=(
                 None if args.occurred_at_ms is None else args.occurred_at_ms / 1000.0
             ),
+            timing=args.timing,
         )
         print(json.dumps(result, ensure_ascii=True, sort_keys=True))
         return 0 if result["ok"] else 1

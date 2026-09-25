@@ -141,6 +141,10 @@ _BROWSER_FIELDS = {
     # How many requests the action sent to the source: the unit the site
     # counts in, which the action count is only a proxy for.
     "requests",
+    # Whether the caller knew when the action happened. Same vocabulary as a
+    # Web Search page, and for the same reason: an executor without a clock
+    # should say so rather than have a number invented for it.
+    "timing",
     "page_number",
     "links_found",
     "links_new",
@@ -925,6 +929,13 @@ def _build_summary_from_events(
                 "p50": percentile(browser_durations, 0.50),
                 "p95": percentile(browser_durations, 0.95),
             },
+            # Untimed actions are exempt from pacing, so a round that declared
+            # every action untimed was never paced at all. Counted here for the
+            # same reason `search_pages_untimed` is counted: an exemption that
+            # is not visible is an exemption nobody audits.
+            "untimed": sum(
+                1 for event in browser_events if event.get("timing") == "unavailable"
+            ),
         },
         "ats": {
             "runs": len(ats_events),

@@ -243,6 +243,9 @@ def test_only_enabled_verified_unexpired_sources_enter_deterministic_plan(tmp_pa
         for source in source_registry.load_seeds()["sources"]
         if source["enabled"]
         and source["verified"]
+        # A source whose operator forbids automation waits for the person's own
+        # acknowledgement, which this plan was built without.
+        and not source.get("requires_risk_ack")
         and {"ie", "de"} & set(source["markets"])
     }
     assert set(plan["source_ids"]) == eligible
@@ -627,3 +630,101 @@ def test_seed_catalog_covers_each_western_market_with_ats_boards():
     for market_id in ("ie", "uk", "de"):
         covering = [board for board in boards if market_id in board["markets"]]
         assert len(covering) >= 3, f"{market_id} needs verified ATS boards"
+
+
+# ── Sources whose operator forbids automation ────────────────────────────────
+
+def _seeded_registry():
+    registry, _ = source_registry.merge_seeds(
+        source_registry._empty_registry(), source_registry.load_seeds()
+    )
+    return registry
+
+
+def _risky_seed_ids():
+    return sorted(
+        source["source_id"]
+        for source in source_registry.load_seeds()["sources"]
+        if source.get("requires_risk_ack")
+    )
+
+
+def test_a_source_that_forbids_automation_needs_two_keys_to_be_planned():
+    """One key ships in the catalog, the other never can: the acknowledgement
+    lives in the person's own settings under the gitignored data/ directory. A
+    clone of this repository plans none of these sources, and no commit here can
+    change that for someone else."""
+    registry = _seeded_registry()
+    risky = _risky_seed_ids()
+    assert risky, "the gate needs at least one source to guard"
+
+    closed = source_registry.build_source_plan(registry, ["ie"], risk_acknowledged=())
+    opened = source_registry.build_source_plan(registry, ["ie"], risk_acknowledged=risky)
+
+    assert not set(closed["source_ids"]) & set(risky)
+    assert closed["excluded"]["risk_not_acknowledged"] > 0
+    assert closed["risk_accepted_sources"] == []
+    assert set(opened["source_ids"]) & set(risky)
+    assert opened["risk_accepted_sources"] == sorted(
+        set(risky) & set(opened["source_ids"])
+    )
+
+
+def test_acknowledging_one_source_does_not_open_the_others():
+    registry = _seeded_registry()
+    risky = _risky_seed_ids()
+    if len(risky) < 2:
+        pytest.skip("needs two guarded sources to tell them apart")
+    first = risky[0]
+
+    plan = source_registry.build_source_plan(registry, ["ie", "uk", "de"],
+                                             risk_acknowledged=(first,))
+
+    assert first in plan["source_ids"]
+    assert not set(plan["source_ids"]) & (set(risky) - {first})
+
+
+def test_the_acknowledgement_file_is_not_part_of_the_repository():
+    """If this ever moved out of data/, acknowledging a source here would commit
+    that decision into everyone else's checkout."""
+    import browser_provider
+
+    settings = browser_provider.SETTINGS_PATH.resolve()
+    assert settings.parent == (SKILL_ROOT / "data").resolve()
+    ignored = (SKILL_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert "data/" in [line.strip() for line in ignored]
+
+
+def test_a_source_allowing_automation_cannot_also_demand_an_acknowledgement():
+    """The flag overrides a refusal. On a source that permits automation it
+    would only blur what the catalog says about that source."""
+    seeds = copy.deepcopy(source_registry.load_seeds())
+    seeds["sources"][0]["automation_allowed"] = True
+    seeds["sources"][0]["requires_risk_ack"] = True
+
+    with pytest.raises(source_registry.SourceValidationError, match="risk acknowledgement"):
+        source_registry.validate_seed_payload(seeds)
+
+
+def test_forbidding_automation_still_refuses_a_direct_method_without_the_flag():
+    """The rule the flag carves out of stays in force everywhere else."""
+    seeds = copy.deepcopy(source_registry.load_seeds())
+    target = next(
+        source for source in seeds["sources"]
+        if "public_read_only_page" in source["access_methods"]
+    )
+    target["automation_allowed"] = False
+    target.pop("requires_risk_ack", None)
+
+    with pytest.raises(source_registry.SourceValidationError, match="direct access method"):
+        source_registry.validate_seed_payload(seeds)
+
+
+def test_every_guarded_source_records_why_it_is_guarded():
+    """A reader deciding whether to acknowledge one needs the reason in the
+    catalog, not in a commit message."""
+    for source in source_registry.load_seeds()["sources"]:
+        if not source.get("requires_risk_ack"):
+            continue
+        assert source["automation_allowed"] is False
+        assert source.get("constraints"), f"{source['source_id']} states no reason"

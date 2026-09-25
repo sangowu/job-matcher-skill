@@ -1280,6 +1280,44 @@
       "priority": 72,
       "access_methods": ["ats_public_api"],
       "automation_allowed": true
+    },
+    {
+      "source_id": "linkedin-jobs",
+      "display_name": "LinkedIn Jobs",
+      "source_type": "global_job_board",
+      "provider": "web",
+      "entry_url": "https://www.linkedin.com/jobs/",
+      "markets": ["ie", "uk", "de"],
+      "search_languages": ["en", "de"],
+      "enabled": true,
+      "verified": true,
+      "verification_method": "operator_terms_reviewed",
+      "verified_at": "2026-09-25T00:00:00Z",
+      "verification_ttl_days": 30,
+      "priority": 40,
+      "access_methods": ["web_search", "manual_browser", "public_read_only_page"],
+      "automation_allowed": false,
+      "requires_risk_ack": true,
+      "constraints": ["robots_disallow_all", "terms_forbid_automated_access", "account_termination_risk", "login_required"]
+    },
+    {
+      "source_id": "indeed-ie",
+      "display_name": "Indeed Ireland",
+      "source_type": "global_job_board",
+      "provider": "web",
+      "entry_url": "https://ie.indeed.com/",
+      "markets": ["ie"],
+      "search_languages": ["en"],
+      "enabled": true,
+      "verified": true,
+      "verification_method": "operator_terms_reviewed",
+      "verified_at": "2026-09-25T00:00:00Z",
+      "verification_ttl_days": 30,
+      "priority": 40,
+      "access_methods": ["web_search", "manual_browser", "public_read_only_page"],
+      "automation_allowed": false,
+      "requires_risk_ack": true,
+      "constraints": ["terms_forbid_agentic_ai", "robots_disallow_job_detail_pages", "bot_detection"]
     }
   ]
 }

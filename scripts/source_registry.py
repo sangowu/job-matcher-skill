@@ -85,6 +85,7 @@ SEED_KEYS = {
     "priority",
     "access_methods",
     "automation_allowed",
+    "requires_risk_ack",
     "constraints",
 }
 TRANSIENT_OUTCOMES = {"timeout", "rate_limited", "network_error"}
@@ -293,7 +294,16 @@ def validate_seed_payload(payload: dict[str, Any]) -> dict[str, Any]:
         )
         if not isinstance(source.get("automation_allowed"), bool):
             raise SourceValidationError(f"{prefix}.automation_allowed must be boolean")
-        if not source["automation_allowed"] and any(
+        risk_ack = source.get("requires_risk_ack", False)
+        if not isinstance(risk_ack, bool):
+            raise SourceValidationError(f"{prefix}.requires_risk_ack must be boolean")
+        if risk_ack and source["automation_allowed"]:
+            # The flag exists to override a refusal. On a source whose operator
+            # permits automation it would only blur what the catalog records.
+            raise SourceValidationError(
+                f"{prefix} cannot require a risk acknowledgement while allowing automation"
+            )
+        if not source["automation_allowed"] and not risk_ack and any(
             method in {"public_read_only_page", "public_read_only_endpoint", "ats_public_api"}
             for method in access_methods
         ):
@@ -448,6 +458,8 @@ def validate_registry(payload: dict[str, Any]) -> dict[str, Any]:
         )
         if not isinstance(source.get("enabled"), bool):
             raise SourceValidationError(f"{prefix}.enabled must be boolean")
+        if not isinstance(source.get("requires_risk_ack", False), bool):
+            raise SourceValidationError(f"{prefix}.requires_risk_ack must be boolean")
         if source.get("status") not in SOURCE_STATUSES:
             raise SourceValidationError(f"{prefix}.status is invalid")
         if source["status"] == "disabled" and source["enabled"]:
@@ -606,6 +618,9 @@ def _source_record_from_seed(seed: dict[str, Any]) -> dict[str, Any]:
         "definitive_failures": 0,
         "transient_failures": 0,
         "origin": "seed",
+        # Carried through the seed -> registry hop so the planner can refuse
+        # the source without reopening the catalog.
+        "requires_risk_ack": bool(seed.get("requires_risk_ack", False)),
     }
     # ATS board identity must survive the seed -> registry hop, otherwise
     # ats_view_from_registry() silently drops the board and the structured
@@ -633,6 +648,7 @@ def merge_seeds(
         "access_methods",
         "verification_ttl_days",
         "priority",
+        "requires_risk_ack",
     )
     for seed in seeds["sources"]:
         desired = _source_record_from_seed(seed)
@@ -1200,11 +1216,39 @@ def _expired(source: dict[str, Any], now: datetime) -> bool:
     return now >= reference + timedelta(days=source["verification_ttl_days"])
 
 
+def _risk_acknowledged_sources() -> list[str]:
+    """Read the person's own acknowledgements, tolerating their absence.
+
+    Imported lazily: this module is otherwise free of cross-script imports, and
+    a missing or unreadable settings file must mean "nothing acknowledged"
+    rather than an error, so the safe answer is also the default one.
+    """
+    try:
+        from browser_provider import load_browser_settings
+
+        value = load_browser_settings().get("risk_acknowledged_sources")
+    except Exception:
+        return []
+    return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
+
+
 def build_source_plan(
-    registry: dict[str, Any], market_ids: Iterable[str], *, now: datetime | None = None
+    registry: dict[str, Any],
+    market_ids: Iterable[str],
+    *,
+    now: datetime | None = None,
+    risk_acknowledged: Iterable[str] = (),
 ) -> dict[str, Any]:
-    """Return each eligible source once, even when it covers several markets."""
+    """Return each eligible source once, even when it covers several markets.
+
+    A source whose operator forbids automated access carries `requires_risk_ack`.
+    It is planned only when the person has named it in their own settings, which
+    live outside version control: the catalog records that the source refuses
+    automation, the acknowledgement records that this installation proceeds
+    anyway, and neither half enables it alone.
+    """
     validate_registry(registry)
+    acknowledged = set(risk_acknowledged)
     requested: list[str] = []
     for market_id in market_ids:
         if market_id not in SUPPORTED_MARKETS:
@@ -1216,7 +1260,14 @@ def build_source_plan(
     current_time = (now or _now()).astimezone(timezone.utc)
     selected: list[dict[str, Any]] = []
     due: list[str] = []
-    excluded = {"disabled": 0, "candidate": 0, "unavailable": 0, "expired": 0}
+    excluded = {
+        "disabled": 0,
+        "candidate": 0,
+        "unavailable": 0,
+        "expired": 0,
+        "risk_not_acknowledged": 0,
+    }
+    risk_accepted: list[str] = []
     ordered = sorted(
         registry["sources"], key=lambda source: (-source["priority"], source["source_id"])
     )
@@ -1237,6 +1288,11 @@ def build_source_plan(
             excluded["expired"] += 1
             due.append(source["source_id"])
             continue
+        if source.get("requires_risk_ack"):
+            if source["source_id"] not in acknowledged:
+                excluded["risk_not_acknowledged"] += 1
+                continue
+            risk_accepted.append(source["source_id"])
         selected.append(
             {
                 "source_id": source["source_id"],
@@ -1253,6 +1309,9 @@ def build_source_plan(
         "source_ids": [source["source_id"] for source in selected],
         "due_for_verification": sorted(set(due)),
         "excluded": excluded,
+        # Named so the plan carries its own reminder: a wave touching these
+        # sources proceeds against their operator's stated terms.
+        "risk_accepted_sources": sorted(risk_accepted),
     }
 
 
@@ -1347,7 +1406,16 @@ def main() -> int:
             )
         elif args.command == "plan":
             registry = load_registry(args.registry)
-            _emit({"ok": True, "plan": build_source_plan(registry, args.markets)})
+            _emit(
+                {
+                    "ok": True,
+                    "plan": build_source_plan(
+                        registry,
+                        args.markets,
+                        risk_acknowledged=_risk_acknowledged_sources(),
+                    ),
+                }
+            )
         elif args.command == "rollback-legacy":
             _emit(
                 {

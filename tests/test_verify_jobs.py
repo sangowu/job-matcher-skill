@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -21,20 +22,48 @@ class _Response:
         self.url = url
 
 
+def _stub_requests(get):
+    """A stand-in for `requests`.
+
+    `verify_jobs` imports it lazily and degrades to `alive: None` when it is
+    absent, so it is an optional runtime dependency and CI does not install it.
+    Importing it here would quietly make it a required one -- which is how the
+    first version of this file passed locally and failed on both CI platforms.
+    """
+    module = types.ModuleType("requests")
+    exceptions = types.ModuleType("requests.exceptions")
+
+    class Timeout(Exception):
+        pass
+
+    class ConnectionError(Exception):  # noqa: A001 - mirrors the real name
+        pass
+
+    exceptions.Timeout = Timeout
+    exceptions.ConnectionError = ConnectionError
+    module.exceptions = exceptions
+    module.get = get
+    return module
+
+
 @pytest.fixture
 def served(monkeypatch):
     """Answer one request with whatever the test wants, without leaving the box."""
 
     def serve(response, *, raises=None):
-        import requests
+        holder = {}
 
         def fake_get(url, **kwargs):
             if raises is not None:
-                raise raises
+                raise holder["module"].exceptions.Timeout() if raises == "timeout" else raises
             response.url = response.url or url
             return response
 
-        monkeypatch.setattr(requests, "get", fake_get)
+        module = _stub_requests(fake_get)
+        holder["module"] = module
+        monkeypatch.setitem(sys.modules, "requests", module)
+        monkeypatch.setitem(sys.modules, "requests.exceptions", module.exceptions)
+        return module
 
     return serve
 
@@ -91,14 +120,22 @@ def test_a_redirect_that_drops_the_job_id_is_still_read_as_gone(served):
 
 
 def test_a_transport_failure_is_undetermined_not_dead(served):
-    import requests
-
-    served(None, raises=requests.exceptions.Timeout())
+    served(_Response(200), raises="timeout")
 
     result = verify_jobs.check("https://example.test/job/1")
 
     assert result["alive"] is None
     assert result["reason"] == "timeout"
+
+
+def test_without_requests_nothing_is_judged_dead(monkeypatch):
+    """CI does not install `requests`, so this is the path it actually runs.
+    The answer has to be `None`: no request was made, so nothing was learned."""
+    monkeypatch.setitem(sys.modules, "requests", None)
+
+    result = verify_jobs.check("https://example.test/job/1")
+
+    assert result["alive"] is None
 
 
 def test_only_gone_codes_are_allowed_to_remove_a_job():
@@ -107,15 +144,29 @@ def test_only_gone_codes_are_allowed_to_remove_a_job():
     assert verify_jobs.GONE_CODES == {404, 410}
 
 
-def test_the_cli_reports_every_url_and_never_crashes_on_one(monkeypatch):
-    import requests
-
-    def fake_get(url, **kwargs):
-        if url.endswith("/2"):
-            raise requests.exceptions.ConnectionError()
-        return _Response(403, url=url)
-
-    monkeypatch.setattr(requests, "get", fake_get)
+def test_the_cli_reports_every_url_and_never_crashes_on_one(tmp_path):
+    """Runs the real entry point in a child process, against a stub `requests`
+    placed on its path -- so it needs no network and no optional dependency."""
+    stub = tmp_path / "requests.py"
+    stub.write_text(
+        "class _E(Exception):\n"
+        "    pass\n"
+        "class exceptions:\n"
+        "    Timeout = _E\n"
+        "    class ConnectionError(Exception):\n"
+        "        pass\n"
+        "class _R:\n"
+        "    def __init__(self, url):\n"
+        "        self.status_code = 403\n"
+        "        self.text = ''\n"
+        "        self.url = url\n"
+        "def get(url, **kwargs):\n"
+        "    if url.endswith('/2'):\n"
+        "        raise exceptions.ConnectionError()\n"
+        "    return _R(url)\n",
+        encoding="utf-8",
+    )
+    env = {**dict(__import__("os").environ), "PYTHONPATH": str(tmp_path)}
     urls = ["https://example.test/job/1", "https://example.test/job/2"]
 
     result = subprocess.run(
@@ -124,6 +175,7 @@ def test_the_cli_reports_every_url_and_never_crashes_on_one(monkeypatch):
         capture_output=True,
         text=True,
         encoding="utf-8",
+        env=env,
     )
 
     payload = json.loads(result.stdout)

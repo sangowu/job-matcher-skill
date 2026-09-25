@@ -229,6 +229,8 @@ agent 会自动识别。然后在对话里：
 | `browser_max_pages` | 3 | 单个招聘列表串行翻页硬上限 |
 | `browser_min_source_interval_ms` | 5000 | 同一来源两次浏览器动作的最小间隔，只能调高；间隔不足的动作记为失败且不计入轮次完整性 |
 | `browser_jitter_ms` | 2000 | 在最小间隔之上叠加的随机等待上限，用于分散请求；只会让等待变长，不用于伪装流量 |
+| `browser_max_requests_per_minute` | 120 | 同一来源滚动 60 秒内的请求数上限，只能调低；这是站点实际感受到的单位——一次点击实测 14 个请求，所以动作间隔并不是请求速率上限 |
+| `browser_assumed_requests_per_action` | 10 | 未实测请求数的动作按这个数计费，只能调高；120 / 10 = 每分钟 12 个动作，正好等于 5000ms 的间隔，两条上限同时到顶 |
 | `browser_session_budget` | 10 | 单轮新建远程会话硬上限 |
 | `browser_cost_limit_usd` | 1.0 | 单轮估算费用硬上限（美元） |
 | `browser_handoff_timeout_minutes` | 10 | 人工接管等待硬上限（分钟） |

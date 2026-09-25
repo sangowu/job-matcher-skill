@@ -256,6 +256,8 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `browser_max_pages` | 3 | hard cap for sequential pages per job listing |
 | `browser_min_source_interval_ms` | 5000 | minimum spacing between two browser actions at one source; raisable only, and an action that arrives sooner is recorded as a failure and left out of the round's completeness |
 | `browser_jitter_ms` | 2000 | upper bound of a random wait added on top of that interval to spread requests out; it only ever lengthens the wait and is not traffic disguise |
+| `browser_max_requests_per_minute` | 120 | ceiling on the requests one source receives in a trailing 60 seconds, lowerable only; this is the unit the site counts in -- one click measured 14 requests, so the action interval is not a request-rate ceiling |
+| `browser_assumed_requests_per_action` | 10 | what an action is charged when its request count was not measured, raisable only; 120 / 10 is 12 actions a minute, exactly the 5000ms interval, so both limits bind at the same moment |
 | `browser_session_budget` | 10 | hard cap for new remote sessions per round |
 | `browser_cost_limit_usd` | 1.0 | estimated per-round cost hard cap in USD |
 | `browser_handoff_timeout_minutes` | 10 | human-handoff hard timeout in minutes |

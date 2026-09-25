@@ -64,6 +64,8 @@
   "browser_max_pages": 3,
   "browser_min_source_interval_ms": 5000,
   "browser_jitter_ms": 2000,
+  "browser_max_requests_per_minute": 120,
+  "browser_assumed_requests_per_action": 10,
   "browser_session_budget": 10,
   "browser_cost_limit_usd": 1.0,
   "browser_handoff_timeout_minutes": 10,

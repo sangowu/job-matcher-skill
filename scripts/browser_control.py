@@ -197,13 +197,25 @@ class SourcePace:
             return extra
         return max(0.0, interval_ms - (time.time() - last) * 1000.0) + extra
 
-    def mark(self, source_id: str, interval_ms: float) -> float:
-        """Record this action's time and return the interval it actually kept."""
-        now = time.time()
+    def mark(self, source_id: str, occurred_at: float | None = None) -> float:
+        """Note when an action touched a source; return the gap it actually kept.
+
+        `occurred_at` is when the action happened, not when it was reported.
+        The two are the same only for a caller that reports each action before
+        performing the next one. An Agent that performs a paced sequence and
+        reports it afterwards hands over a burst of timestamps milliseconds
+        apart, and measuring those would call a properly spaced run too fast --
+        while a caller that hammered a site and reported slowly would pass.
+
+        Reports that arrive out of order yield a negative gap, which is not a
+        measurement of anything and is treated as a violation rather than
+        quietly accepted; the stored time never moves backwards.
+        """
+        now = time.time() if occurred_at is None else float(occurred_at)
         with self._locked():
             state = self._load()
             last = state.get(source_id)
-            state[source_id] = now
+            state[source_id] = now if last is None else max(now, last)
             self._save(state)
         return float("inf") if last is None else (now - last) * 1000.0
 
@@ -306,6 +318,7 @@ class BrowserController:
         estimated_cost_usd: float = 0,
         source_id: str | None = None,
         min_interval_ms: float = 0,
+        occurred_at: float | None = None,
     ) -> dict[str, bool]:
         """Record one Agent-executed local browser action.
 
@@ -321,7 +334,7 @@ class BrowserController:
         failed = status in _FAILED_STATUSES
         paced_too_fast = False
         if source_id and min_interval_ms > 0:
-            observed = self.pace.mark(source_id, min_interval_ms)
+            observed = self.pace.mark(source_id, occurred_at)
             # Marked before the check so a burst is spaced from its own last
             # action rather than from the last one that happened to be legal.
             paced_too_fast = observed < min_interval_ms
@@ -432,6 +445,13 @@ def _parser() -> argparse.ArgumentParser:
     action.add_argument("--action", required=True, choices=LOCAL_ACTIONS)
     action.add_argument("--status", required=True, choices=ACTION_STATUSES)
     action.add_argument("--source-id")
+    action.add_argument(
+        "--occurred-at-ms",
+        type=float,
+        help="epoch milliseconds when the action happened; defaults to now. "
+        "Pass it when reporting a batch of actions performed earlier, so pacing "
+        "is judged on when the site was touched rather than on when you said so.",
+    )
     action.add_argument("--duration-ms", type=float, default=0)
     action.add_argument("--page-number", type=int, default=0)
     action.add_argument("--links-found", type=int, default=0)
@@ -482,6 +502,9 @@ def main() -> int:
             handoff_wait_ms=args.handoff_wait_ms,
             source_id=args.source_id,
             min_interval_ms=float(settings["browser_min_source_interval_ms"]),
+            occurred_at=(
+                None if args.occurred_at_ms is None else args.occurred_at_ms / 1000.0
+            ),
         )
         print(json.dumps(result, ensure_ascii=True, sort_keys=True))
         return 0 if result["ok"] else 1

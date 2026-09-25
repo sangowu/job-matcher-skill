@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -306,7 +307,7 @@ def test_going_too_fast_at_one_source_costs_the_round_its_browser_coverage(tmp_p
 def test_only_failures_remain_when_every_action_was_too_fast(tmp_path):
     controller = _paced(tmp_path, run_id="round-20260925-140100-bbbbbb")
     pace = controller.pace
-    pace.mark("linkedin-jobs", 5000)
+    pace.mark("linkedin-jobs")
 
     controller.record_action("read", "ok", source_id="linkedin-jobs", min_interval_ms=5000)
 
@@ -355,7 +356,7 @@ def test_waiting_the_interval_out_is_reported_before_it_is_enforced(tmp_path):
     pace = SourcePace(tmp_path / "pace.json")
 
     assert pace.next_wait_ms("linkedin-jobs", 5000) == 0.0
-    pace.mark("linkedin-jobs", 5000)
+    pace.mark("linkedin-jobs")
     remaining = pace.next_wait_ms("linkedin-jobs", 5000)
 
     assert 4000 < remaining <= 5000
@@ -376,7 +377,7 @@ def test_jitter_only_ever_lengthens_the_wait(tmp_path):
     assert max(fresh) <= 2000
     assert len(set(round(value) for value in fresh)) > 1, "a constant is not jitter"
 
-    pace.mark("linkedin-jobs", 5000)
+    pace.mark("linkedin-jobs")
     waiting = [pace.next_wait_ms("linkedin-jobs", 5000, 2000) for _ in range(40)]
     assert min(waiting) >= 4000, "jitter must never bring the wait under the floor"
     assert max(waiting) <= 7000
@@ -387,6 +388,85 @@ def test_jitter_is_off_by_default_in_the_signature(tmp_path):
     pace = SourcePace(tmp_path / "pace.json")
 
     assert pace.next_wait_ms("linkedin-jobs", 5000) == 0.0
+
+
+def test_pacing_is_judged_on_when_the_site_was_touched_not_when_it_was_reported(
+    tmp_path,
+):
+    """Found in a live run: two actions genuinely 5.2s apart at the browser were
+    reported 0.11s apart and the second was refused. The reverse is worse -- a
+    caller that hammered a site and reported slowly would have passed -- so the
+    gap has to be measured between the actions, not between the reports."""
+    controller = _paced(tmp_path)
+    now = time.time()
+
+    first = controller.record_action("create", "ok", source_id="irishjobs-ie",
+                                     min_interval_ms=5000, occurred_at=now - 10.0)
+    spaced = controller.record_action("snapshot", "ok", source_id="irishjobs-ie",
+                                      min_interval_ms=5000, occurred_at=now - 4.8)
+    crowded = controller.record_action("read", "ok", source_id="irishjobs-ie",
+                                       min_interval_ms=5000, occurred_at=now - 4.7)
+
+    assert first["ok"] is True
+    assert spaced["ok"] is True, "5.2s apart at the browser is not too fast"
+    assert crowded["paced_too_fast"] is True, "0.1s apart at the browser is"
+
+
+def test_a_report_that_arrives_out_of_order_is_not_read_as_a_gap(tmp_path):
+    """A negative interval measures nothing. It is refused rather than quietly
+    accepted, and the stored time never moves backwards."""
+    controller = _paced(tmp_path)
+    now = time.time()
+
+    controller.record_action("create", "ok", source_id="irishjobs-ie",
+                             min_interval_ms=5000, occurred_at=now)
+    stale = controller.record_action("snapshot", "ok", source_id="irishjobs-ie",
+                                     min_interval_ms=5000, occurred_at=now - 30.0)
+
+    assert stale["paced_too_fast"] is True
+    assert controller.pace.next_wait_ms("irishjobs-ie", 5000) > 0
+
+
+def test_omitting_the_time_still_means_now(tmp_path):
+    controller = _paced(tmp_path)
+
+    controller.record_action("create", "ok", source_id="irishjobs-ie",
+                             min_interval_ms=5000)
+    immediate = controller.record_action("snapshot", "ok", source_id="irishjobs-ie",
+                                         min_interval_ms=5000)
+
+    assert immediate["paced_too_fast"] is True
+
+
+def test_the_cli_passes_the_action_time_through(tmp_path, monkeypatch):
+    """The in-process fix is worth nothing if the flag never reaches it, and
+    the CLI is how every real caller reports."""
+    import browser_control
+
+    monkeypatch.setattr(browser_control, "DEFAULT_PACE_PATH", tmp_path / "pace.json")
+    metrics = tmp_path / "metrics.jsonl"
+    original = browser_control.BrowserController.__init__
+
+    def patched(self, *args, **kwargs):
+        kwargs.setdefault("metrics_path", metrics)
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(browser_control.BrowserController, "__init__", patched)
+    now = time.time()
+
+    def run(action, occurred_at):
+        monkeypatch.setattr(sys, "argv", [
+            "browser_control.py", "--provider", "browseros_neo",
+            "--metrics-run-id", "round-20260925-150000-cccccc",
+            "action", "--action", action, "--status", "ok",
+            "--source-id", "irishjobs-ie",
+            "--occurred-at-ms", str(occurred_at * 1000.0),
+        ])
+        return browser_control.main()
+
+    assert run("create", now - 10.0) == 0
+    assert run("snapshot", now - 4.8) == 0, "5.2s apart at the browser is not too fast"
+    assert run("read", now - 4.7) == 1, "0.1s apart at the browser is"
 
 
 def test_the_jitter_setting_rejects_a_negative_bound():

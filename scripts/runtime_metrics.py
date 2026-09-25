@@ -185,6 +185,20 @@ _RUN_FINISH_FIELDS = {
 }
 ORCHESTRATION_MODES = ("serial", "overlapped")
 _FAILURE_FIELDS = {"failure_kind"}
+# Statuses that report the route's lifecycle rather than work it did.
+# `user_action_required` and `rate_limited` say it stopped; `resumed` says the
+# wait ended, and it comes only from `HandoffWindow.status_at`, whose one other
+# answer is `timeout` -- already counted as a failure. All three are written
+# with `ok=True` and should stay that way: nothing malfunctioned, and stopping
+# at a login wall or a 429 is correct behaviour rather than a fault. But none
+# of them is the channel producing anything, so counting one as coverage would
+# call a round whose every browser task hit a login wall a round that covered
+# the browser, and WORKFLOW's promise that a broken route cannot look
+# instrumented would hold only for the routes that broke loudly.
+LIFECYCLE_STATUSES = frozenset({"user_action_required", "rate_limited", "resumed"})
+# Likewise a panel state report: `record_state` exists to drive the local
+# browser panel, and publishing "I am waiting" is not doing the work.
+_STATE_ACTION = "state"
 _SCRIPT_OPERATIONS = ("merge", "update")
 OPERATIONS = (
     *_SCRIPT_OPERATIONS,
@@ -420,7 +434,14 @@ def assess_run_completeness(
     run_id: str,
     expected_operations: set[str] | tuple[str, ...] | list[str],
 ) -> dict[str, object]:
-    """Compare one pipeline run's observed events with its declared contract."""
+    """Compare one pipeline run's observed events with its declared contract.
+
+    An operation counts as observed when an event reports work that happened.
+    A failure does not count -- that is what keeps a broken route from looking
+    instrumented -- and neither does a lifecycle status or a panel state
+    report, for the same reason: all of them say the channel produced nothing,
+    and differ only in whose fault that is.
+    """
     expected = {"run_start", "round", *expected_operations}
     allowed = set(OPERATIONS) - {"run_finish"}
     expected &= allowed
@@ -428,7 +449,10 @@ def assess_run_completeness(
     observed = {
         str(event.get("operation"))
         for event in events
-        if event.get("run_id") == run_id and event.get("ok") is True
+        if event.get("run_id") == run_id
+        and event.get("ok") is True
+        and event.get("status") not in LIFECYCLE_STATUSES
+        and event.get("action") != _STATE_ACTION
     }
     missing = sorted(expected - observed)
     return {

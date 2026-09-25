@@ -378,11 +378,11 @@ def test_going_too_fast_at_one_source_costs_the_round_its_browser_coverage(tmp_p
 
     assert first == {
         "ok": True, "paced": True, "paced_too_fast": False, "over_budget": False,
-        "requests": 1, "requests_measured": False,
+        "requests": 1, "requests_measured": False, "timing": "measured",
     }
     assert immediate == {
         "ok": False, "paced": True, "paced_too_fast": True, "over_budget": False,
-        "requests": 1, "requests_measured": False,
+        "requests": 1, "requests_measured": False, "timing": "measured",
     }
     events = [json.loads(line) for line in
               (tmp_path / "metrics.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -585,6 +585,7 @@ def test_reading_an_already_loaded_page_is_not_paced(tmp_path):
         assert result == {
             "ok": True, "paced": False, "paced_too_fast": False,
             "over_budget": False, "requests": 0, "requests_measured": False,
+            "timing": "measured",
         }, action
 
 
@@ -651,6 +652,111 @@ def test_the_pace_cli_answers_zero_for_an_action_that_sends_nothing(
     measured = run("--action", "act", "--requests", "14")
     assert measured["requests"] == 14 and measured["requests_measured"] is True
     assert run("--action", "act")["requests"] == 10
+
+
+# ── An action whose time is not known ────────────────────────────────────────
+
+def test_one_untimed_action_no_longer_poisons_a_batch(tmp_path):
+    """The defect, as it happened. Reporting a batch afterwards, an action whose
+    moment was never captured had only two options: an exact time, or the
+    default, which means now. Now is after the actions that really came later,
+    so the batch was judged on a timeline that never existed -- and a genuinely
+    well-paced run was written as `browser_paced_too_fast`."""
+    controller = _paced(tmp_path)
+    start = time.time() - 60.0
+
+    controller.record_action("navigate", "ok", source_id="indeed-ie",
+                             min_interval_ms=5000, occurred_at=start)
+    untimed = controller.record_action("act", "ok", source_id="indeed-ie",
+                                       min_interval_ms=5000, timing="unavailable")
+    later = controller.record_action("act", "ok", source_id="indeed-ie",
+                                     min_interval_ms=5000, occurred_at=start + 10.0)
+
+    assert untimed["ok"] is True and untimed["paced"] is False
+    assert later["ok"] is True, "the untimed action must not have moved the clock"
+
+
+def test_an_untimed_action_does_not_move_the_source_clock(tmp_path):
+    """The other half. Recording the guess would be worse than judging it: every
+    later action would be measured from a moment nobody observed."""
+    controller = _paced(tmp_path)
+    now = time.time()
+
+    controller.record_action("navigate", "ok", source_id="indeed-ie",
+                             min_interval_ms=5000, occurred_at=now - 6.0)
+    controller.record_action("act", "ok", source_id="indeed-ie",
+                             min_interval_ms=5000, timing="unavailable")
+
+    assert controller.pace.next_wait_ms("indeed-ie", 5000) == 0.0
+
+
+def test_an_untimed_action_still_did_the_work(tmp_path):
+    """It is not a failure and not a pause: the page really was fetched, so it
+    counts as browser coverage. Only the stopwatch is missing."""
+    run_id = "round-20260925-140300-dddddd"
+    metrics_path = tmp_path / "metrics.jsonl"
+    record_metric(metrics_path, "run_start", True, run_id=run_id)
+    record_metric(metrics_path, "round", True, run_id=run_id)
+
+    BrowserController(
+        None, "browseros_neo", metrics_path=metrics_path, metrics_run_id=run_id
+    ).record_action("navigate", "ok", timing="unavailable")
+
+    event = _events(metrics_path)[-1]
+    assert event["ok"] is True
+    assert event["timing"] == "unavailable"
+    assert assess_run_completeness(metrics_path, run_id, {"browser"})["complete"] is True
+
+
+def test_a_time_cannot_be_supplied_and_disclaimed_at_once(tmp_path):
+    """Half a stopwatch is not a measurement. A caller that has the moment
+    should pass it; one that does not should not get a way to pass a number and
+    deny it in the same breath."""
+    controller = _paced(tmp_path)
+
+    with pytest.raises(ValueError, match="occurred_at"):
+        controller.record_action("act", "ok", timing="unavailable",
+                                 occurred_at=time.time())
+
+
+def test_an_unknown_timing_is_refused(tmp_path):
+    controller = _paced(tmp_path)
+
+    with pytest.raises(ValueError, match="timing"):
+        controller.record_action("act", "ok", timing="approximately")
+
+
+def test_untimed_actions_are_counted_where_someone_will_see_them(tmp_path):
+    """The exemption has to be visible. An action declared untimed is never
+    paced, so a caller could opt out of pacing entirely -- the same hazard
+    `search_pages_untimed` exists for, answered the same way."""
+    metrics_path = tmp_path / "metrics.jsonl"
+    controller = BrowserController(
+        None, "browseros_neo", metrics_path=metrics_path, metrics_run_id=RUN_ID
+    )
+
+    controller.record_action("navigate", "ok", timing="unavailable")
+    controller.record_action("act", "ok", timing="unavailable")
+    controller.record_action("read", "ok")
+
+    summary = build_summary(metrics_path, tmp_path / "eval_runs")
+    assert summary["metrics"]["browsers"]["actions"] == 3
+    assert summary["metrics"]["browsers"]["untimed"] == 2
+
+
+def test_the_action_cli_refuses_a_disclaimed_time(tmp_path, monkeypatch, capsys):
+    import browser_control
+
+    monkeypatch.setattr(sys, "argv", [
+        "browser_control.py", "--provider", "browseros_neo",
+        "--metrics-run-id", RUN_ID, "action", "--action", "act", "--status", "ok",
+        "--timing", "unavailable", "--occurred-at-ms", "1790349763021",
+    ])
+
+    assert browser_control.main() == 2
+    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert payload["ok"] is False
+    assert "occurred-at-ms" in payload["error"]
 
 
 # ── Pacing by what the site receives ─────────────────────────────────────────

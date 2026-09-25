@@ -163,6 +163,8 @@ const I18N = {
     coverage_skipped: "已跳过", coverage_not_collected: "未收集", coverage_unknown: "状态未知",
     coverage_counts: "来源成功 {0}/{1} · 失败 {2} · 跳过 {3} · 增量候选 {4}",
     multi_source: "多来源", provenance: "发现证据", normalized_location: "规范地点",
+    same_role: "重复发布", same_role_heading: "同一岗位的其他发布",
+    same_role_note: "同一家公司用同一个职位名发布了 {0} 条，各有独立投递链接，不会自动合并。",
     discovery_route: "发现路径", link_status: "链接状态", search_language: "搜索语言",
     empty_filtered: "没有职位符合当前筛选条件",
     empty_source_failed: "本轮没有可展示候选，且部分来源失败；这是覆盖有限，不代表市场没有职位。",
@@ -221,6 +223,8 @@ const I18N = {
     coverage_skipped: "Skipped", coverage_not_collected: "Not collected", coverage_unknown: "Status unknown",
     coverage_counts: "Sources {0}/{1} succeeded · {2} failed · {3} skipped · {4} incremental candidates",
     multi_source: "Multiple sources", provenance: "Discovery evidence", normalized_location: "Normalized location",
+    same_role: "Posted twice", same_role_heading: "Other postings of this role",
+    same_role_note: "The same company advertised this title {0} more times, each with its own apply link. They are kept apart rather than merged.",
     discovery_route: "Discovery route", link_status: "Link status", search_language: "Search language",
     empty_filtered: "No jobs match the current filters",
     empty_source_failed: "No candidates are shown and one or more sources failed. Coverage is limited; this is not evidence that the market has no jobs.",
@@ -465,6 +469,7 @@ function card(job, idx) {
           <span class="font-medium text-sm truncate">${esc(job.title)}</span>
           ${isNew ? `<span class="text-[10px] font-semibold px-1 py-0.5 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 rounded">NEW</span>` : ""}
           ${job.multi_source ? `<span class="text-[10px] font-semibold px-1 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 rounded">${t("multi_source")}</span>` : ""}
+          ${job.same_role_count ? `<span class="text-[10px] font-semibold px-1 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded">${t("same_role")}</span>` : ""}
         </div>
         <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">${esc(job.company)}${job.location ? " · " + esc(job.location) : ""}</div>
         <div class="mt-1">${recBadge(job.recommendation)}</div>
@@ -491,12 +496,25 @@ function renderDetail(job) {
     const location = [market, normalized.city_id, normalized.remote_scope].filter(Boolean).join(" · ");
     return `<div class="rounded-lg border border-gray-200 dark:border-gray-700 p-3"><div class="flex flex-wrap items-center gap-1.5">${chip(row.source, "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300")}${chip(categoryLabel("source_type", row.source_type), "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300")}${chip(categoryLabel("route", row.discovery_route), "bg-violet-50 dark:bg-violet-900/30 text-violet-600 dark:text-violet-300")}${chip(categoryLabel("verification", row.link_verification_status), "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-300")}</div><dl class="mt-2 grid grid-cols-1 gap-1 text-[11px] text-gray-500 dark:text-gray-400 sm:grid-cols-3"><div><dt class="font-semibold">${t("normalized_location")}</dt><dd>${esc(location || t("na"))}</dd></div><div><dt class="font-semibold">${t("search_language")}</dt><dd>${esc(row.search_language || t("na"))}</dd></div><div><dt class="font-semibold">${t("link_status")}</dt><dd>${esc(categoryLabel("verification", row.link_verification_status))}</dd></div></dl></div>`;
   }).join("");
+  const sameRolePostings = (job.same_role || []).map(other => {
+    const where = other.location ? esc(other.location) : t("na");
+    return other.url
+      ? `<li><a href="${esc(other.url)}" target="_blank" rel="noopener noreferrer" class="text-blue-600 dark:text-blue-400 hover:underline">${where}</a></li>`
+      : `<li class="text-gray-500">${where}</li>`;
+  }).join("");
+  // Not merged and not hidden: each posting has its own apply link, so dropping
+  // one would drop a real way in. Named instead, so one job advertised twice
+  // reads as one job.
+  const sameRole = sameRolePostings
+    ? `<section class="mt-4"><h4 class="text-xs font-bold text-gray-500 mb-2">${t("same_role_heading")}</h4><p class="text-xs text-gray-500 dark:text-gray-400 mb-1.5">${t("same_role_note").replace("{0}", String((job.same_role || []).length))}</p><ul class="text-xs list-disc pl-4 space-y-0.5">${sameRolePostings}</ul></section>`
+    : "";
   const flags = [];
   if (job.verified === "unverified") flags.push(chip(t("unverified"), "bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400"));
   if (job.scored_from === "snippet") flags.push(chip(t("from_snippet"), "bg-gray-100 dark:bg-gray-700 text-gray-500"));
   if (job.possibly_closed) flags.push(chip(t("closed"), "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"));
   if (job.stale_score && job.score == null) flags.push(chip(t("stale_score"), "bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400"));
   if (job.multi_source) flags.push(chip(t("multi_source"), "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300"));
+  if (job.same_role_count) flags.push(chip(t("same_role"), "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"));
 
   pane.innerHTML = `
     <div class="max-w-3xl card-enter">
@@ -536,6 +554,7 @@ function renderDetail(job) {
         <div><h4 class="text-xs font-bold text-gray-500 mb-1.5">${t("d_good")}</h4>${bullets(jd.good_to_have)}</div>
       </div>
 
+      ${sameRole}
       <section class="mt-4">
         <h4 class="text-xs font-bold text-gray-500 mb-2">${t("provenance")}</h4>
         <div class="space-y-2">${provenance || `<p class="text-xs text-gray-400">${t("na")}</p>`}</div>

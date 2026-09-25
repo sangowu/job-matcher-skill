@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +15,9 @@ from _jobutil import SKILL_ROOT, load_config
 
 
 PROVIDERS = ("kernel", "fake")
+# Same shape source_registry validates, kept local so this module stays free of
+# cross-script imports.
+_SOURCE_ID = re.compile(r"[a-z][a-z0-9_-]{2,99}")
 SETTINGS_PATH = SKILL_ROOT / "data" / "browser_provider.json"
 DEFAULT_SETTINGS = {
     "remote_browser_enabled": False,
@@ -27,8 +31,21 @@ DEFAULT_SETTINGS = {
     "browser_timeout_seconds": 600,
     "browser_headless": False,
     "browser_stealth": False,
+    # Source ids the person has accepted the risk of automating. A seed marked
+    # `requires_risk_ack` is planned only if it is named here, and this file
+    # lives under the gitignored data/ directory, so a fresh clone plans none
+    # of them and acknowledging one is a local act that cannot be committed.
+    "risk_acknowledged_sources": [],
+    "browser_min_source_interval_ms": 5000,
+    # Added on top of the interval, never taken off it: it spreads requests
+    # out for the site being read, and is not an attempt to look human.
+    "browser_jitter_ms": 2000,
 }
 SETTING_KEYS = frozenset(DEFAULT_SETTINGS)
+# Minimum spacing between two browser actions against one source. Unlike the
+# caps in HARD_LIMITS this is a floor: a person may slow a source down, never
+# speed it past the default.
+HARD_MINIMUMS = {"browser_min_source_interval_ms": 5000}
 HARD_LIMITS = {
     "browser_max_concurrency": 2,
     "browser_max_pages": 3,
@@ -58,12 +75,24 @@ def _validate_settings(values: dict[str, Any]) -> dict[str, Any]:
     for key in boolean_keys & settings.keys():
         if not isinstance(settings[key], bool):
             raise ValueError(f"{key} must be a boolean")
+    if "browser_jitter_ms" in settings:
+        value = settings["browser_jitter_ms"]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError("browser_jitter_ms must be a non-negative integer")
+    if "risk_acknowledged_sources" in settings:
+        value = settings["risk_acknowledged_sources"]
+        if not isinstance(value, list) or any(
+            not isinstance(item, str) or not _SOURCE_ID.fullmatch(item) for item in value
+        ):
+            raise ValueError("risk_acknowledged_sources must be a list of source ids")
+        settings["risk_acknowledged_sources"] = sorted(dict.fromkeys(value))
     positive_integer_keys = {
         "browser_max_concurrency",
         "browser_max_pages",
         "browser_session_budget",
         "browser_handoff_timeout_minutes",
         "browser_timeout_seconds",
+        "browser_min_source_interval_ms",
     }
     for key in positive_integer_keys & settings.keys():
         value = settings[key]
@@ -81,6 +110,9 @@ def _validate_settings(values: dict[str, Any]) -> dict[str, Any]:
     for key, limit in HARD_LIMITS.items():
         if key in settings and settings[key] > limit:
             raise ValueError(f"{key} must not exceed the hard limit {limit}")
+    for key, floor in HARD_MINIMUMS.items():
+        if key in settings and settings[key] < floor:
+            raise ValueError(f"{key} must not fall below the hard minimum {floor}")
     return settings
 
 

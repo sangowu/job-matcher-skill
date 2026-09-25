@@ -227,6 +227,8 @@ agent 会自动识别。然后在对话里：
 | `browser_provider` | kernel | `kernel`；`fake` 仅供测试 |
 | `browser_max_concurrency` | 2 | 远程浏览器并发硬上限 |
 | `browser_max_pages` | 3 | 单个招聘列表串行翻页硬上限 |
+| `browser_min_source_interval_ms` | 5000 | 同一来源两次浏览器动作的最小间隔，只能调高；间隔不足的动作记为失败且不计入轮次完整性 |
+| `browser_jitter_ms` | 2000 | 在最小间隔之上叠加的随机等待上限，用于分散请求；只会让等待变长，不用于伪装流量 |
 | `browser_session_budget` | 10 | 单轮新建远程会话硬上限 |
 | `browser_cost_limit_usd` | 1.0 | 单轮估算费用硬上限（美元） |
 | `browser_handoff_timeout_minutes` | 10 | 人工接管等待硬上限（分钟） |

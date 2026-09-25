@@ -133,7 +133,9 @@
         "mongodb-greenhouse",
         "nearform-greenhouse",
         "squarespace-greenhouse",
-        "twilio-greenhouse"
+        "twilio-greenhouse",
+        "linkedin-jobs",
+        "indeed-ie"
       ],
       "query_templates": [
         {
@@ -340,7 +342,8 @@
         "twilio-greenhouse",
         "verifone-greenhouse",
         "wolt-greenhouse",
-        "matillion-lever"
+        "matillion-lever",
+        "linkedin-jobs"
       ],
       "query_templates": [
         {
@@ -758,7 +761,8 @@
         "staffbase-greenhouse",
         "verifone-greenhouse",
         "wolt-greenhouse",
-        "trivago-greenhouse"
+        "trivago-greenhouse",
+        "linkedin-jobs"
       ],
       "query_templates": [
         {

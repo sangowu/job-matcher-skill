@@ -6,6 +6,7 @@ import argparse
 import json
 import math
 import os
+import random
 import threading
 import time
 from contextlib import contextmanager
@@ -19,7 +20,9 @@ from runtime_metrics import record_metric, validate_run_id
 
 
 DEFAULT_BUDGET_PATH = SKILL_ROOT / "data" / "browser_round_budget.json"
+DEFAULT_PACE_PATH = SKILL_ROOT / "data" / "browser_source_pace.json"
 _BUDGET_THREAD_LOCK = threading.Lock()
+_PACE_THREAD_LOCK = threading.Lock()
 
 # Remote providers are driven by this process through a provider object, so their
 # actions are timed and recorded automatically. A local browser is driven by the
@@ -128,6 +131,83 @@ class BrowserRoundBudget:
             self._save(state)
 
 
+class SourcePace:
+    """Minimum spacing between two browser actions against one source.
+
+    The Agent drives the browser through its own runtime, so nothing here can
+    hold it back. What this can do is make going too fast cost something: an
+    action recorded sooner than the configured interval is written as a failure,
+    which keeps it visible and keeps it out of the round's completeness. A
+    well-behaved caller asks `next_wait_ms` first and never trips it.
+
+    Kept per source rather than global: pacing exists out of courtesy to the
+    site being read, and two different sites are not each other's traffic.
+    """
+
+    def __init__(self, path: Path = DEFAULT_PACE_PATH) -> None:
+        self.path = path
+
+    def _load(self) -> dict[str, float]:
+        try:
+            value = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return {k: float(v) for k, v in value.items()} if isinstance(value, dict) else {}
+
+    def _save(self, value: dict[str, float]) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.path.with_name(f".{self.path.name}.{os.getpid()}.tmp")
+        temporary.write_text(
+            json.dumps(value, ensure_ascii=True, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        os.replace(temporary, self.path)
+
+    @contextmanager
+    def _locked(self):
+        lock_path = self.path.with_suffix(f"{self.path.suffix}.lock")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with _PACE_THREAD_LOCK:
+            try:
+                descriptor, _ = _filelock.acquire(
+                    lock_path, timeout_seconds=2, stale_seconds=30
+                )
+            except _filelock.LockUnavailable as error:
+                raise RuntimeError(f"browser pace lock {error.reason}") from error
+            try:
+                os.close(descriptor)
+                yield
+            finally:
+                _filelock.release(lock_path)
+
+    def next_wait_ms(
+        self, source_id: str, interval_ms: float, jitter_ms: float = 0
+    ) -> float:
+        """Milliseconds still to wait before touching this source again.
+
+        Jitter is added on top of the interval, never taken off it, so the
+        enforced floor stays deterministic and waiting the advised time is
+        always enough. It spreads requests out rather than disguising them:
+        bot detection reads TLS and browser fingerprints, not the spacing
+        between two page loads, and nothing here tries to defeat it.
+        """
+        with self._locked():
+            last = self._load().get(source_id)
+        extra = random.uniform(0, jitter_ms) if jitter_ms > 0 else 0.0
+        if last is None:
+            return extra
+        return max(0.0, interval_ms - (time.time() - last) * 1000.0) + extra
+
+    def mark(self, source_id: str, interval_ms: float) -> float:
+        """Record this action's time and return the interval it actually kept."""
+        now = time.time()
+        with self._locked():
+            state = self._load()
+            last = state.get(source_id)
+            state[source_id] = now
+            self._save(state)
+        return float("inf") if last is None else (now - last) * 1000.0
+
+
 class BrowserController:
     """Invoke a provider while emitting only allowlisted operational metrics."""
 
@@ -138,11 +218,13 @@ class BrowserController:
         *,
         metrics_path: Path = SKILL_ROOT / "data" / "metrics.jsonl",
         metrics_run_id: str | None = None,
+        pace: "SourcePace | None" = None,
     ) -> None:
         self.provider = provider
         self.provider_name = provider_name
         self.metrics_path = metrics_path
         self.metrics_run_id = metrics_run_id
+        self.pace = pace or SourcePace()
 
     def _call(self, action: str, function: Any, **metric_values: Any) -> Any:
         started = time.perf_counter()
@@ -222,6 +304,8 @@ class BrowserController:
         links_new: int = 0,
         handoff_wait_ms: float = 0,
         estimated_cost_usd: float = 0,
+        source_id: str | None = None,
+        min_interval_ms: float = 0,
     ) -> dict[str, bool]:
         """Record one Agent-executed local browser action.
 
@@ -235,6 +319,14 @@ class BrowserController:
         if status not in ACTION_STATUSES:
             raise ValueError(f"unsupported browser status: {status}")
         failed = status in _FAILED_STATUSES
+        paced_too_fast = False
+        if source_id and min_interval_ms > 0:
+            observed = self.pace.mark(source_id, min_interval_ms)
+            # Marked before the check so a burst is spaced from its own last
+            # action rather than from the last one that happened to be legal.
+            paced_too_fast = observed < min_interval_ms
+            if paced_too_fast:
+                failed = True
         written = record_metric(
             self.metrics_path,
             "browser",
@@ -251,9 +343,13 @@ class BrowserController:
             handoff_wait_ms=handoff_wait_ms,
             rate_limited=status == "rate_limited",
             estimated_cost_usd=estimated_cost_usd,
-            failure_kind="local_browser_action_failed" if failed else None,
+            failure_kind=(
+                "browser_paced_too_fast" if paced_too_fast
+                else "local_browser_action_failed" if failed
+                else None
+            ),
         )
-        return {"ok": written}
+        return {"ok": written and not paced_too_fast, "paced_too_fast": paced_too_fast}
 
     def record_state(
         self,
@@ -328,8 +424,14 @@ def _parser() -> argparse.ArgumentParser:
     event.add_argument("--handoff-wait-ms", type=float, default=0)
     event.add_argument("--estimated-cost-usd", type=float, default=0)
     action = subparsers.add_parser("action")
+    pace = subparsers.add_parser(
+        "pace", help="how long to wait before touching a source again"
+    )
+    pace.add_argument("--source-id", required=True)
+
     action.add_argument("--action", required=True, choices=LOCAL_ACTIONS)
     action.add_argument("--status", required=True, choices=ACTION_STATUSES)
+    action.add_argument("--source-id")
     action.add_argument("--duration-ms", type=float, default=0)
     action.add_argument("--page-number", type=int, default=0)
     action.add_argument("--links-found", type=int, default=0)
@@ -346,6 +448,14 @@ def main() -> int:
         settings["browser_provider"] = args.provider
     metrics_run_id = args.metrics_run_id or getattr(args, "round_id", None)
     provider_name = settings["browser_provider"]
+    if args.command == "pace":
+        wait = SourcePace().next_wait_ms(
+            args.source_id,
+            float(settings["browser_min_source_interval_ms"]),
+            float(settings.get("browser_jitter_ms", 0)),
+        )
+        print(json.dumps({"ok": True, "wait_ms": round(wait, 1)}, sort_keys=True))
+        return 0
     if args.command == "action":
         # A local browser has no provider object here, so this path must never
         # reach build_provider: it needs no credentials and no session budget.
@@ -370,6 +480,8 @@ def main() -> int:
             links_found=args.links_found,
             links_new=args.links_new,
             handoff_wait_ms=args.handoff_wait_ms,
+            source_id=args.source_id,
+            min_interval_ms=float(settings["browser_min_source_interval_ms"]),
         )
         print(json.dumps(result, ensure_ascii=True, sort_keys=True))
         return 0 if result["ok"] else 1

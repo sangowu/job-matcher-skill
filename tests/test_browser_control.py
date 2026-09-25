@@ -17,6 +17,7 @@ from browser_control import (  # noqa: E402
     REMOTE_PROVIDERS,
     BrowserController,
     BrowserRoundBudget,
+    SourcePace,
 )
 from browser_provider import FakeBrowserProvider  # noqa: E402
 from browser_workflow import HandoffWindow, PageObservation, collect_listing_pages  # noqa: E402
@@ -263,3 +264,136 @@ def test_a_lock_handoff_denial_does_not_escape_the_budget_lock(tmp_path, monkeyp
         pass
 
     assert not lock_path.exists()
+
+
+# ── Pacing one source ────────────────────────────────────────────────────────
+
+def _paced(tmp_path, run_id="round-20260925-140000-aaaaaa"):
+    return BrowserController(
+        None,
+        "browseros_neo",
+        metrics_path=tmp_path / "metrics.jsonl",
+        metrics_run_id=run_id,
+        pace=SourcePace(tmp_path / "pace.json"),
+    )
+
+
+def test_going_too_fast_at_one_source_costs_the_round_its_browser_coverage(tmp_path):
+    """Nothing here can hold the Agent back -- it drives the browser through its
+    own runtime. What this can do is make speeding cost something: the action is
+    still written, so it stays visible, but as a failure, and only successful
+    actions satisfy the completeness gate."""
+    controller = _paced(tmp_path)
+    run_id = "round-20260925-140000-aaaaaa"
+
+    first = controller.record_action("navigate", "ok", source_id="linkedin-jobs",
+                                     min_interval_ms=5000)
+    immediate = controller.record_action("read", "ok", source_id="linkedin-jobs",
+                                         min_interval_ms=5000)
+
+    assert first == {"ok": True, "paced_too_fast": False}
+    assert immediate == {"ok": False, "paced_too_fast": True}
+    events = [json.loads(line) for line in
+              (tmp_path / "metrics.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert events[1]["ok"] is False
+    assert events[1]["failure_kind"] == "browser_paced_too_fast"
+    # The first action alone still carries the round, which is the point: a
+    # paced caller is never punished, only an impatient one.
+    completeness = assess_run_completeness(tmp_path / "metrics.jsonl", run_id, ["browser"])
+    assert "browser" not in completeness["missing_operations"]
+
+
+def test_only_failures_remain_when_every_action_was_too_fast(tmp_path):
+    controller = _paced(tmp_path, run_id="round-20260925-140100-bbbbbb")
+    pace = controller.pace
+    pace.mark("linkedin-jobs", 5000)
+
+    controller.record_action("read", "ok", source_id="linkedin-jobs", min_interval_ms=5000)
+
+    completeness = assess_run_completeness(
+        tmp_path / "metrics.jsonl", "round-20260925-140100-bbbbbb", ["browser"]
+    )
+    assert "browser" in completeness["missing_operations"]
+
+
+def test_two_sources_are_not_each_others_traffic(tmp_path):
+    """Pacing is courtesy to the site being read; a second site is a second
+    queue, not the same one."""
+    controller = _paced(tmp_path)
+
+    controller.record_action("navigate", "ok", source_id="linkedin-jobs",
+                             min_interval_ms=5000)
+    other = controller.record_action("navigate", "ok", source_id="indeed-ie",
+                                     min_interval_ms=5000)
+
+    assert other["ok"] is True
+
+
+def test_an_action_without_a_source_keeps_its_old_meaning(tmp_path):
+    """Every caller written before pacing existed passes no source id."""
+    controller = _paced(tmp_path)
+
+    controller.record_action("read", "ok")
+    again = controller.record_action("read", "ok")
+
+    assert again["ok"] is True
+
+
+def test_the_pacing_floor_can_be_raised_but_not_lowered():
+    """A setting that could be turned down to zero would be a suggestion."""
+    import browser_provider
+
+    assert browser_provider._validate_settings(
+        {"browser_min_source_interval_ms": 9000}
+    ) == {"browser_min_source_interval_ms": 9000}
+    with pytest.raises(ValueError, match="hard minimum"):
+        browser_provider._validate_settings({"browser_min_source_interval_ms": 100})
+
+
+def test_waiting_the_interval_out_is_reported_before_it_is_enforced(tmp_path):
+    """A caller that asks first never trips the gate."""
+    pace = SourcePace(tmp_path / "pace.json")
+
+    assert pace.next_wait_ms("linkedin-jobs", 5000) == 0.0
+    pace.mark("linkedin-jobs", 5000)
+    remaining = pace.next_wait_ms("linkedin-jobs", 5000)
+
+    assert 4000 < remaining <= 5000
+
+
+def test_jitter_only_ever_lengthens_the_wait(tmp_path):
+    """Added on top of the interval, never taken off it, so the enforced floor
+    stays deterministic and the advised wait is always sufficient. It spreads
+    requests out for the site being read; it is not traffic disguise, and
+    nothing here tries to defeat a bot classifier."""
+    pace = SourcePace(tmp_path / "pace.json")
+
+    # An untouched source owes nothing, so its base wait is exactly zero and
+    # every millisecond below comes from the jitter rather than from the clock
+    # advancing between samples.
+    fresh = [pace.next_wait_ms("never-touched", 5000, 2000) for _ in range(40)]
+    assert min(fresh) >= 0.0
+    assert max(fresh) <= 2000
+    assert len(set(round(value) for value in fresh)) > 1, "a constant is not jitter"
+
+    pace.mark("linkedin-jobs", 5000)
+    waiting = [pace.next_wait_ms("linkedin-jobs", 5000, 2000) for _ in range(40)]
+    assert min(waiting) >= 4000, "jitter must never bring the wait under the floor"
+    assert max(waiting) <= 7000
+
+
+def test_jitter_is_off_by_default_in_the_signature(tmp_path):
+    """The floor alone is the contract; jitter is opt-in on top of it."""
+    pace = SourcePace(tmp_path / "pace.json")
+
+    assert pace.next_wait_ms("linkedin-jobs", 5000) == 0.0
+
+
+def test_the_jitter_setting_rejects_a_negative_bound():
+    import browser_provider
+
+    assert browser_provider._validate_settings({"browser_jitter_ms": 0}) == {
+        "browser_jitter_ms": 0
+    }
+    with pytest.raises(ValueError, match="browser_jitter_ms"):
+        browser_provider._validate_settings({"browser_jitter_ms": -1})

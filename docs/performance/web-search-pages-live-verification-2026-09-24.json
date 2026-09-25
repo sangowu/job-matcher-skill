@@ -1,0 +1,106 @@
+{
+ "schema_version": 1,
+ "run_kind": "web_search_pages_live_verification",
+ "observed_at": "2026-09-24T00:00:00Z",
+ "purpose": "First real batch committed through the pages contract built in PR #43. Until now every `search` event in the store came from the separate search_metrics.py call that contract replaced.",
+ "environment": {
+  "os": "Windows",
+  "python": "3.13.5"
+ },
+ "why_the_agent_cannot_time_its_own_search": {
+  "tool_result_carries_timing": false,
+  "tool_result_fields": [
+   "title",
+   "url"
+  ],
+  "bracketing_two_shell_timestamps_measures": "the whole turn, not the call",
+  "measured_bracket_ms": 11578,
+  "bracket_includes": "model token generation for both surrounding tool calls",
+  "plausible_search_latency_ms": "1000-3000",
+  "conclusion": "A required duration_ms on this path can only be satisfied by inventing a number or by reporting the task skipped and discarding real candidates."
+ },
+ "wave": {
+  "batch_id": "pages-live-20260924-wave-1",
+  "wave_id": "wave:1",
+  "metrics_run_id": "round-20260924-085509-6ff060",
+  "routes_enabled": [
+   "model_search"
+  ],
+  "browser_route": "not exercised; browseros-neo was not reachable this session"
+ },
+ "web_search_tasks": [
+  {
+   "task_id": "web:1",
+   "query_slot": "q1",
+   "calls": 1,
+   "raw_results": 9,
+   "prefiltered": 1,
+   "deduplicated": 1,
+   "new_candidates": 0,
+   "timing": "unavailable",
+   "note": "9 results: 7 aggregator listing pages, 2 individual postings. One is remote-labelled and skipped per the 2026-09-23 remote removal; the other sits on a recruitment-agency host absent from the source catalog, so it cannot carry a known source_id into an envelope."
+  },
+  {
+   "task_id": "web:2",
+   "query_slot": "q2",
+   "calls": 1,
+   "raw_results": 9,
+   "prefiltered": 0,
+   "deduplicated": 0,
+   "new_candidates": 0,
+   "timing": "unavailable",
+   "note": "9 results, all aggregator listing pages, no individual posting."
+  }
+ ],
+ "batch_outcome": {
+  "ok": true,
+  "tasks_planned": 13,
+  "tasks_succeeded": 13,
+  "tasks_failed": 0,
+  "channels": {
+   "browser": {
+    "failed": 0,
+    "planned": 0,
+    "skipped": 0,
+    "succeeded": 0
+   },
+   "structured": {
+    "failed": 0,
+    "planned": 11,
+    "skipped": 0,
+    "succeeded": 11
+   },
+   "web_search": {
+    "failed": 0,
+    "planned": 2,
+    "skipped": 0,
+    "succeeded": 2
+   }
+  },
+  "candidates_raw": 1920,
+  "candidates_prefiltered": 8,
+  "candidates_validated": 7,
+  "search_pages_recorded": 2,
+  "search_pages_untimed": 2
+ },
+ "recorded_events": {
+  "search_events_for_this_run": 2,
+  "duration_ms": null,
+  "first_result_ms": null,
+  "timing": "unavailable",
+  "counts_present_and_validated": true,
+  "run_completeness_missing_operations": "round",
+  "note": "`round` is missing because this was a discovery wave, not a full user-facing round; `search` is observed, which is the thing this contract exists to guarantee."
+ },
+ "store_wide_effect": {
+  "search_events_total": 5,
+  "duration_ms_reported_rate_after": 0.6,
+  "note": "The 3 events carrying a latency are pre-#43 and came from search_metrics.py. Without reported_rate the p50 of 1800ms would have represented 3 of 5 pages with nothing saying so."
+ },
+ "limitations": [
+  "Nothing distinguishes an executor that cannot measure from one that did not bother; the declaration is recorded, not proved.",
+  "The web_search channel committed zero candidates this run. The open web returns mostly aggregator listing pages, and an individual posting still needs a host that is in the source catalog.",
+  "The browser channel was not exercised and remains unverified in a real round.",
+  "Timing for a browser-executed search is unaffected: that executor has a clock and still reports `measured`."
+ ]
+}

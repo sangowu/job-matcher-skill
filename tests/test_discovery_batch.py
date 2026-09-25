@@ -625,3 +625,94 @@ def test_a_batch_without_a_metrics_run_id_still_requires_the_pages(stores):
 
     assert result["ok"] is True
     assert result["task_summary"]["search_pages_recorded"] == 0
+
+
+# ── An executor with no clock still has to be able to tell the truth ─────────
+
+def _untimed(**overrides) -> dict:
+    return _page(**{"timing": "unavailable", "duration_ms": None, **overrides})
+
+
+def test_a_page_that_could_not_be_timed_still_commits_its_candidates(
+    stores, tmp_path, monkeypatch
+):
+    """The trilemma this closes. The Agent runs Web Search through a tool call it
+    has no clock around, so the old contract left only two exits: invent a
+    latency, or report the task skipped and discard candidates it really found.
+    Neither is a measurement. The counts it *can* make stay mandatory."""
+    from runtime_metrics import assess_run_completeness
+
+    metrics_path = tmp_path / "data" / "metrics.jsonl"
+    monkeypatch.setattr(discovery_batch, "METRICS_PATH", metrics_path)
+    run_id = "round-20260924-091500-abc123"
+    value = _only_web(payload(), _web_result([_untimed()]))
+
+    result = run_batch(stores, value, metrics_run_id=run_id)
+
+    assert result["ok"] is True
+    assert result["task_summary"]["search_pages_recorded"] == 1
+    assert result["task_summary"]["search_pages_untimed"] == 1
+    completeness = assess_run_completeness(metrics_path, run_id, ["search"])
+    assert "search" not in completeness["missing_operations"]
+
+    event = json.loads(metrics_path.read_text(encoding="utf-8").splitlines()[-1])
+    assert event["operation"] == "search"
+    assert event["timing"] == "unavailable"
+    # Absent, not zero: a zero here would enter the latency percentiles.
+    assert event["duration_ms"] is None
+    assert event["raw_results"] == 1
+
+
+def test_a_timed_page_says_so_without_being_asked(stores, tmp_path, monkeypatch):
+    """The declaration is opt-in, so every page written before it existed keeps
+    meaning exactly what it meant."""
+    metrics_path = tmp_path / "data" / "metrics.jsonl"
+    monkeypatch.setattr(discovery_batch, "METRICS_PATH", metrics_path)
+    value = _only_web(payload(), _web_result([_page()]))
+
+    result = run_batch(stores, value, metrics_run_id="round-20260924-091500-abc123")
+
+    assert result["task_summary"]["search_pages_untimed"] == 0
+    event = json.loads(metrics_path.read_text(encoding="utf-8").splitlines()[-1])
+    assert event["timing"] == "measured"
+    assert event["duration_ms"] == 120.0
+
+
+@pytest.mark.parametrize(
+    ("pages", "message"),
+    [
+        # Half a stopwatch is not a measurement.
+        ([_page(timing="unavailable")], "carries a latency"),
+        ([_untimed(first_result_ms=90.0)], "carries a latency"),
+        # A null latency is only ever an answer when it is declared as one.
+        ([_page(duration_ms=None)], "non-negative number"),
+        # Closed vocabulary: not a free-text field to explain oneself in.
+        ([_untimed(timing="too_busy")], "timing must be one of"),
+        ([_untimed(timing=None)], "timing must be one of"),
+    ],
+)
+def test_an_undeclared_or_half_declared_timing_is_refused(stores, pages, message):
+    value = _only_web(payload(), _web_result(pages))
+
+    with pytest.raises(discovery_batch.DiscoveryBatchError, match=message):
+        run_batch(stores, value)
+
+
+def test_losing_the_clock_does_not_excuse_the_counts(stores):
+    """The obvious way this becomes a back door: declare timing unavailable and
+    let everything else go soft with it. Only the two latencies are optional."""
+    value = _only_web(payload(), _web_result([_untimed(raw_results=2)]))
+
+    with pytest.raises(discovery_batch.DiscoveryBatchError, match="sum to candidates_raw"):
+        run_batch(stores, value)
+
+
+def test_dropping_duration_ms_entirely_is_not_the_same_as_declaring_it_absent(stores):
+    """`timing=unavailable` makes the null legal; it does not make the key
+    optional. An omission reads the same whether it was meant or forgotten."""
+    page = _untimed()
+    del page["duration_ms"]
+    value = _only_web(payload(), _web_result([page]))
+
+    with pytest.raises(discovery_batch.DiscoveryBatchError, match="fields are invalid"):
+        run_batch(stores, value)

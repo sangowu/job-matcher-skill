@@ -19,8 +19,15 @@ from browser_provider import build_provider, load_browser_settings
 from runtime_metrics import record_metric, validate_run_id
 
 
-DEFAULT_BUDGET_PATH = SKILL_ROOT / "data" / "browser_round_budget.json"
-DEFAULT_PACE_PATH = SKILL_ROOT / "data" / "browser_source_pace.json"
+# Every store this script writes lives under one directory, so `--data-dir`
+# can move all of them together. A smoke test that redirected only the metrics
+# would still have written the round's budget and the source's pacing state
+# into the live files, which is the failure this is meant to prevent, not a
+# smaller version of it.
+DEFAULT_DATA_DIR = SKILL_ROOT / "data"
+DEFAULT_BUDGET_PATH = DEFAULT_DATA_DIR / "browser_round_budget.json"
+DEFAULT_PACE_PATH = DEFAULT_DATA_DIR / "browser_source_pace.json"
+DEFAULT_METRICS_PATH = DEFAULT_DATA_DIR / "metrics.jsonl"
 _BUDGET_THREAD_LOCK = threading.Lock()
 _PACE_THREAD_LOCK = threading.Lock()
 
@@ -117,8 +124,12 @@ def _request_budget_wait_ms(
 class BrowserRoundBudget:
     """Cross-process session, concurrency, and estimated-cost admission gate."""
 
-    def __init__(self, path: Path = DEFAULT_BUDGET_PATH) -> None:
-        self.path = path
+    def __init__(self, path: Path | None = None) -> None:
+        # Resolved on construction, not bound as a default at import time: a
+        # default argument freezes the path before any test or caller can
+        # redirect it, which is how `SourcePace` came to read and overwrite the
+        # live pacing file while believing it was in a temporary directory.
+        self.path = Path(path) if path is not None else DEFAULT_BUDGET_PATH
 
     @contextmanager
     def _locked(self):
@@ -383,13 +394,15 @@ class BrowserController:
         provider: Any,
         provider_name: str,
         *,
-        metrics_path: Path = SKILL_ROOT / "data" / "metrics.jsonl",
+        metrics_path: Path | None = None,
         metrics_run_id: str | None = None,
         pace: "SourcePace | None" = None,
     ) -> None:
         self.provider = provider
         self.provider_name = provider_name
-        self.metrics_path = metrics_path
+        self.metrics_path = (
+            Path(metrics_path) if metrics_path is not None else DEFAULT_METRICS_PATH
+        )
         self.metrics_run_id = metrics_run_id
         self.pace = pace or SourcePace()
 
@@ -611,6 +624,15 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--provider", choices=(*REMOTE_PROVIDERS, *LOCAL_PROVIDERS))
     parser.add_argument("--metrics-run-id", type=validate_run_id)
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        help="write this run's metrics, round budget and source pacing under "
+        "this directory instead of the skill's own data/. Use it for any smoke "
+        "test or rehearsal: without it a single trial CLI call lands in the "
+        "live metrics store and the live pacing state, where it is "
+        "indistinguishable from a real round.",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
     create = subparsers.add_parser("create")
     create.add_argument("--url", required=True)
@@ -703,9 +725,25 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _stores(data_dir: Path | None) -> dict[str, Path]:
+    """Where this invocation's three writable stores live."""
+    if data_dir is None:
+        return {
+            "metrics": DEFAULT_METRICS_PATH,
+            "budget": DEFAULT_BUDGET_PATH,
+            "pace": DEFAULT_PACE_PATH,
+        }
+    return {
+        "metrics": data_dir / DEFAULT_METRICS_PATH.name,
+        "budget": data_dir / DEFAULT_BUDGET_PATH.name,
+        "pace": data_dir / DEFAULT_PACE_PATH.name,
+    }
+
+
 def main() -> int:
     args = _parser().parse_args()
     settings = load_browser_settings()
+    stores = _stores(args.data_dir)
     if args.provider:
         settings["browser_provider"] = args.provider
     metrics_run_id = args.metrics_run_id or getattr(args, "round_id", None)
@@ -730,7 +768,7 @@ def main() -> int:
             if args.requests is None
             else max(0, args.requests)
         )
-        wait = SourcePace().next_wait_ms(
+        wait = SourcePace(stores["pace"]).next_wait_ms(
             args.source_id,
             float(settings["browser_min_source_interval_ms"]),
             float(settings.get("browser_jitter_ms", 0)),
@@ -777,7 +815,13 @@ def main() -> int:
                 )
             )
             return 2
-        controller = BrowserController(None, provider_name, metrics_run_id=metrics_run_id)
+        controller = BrowserController(
+            None,
+            provider_name,
+            metrics_path=stores["metrics"],
+            metrics_run_id=metrics_run_id,
+            pace=SourcePace(stores["pace"]),
+        )
         result = controller.record_action(
             args.action,
             args.status,
@@ -814,6 +858,7 @@ def main() -> int:
         controller = BrowserController(
             None,
             settings["browser_provider"],
+            metrics_path=stores["metrics"],
             metrics_run_id=metrics_run_id,
         )
         result = controller.record_state(
@@ -830,7 +875,9 @@ def main() -> int:
     controller = BrowserController(
         provider,
         settings["browser_provider"],
+        metrics_path=stores["metrics"],
         metrics_run_id=metrics_run_id,
+        pace=SourcePace(stores["pace"]),
     )
     if args.command == "create":
         estimated_cost = args.estimated_cost_usd
@@ -838,7 +885,7 @@ def main() -> int:
             estimated_cost = (
                 settings["browser_cost_limit_usd"] / settings["browser_session_budget"]
             )
-        budget = BrowserRoundBudget()
+        budget = BrowserRoundBudget(stores["budget"])
         budget.reserve(args.round_id, settings, estimated_cost)
         try:
             result = controller.create(
@@ -862,7 +909,7 @@ def main() -> int:
         result = controller.scroll(args.session_id, args.x, args.y, args.delta_y)
     elif args.command == "close":
         result = controller.close(args.session_id)
-        BrowserRoundBudget().release(args.round_id)
+        BrowserRoundBudget(stores["budget"]).release(args.round_id)
     else:
         result = {"ok": provider.test_connection()}
     print(json.dumps(result, ensure_ascii=True, sort_keys=True))

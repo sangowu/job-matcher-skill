@@ -1001,6 +1001,138 @@ def test_an_unpaced_action_reports_no_request_count(tmp_path):
     assert [event["requests"] for event in events] == [0, 0]
 
 
+# ── Keeping a rehearsal out of the live stores ───────────────────────────────
+
+def _isolated_live(tmp_path, monkeypatch):
+    """Point the three production stores somewhere nothing should ever write."""
+    import browser_control
+
+    live = tmp_path / "live"
+    monkeypatch.setattr(browser_control, "DEFAULT_DATA_DIR", live)
+    monkeypatch.setattr(browser_control, "DEFAULT_METRICS_PATH", live / "metrics.jsonl")
+    monkeypatch.setattr(
+        browser_control, "DEFAULT_BUDGET_PATH", live / "browser_round_budget.json"
+    )
+    monkeypatch.setattr(
+        browser_control, "DEFAULT_PACE_PATH", live / "browser_source_pace.json"
+    )
+    return live
+
+
+def test_a_rehearsal_can_be_pointed_away_from_the_live_stores(tmp_path, monkeypatch, capsys):
+    """Without this there is no way to try the CLI at all: one trial call landed
+    in the live metrics store and the live pacing state, where it is
+    indistinguishable from a real round. This session put a false
+    `browser_paced_too_fast` into the production metrics exactly that way."""
+    import browser_control
+
+    live = _isolated_live(tmp_path, monkeypatch)
+    sandbox = tmp_path / "sandbox"
+    monkeypatch.setattr(sys, "argv", [
+        "browser_control.py", "--provider", "browseros_neo",
+        "--metrics-run-id", RUN_ID, "--data-dir", str(sandbox),
+        "action", "--action", "navigate", "--status", "ok",
+        "--source-id", "indeed-ie",
+    ])
+
+    assert browser_control.main() == 0
+    capsys.readouterr()
+
+    assert (sandbox / "metrics.jsonl").exists()
+    assert (sandbox / "browser_source_pace.json").exists()
+    assert not live.exists(), "a rehearsal must leave the live stores untouched"
+
+
+def test_without_the_flag_the_live_stores_are_still_the_ones_used(tmp_path, monkeypatch, capsys):
+    """The redirect has to be opt-in, or a real round would quietly write its
+    metrics somewhere nobody reads."""
+    import browser_control
+
+    live = _isolated_live(tmp_path, monkeypatch)
+    monkeypatch.setattr(sys, "argv", [
+        "browser_control.py", "--provider", "browseros_neo",
+        "--metrics-run-id", RUN_ID,
+        "action", "--action", "navigate", "--status", "ok",
+        "--source-id", "indeed-ie",
+    ])
+
+    assert browser_control.main() == 0
+    capsys.readouterr()
+
+    assert (live / "metrics.jsonl").exists()
+    assert (live / "browser_source_pace.json").exists()
+
+
+def test_a_rehearsal_reads_its_own_pacing_state_too(tmp_path, monkeypatch, capsys):
+    """Not only writes. Asked how long to wait, a rehearsal pointed at a sandbox
+    must answer from the sandbox -- otherwise the advice it prints is about a
+    source the live round touched, and a trial run and a real one are told
+    different things for no reason either of them can see."""
+    import browser_control
+
+    live = _isolated_live(tmp_path, monkeypatch)
+    live.mkdir()
+    browser_control.SourcePace(live / "browser_source_pace.json").mark("indeed-ie")
+    sandbox = tmp_path / "sandbox"
+
+    def run(*extra):
+        monkeypatch.setattr(sys, "argv", [
+            "browser_control.py", "--provider", "browseros_neo", *extra,
+            "pace", "--source-id", "indeed-ie", "--action", "act",
+        ])
+        browser_control.main()
+        return json.loads(capsys.readouterr().out.strip().splitlines()[-1])["wait_ms"]
+
+    # The live file says the source was just touched: a full interval to wait.
+    assert run() > 4000
+    # The sandbox has never heard of it: jitter only.
+    assert run("--data-dir", str(sandbox)) <= 2000
+
+
+def test_the_three_stores_move_together(tmp_path):
+    """Redirecting only the metrics would still have written the round budget
+    and the pacing state into the live files -- the same failure, quieter."""
+    import browser_control
+
+    moved = browser_control._stores(tmp_path)
+
+    assert set(moved) == {"metrics", "budget", "pace"}
+    assert all(path.parent == tmp_path for path in moved.values())
+    assert {path.name for path in moved.values()} == {
+        browser_control.DEFAULT_METRICS_PATH.name,
+        browser_control.DEFAULT_BUDGET_PATH.name,
+        browser_control.DEFAULT_PACE_PATH.name,
+    }
+    assert browser_control._stores(None) == {
+        "metrics": browser_control.DEFAULT_METRICS_PATH,
+        "budget": browser_control.DEFAULT_BUDGET_PATH,
+        "pace": browser_control.DEFAULT_PACE_PATH,
+    }
+
+
+@pytest.mark.parametrize(
+    ("constant", "build"),
+    [
+        ("DEFAULT_METRICS_PATH", lambda m: BrowserController(None, "browseros_neo").metrics_path),
+        ("DEFAULT_BUDGET_PATH", lambda m: m.BrowserRoundBudget().path),
+        ("DEFAULT_PACE_PATH", lambda m: m.SourcePace().path),
+    ],
+)
+def test_every_default_store_path_is_resolved_on_construction(
+    tmp_path, monkeypatch, constant, build
+):
+    """Bound as a default argument a path is frozen at import, so redirecting it
+    redirects nothing -- which is how the suite came to read and overwrite this
+    repository's own pacing state. Pinned for all three, not just the one that
+    was caught."""
+    import browser_control
+
+    redirected = tmp_path / f"{constant.lower()}.json"
+    monkeypatch.setattr(browser_control, constant, redirected)
+
+    assert build(browser_control) == redirected
+
+
 def test_the_pace_file_location_is_resolved_when_asked_not_when_imported(tmp_path, monkeypatch):
     """Bound as a default argument, the path was fixed at import and a test that
     redirected it still read and wrote the repository's own pacing state --

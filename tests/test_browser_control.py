@@ -223,6 +223,90 @@ def test_a_failed_local_action_does_not_satisfy_completeness(tmp_path):
     assert assess_run_completeness(metrics_path, RUN_ID, {"browser"})["complete"] is False
 
 
+@pytest.mark.parametrize("status", ["user_action_required", "rate_limited", "resumed"])
+def test_a_route_that_only_reported_its_lifecycle_is_not_covered(tmp_path, status):
+    """The gap this closes. A round whose every browser task stopped at a login
+    wall, or was rate limited, or only reported that a handoff ended, produced
+    nothing -- and used to report `complete: True`, because those statuses are
+    written with `ok=True` and completeness asked no further question. WORKFLOW
+    promises a broken route cannot look instrumented; that held only for the
+    routes that broke loudly."""
+    metrics_path = tmp_path / "metrics.jsonl"
+    record_metric(metrics_path, "run_start", True, run_id=RUN_ID)
+    record_metric(metrics_path, "round", True, run_id=RUN_ID)
+
+    BrowserController(
+        None, "browseros_neo", metrics_path=metrics_path, metrics_run_id=RUN_ID
+    ).record_action("navigate", status)
+
+    assert assess_run_completeness(metrics_path, RUN_ID, {"browser"})["complete"] is False
+
+
+@pytest.mark.parametrize("status", ["user_action_required", "rate_limited", "resumed"])
+def test_a_lifecycle_report_is_still_not_a_failure(tmp_path, status):
+    """The half that must not change with it. Stopping at a login wall is the
+    route behaving correctly, so the event stays `ok` and stays out of the
+    failure counts -- it is simply not evidence that the channel ran."""
+    metrics_path = tmp_path / "metrics.jsonl"
+
+    BrowserController(
+        None, "browseros_neo", metrics_path=metrics_path, metrics_run_id=RUN_ID
+    ).record_action("navigate", status)
+
+    event = _events(metrics_path)[-1]
+    assert event["ok"] is True
+    assert "failure_kind" not in event or event["failure_kind"] is None
+
+
+def test_a_route_that_paused_and_then_worked_is_covered(tmp_path):
+    """The pause is not held against a route that got going afterwards."""
+    metrics_path = tmp_path / "metrics.jsonl"
+    record_metric(metrics_path, "run_start", True, run_id=RUN_ID)
+    record_metric(metrics_path, "round", True, run_id=RUN_ID)
+    controller = BrowserController(
+        None, "browseros_neo", metrics_path=metrics_path, metrics_run_id=RUN_ID
+    )
+
+    controller.record_action("navigate", "user_action_required")
+    controller.record_action("navigate", "resumed")
+    controller.record_action("read", "ok", links_found=25)
+
+    assert assess_run_completeness(metrics_path, RUN_ID, {"browser"})["complete"] is True
+
+
+def test_publishing_a_panel_state_is_not_doing_the_work(tmp_path):
+    """`record_state` drives the local browser panel. Announcing a state is not
+    the browser channel running, and a run that only announced states has not
+    observed one."""
+    metrics_path = tmp_path / "metrics.jsonl"
+    record_metric(metrics_path, "run_start", True, run_id=RUN_ID)
+    record_metric(metrics_path, "round", True, run_id=RUN_ID)
+    controller = BrowserController(
+        None, "browseros_neo", metrics_path=metrics_path, metrics_run_id=RUN_ID
+    )
+
+    controller.record_state("ok", page_number=1)
+
+    assert assess_run_completeness(metrics_path, RUN_ID, {"browser"})["complete"] is False
+    # And the state event itself is still written and still ok -- it is the
+    # panel's only input.
+    state_event = _events(metrics_path)[-1]
+    assert state_event["action"] == "state" and state_event["ok"] is True
+
+
+def test_every_action_status_is_placed_on_one_side_of_coverage():
+    """A new status must be classified deliberately. Left out of both sets it
+    would silently count as work, which is how the three above got through."""
+    import browser_control
+    import runtime_metrics
+
+    failing = {"failed", "timeout"}
+    lifecycle = runtime_metrics.LIFECYCLE_STATUSES
+
+    assert not failing & lifecycle
+    assert failing | lifecycle | {"ok"} == set(browser_control.ACTION_STATUSES)
+
+
 @pytest.mark.parametrize(
     ("action", "status"),
     [("teleport", "ok"), ("navigate", "maybe")],

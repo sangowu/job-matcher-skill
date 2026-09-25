@@ -138,6 +138,9 @@ _BROWSER_FIELDS = {
     "action",
     "duration_ms",
     "status",
+    # How many requests the action sent to the source: the unit the site
+    # counts in, which the action count is only a proxy for.
+    "requests",
     "page_number",
     "links_found",
     "links_new",

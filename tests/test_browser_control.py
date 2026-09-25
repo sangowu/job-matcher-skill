@@ -292,8 +292,14 @@ def test_going_too_fast_at_one_source_costs_the_round_its_browser_coverage(tmp_p
     immediate = controller.record_action("act", "ok", source_id="linkedin-jobs",
                                          min_interval_ms=5000)
 
-    assert first == {"ok": True, "paced": True, "paced_too_fast": False}
-    assert immediate == {"ok": False, "paced": True, "paced_too_fast": True}
+    assert first == {
+        "ok": True, "paced": True, "paced_too_fast": False, "over_budget": False,
+        "requests": 1, "requests_measured": False,
+    }
+    assert immediate == {
+        "ok": False, "paced": True, "paced_too_fast": True, "over_budget": False,
+        "requests": 1, "requests_measured": False,
+    }
     events = [json.loads(line) for line in
               (tmp_path / "metrics.jsonl").read_text(encoding="utf-8").splitlines()]
     assert events[1]["ok"] is False
@@ -492,7 +498,10 @@ def test_reading_an_already_loaded_page_is_not_paced(tmp_path):
         result = controller.record_action(
             action, "ok", source_id="indeed-ie", min_interval_ms=5000
         )
-        assert result == {"ok": True, "paced": False, "paced_too_fast": False}, action
+        assert result == {
+            "ok": True, "paced": False, "paced_too_fast": False,
+            "over_budget": False, "requests": 0, "requests_measured": False,
+        }, action
 
 
 def test_an_observation_does_not_push_the_next_request_back(tmp_path):
@@ -546,11 +555,260 @@ def test_the_pace_cli_answers_zero_for_an_action_that_sends_nothing(
         browser_control.main()
         return json.loads(capsys.readouterr().out.strip().splitlines()[-1])
 
-    assert run("--action", "read") == {"ok": True, "paced": False, "wait_ms": 0.0}
+    assert run("--action", "read") == {
+        "ok": True, "paced": False, "wait_ms": 0.0,
+        "requests": 0, "requests_measured": False,
+    }
     asked = run("--action", "act")
     assert asked["paced"] is True and asked["wait_ms"] > 0
     # Asked about the source rather than an action, the answer is unchanged.
     assert run()["paced"] is True
+    # An action that says what it will cost is charged that, not the assumption.
+    measured = run("--action", "act", "--requests", "14")
+    assert measured["requests"] == 14 and measured["requests_measured"] is True
+    assert run("--action", "act")["requests"] == 10
+
+
+# ── Pacing by what the site receives ─────────────────────────────────────────
+
+def test_keeping_the_interval_is_not_the_same_as_keeping_a_request_rate(tmp_path):
+    """The defect this exists for. Every action below waits the full interval,
+    so the old pacing had nothing to say about any of them -- and the source
+    still received 126 requests in 40 seconds, because one click was measured
+    at 14. The interval counts actions; the site counts requests."""
+    controller = _paced(tmp_path)
+    start = time.time()
+
+    results = [
+        controller.record_action(
+            "act", "ok", source_id="indeed-ie", min_interval_ms=5000,
+            occurred_at=start + 5.0 * index,
+            requests=14, max_requests_per_minute=120,
+        )
+        for index in range(9)
+    ]
+
+    assert not any(result["paced_too_fast"] for result in results)
+    assert all(result["ok"] for result in results[:8])
+    assert results[8]["over_budget"] is True
+    assert results[8]["ok"] is False
+
+
+def test_an_unmeasured_action_is_charged_the_assumption_not_one(tmp_path):
+    """One is the only count that is certainly wrong: an action that reaches a
+    page pulls its subresources with it."""
+    controller = _paced(tmp_path)
+
+    result = controller.record_action(
+        "navigate", "ok", source_id="indeed-ie", min_interval_ms=5000,
+        assumed_requests=10, max_requests_per_minute=120,
+    )
+
+    assert result["requests"] == 10
+    assert result["requests_measured"] is False
+
+
+def test_measuring_an_action_that_sent_nothing_costs_no_budget(tmp_path):
+    """The reward for measuring. An extract served from the loaded DOM sends
+    nothing, and saying so leaves the whole budget for the requests that do."""
+    controller = _paced(tmp_path)
+    start = time.time()
+
+    for index in range(40):
+        result = controller.record_action(
+            "extract", "ok", source_id="indeed-ie", min_interval_ms=5000,
+            occurred_at=start + 5.0 * index,
+            requests=0, max_requests_per_minute=120,
+        )
+        assert result["over_budget"] is False, index
+    assert result["requests"] == 0
+    assert result["requests_measured"] is True
+
+
+def test_the_two_limits_are_set_to_bind_at_the_same_moment():
+    """What makes this change carry no new slowdown: an action charged the
+    assumption exhausts the ceiling exactly when it exhausts the interval.
+    Change one of the three defaults and this says so."""
+    import browser_provider
+
+    defaults = browser_provider.DEFAULT_SETTINGS
+
+    by_interval = 60_000 / defaults["browser_min_source_interval_ms"]
+    by_budget = (
+        defaults["browser_max_requests_per_minute"]
+        / defaults["browser_assumed_requests_per_action"]
+    )
+
+    assert by_interval == by_budget == 12
+
+
+def test_the_ceiling_may_be_lowered_but_not_raised():
+    import browser_provider
+
+    assert browser_provider._validate_settings(
+        {"browser_max_requests_per_minute": 30}
+    ) == {"browser_max_requests_per_minute": 30}
+    with pytest.raises(ValueError, match="browser_max_requests_per_minute"):
+        browser_provider._validate_settings({"browser_max_requests_per_minute": 600})
+
+
+def test_the_assumption_may_be_raised_but_not_lowered():
+    """Lowering what an unmeasured action is charged spends the budget more
+    slowly than reality does, which is raising the ceiling by another name."""
+    import browser_provider
+
+    assert browser_provider._validate_settings(
+        {"browser_assumed_requests_per_action": 25}
+    ) == {"browser_assumed_requests_per_action": 25}
+    with pytest.raises(ValueError, match="browser_assumed_requests_per_action"):
+        browser_provider._validate_settings({"browser_assumed_requests_per_action": 1})
+
+
+def test_waiting_the_advised_time_is_enough_for_the_request_budget(tmp_path):
+    """The advice has to be sufficient or a caller that follows it still fails."""
+    pace = SourcePace(tmp_path / "pace.json")
+    now = time.time()
+    pace.mark("indeed-ie", now - 30.0, requests=115, max_per_minute=120)
+
+    wait = pace.next_wait_ms("indeed-ie", 5000, requests=14, max_per_minute=120)
+
+    # The oldest observation leaves the window 30 seconds from now.
+    assert 29_000 < wait <= 30_100
+    assert pace.next_wait_ms("indeed-ie", 5000, requests=5, max_per_minute=120) == 0.0
+
+
+def test_the_ceiling_is_a_ceiling_and_not_a_line_to_cross(tmp_path):
+    """Exactly at the limit is allowed; one request past it is not. Off by one
+    here is a ceiling that is quietly never reached, or quietly exceeded."""
+    now = time.time()
+
+    at_limit = SourcePace(tmp_path / "a.json").mark(
+        "indeed-ie", now, requests=120, max_per_minute=120
+    )
+    past_it = SourcePace(tmp_path / "b.json").mark(
+        "indeed-ie", now, requests=121, max_per_minute=120
+    )
+
+    assert at_limit["over_budget"] is False
+    assert past_it["over_budget"] is True
+
+
+def test_the_advice_also_forgets_traffic_older_than_a_minute(tmp_path):
+    """The advice and the enforcement have to read the same window, or a caller
+    is told to wait for budget it already has back."""
+    pace = SourcePace(tmp_path / "pace.json")
+    pace.mark("indeed-ie", time.time() - 61.0, requests=119, max_per_minute=120)
+
+    assert pace.next_wait_ms("indeed-ie", 5000, requests=14, max_per_minute=120) == 0.0
+
+
+def test_expired_traffic_cannot_change_the_advice():
+    """The budget calculation does not filter the window, and does not need to:
+    an expired observation is freed first and its expiry is already past. Pinned
+    because the missing filter looks like an oversight, and a rewrite that
+    reinstates it should have to notice this holds either way."""
+    import browser_control
+
+    now = time.time()
+    fresh = [(now - 10.0, 60), (now - 2.0, 30)]
+    with_expired = [(now - 300.0, 90), (now - 61.0, 5), *fresh]
+
+    for requests in (0, 1, 14, 30, 31, 120, 500):
+        assert browser_control._request_budget_wait_ms(
+            with_expired, now, requests, 120
+        ) == browser_control._request_budget_wait_ms(fresh, now, requests, 120), requests
+
+
+def test_the_window_forgets_traffic_older_than_a_minute(tmp_path):
+    pace = SourcePace(tmp_path / "pace.json")
+    now = time.time()
+    pace.mark("indeed-ie", now - 61.0, requests=119, max_per_minute=120)
+
+    observation = pace.mark("indeed-ie", now, requests=119, max_per_minute=120)
+
+    assert observation["requests_in_window"] == 119
+    assert observation["over_budget"] is False
+
+
+def test_an_action_costing_more_than_the_whole_budget_says_so(tmp_path):
+    """No amount of waiting makes room for it, so the answer is the longest
+    wait there is and the action is still recorded over budget -- rather than
+    a zero that would read as permission."""
+    import browser_control
+
+    pace = SourcePace(tmp_path / "pace.json")
+    pace.mark("indeed-ie", time.time() - 300.0)
+
+    wait = pace.next_wait_ms("indeed-ie", 5000, requests=500, max_per_minute=120)
+
+    assert wait == browser_control.REQUEST_WINDOW_SECONDS * 1000.0
+    assert pace.mark("indeed-ie", requests=500, max_per_minute=120)["over_budget"]
+
+
+def test_a_pace_file_written_before_request_accounting_still_loads(tmp_path):
+    """The stored shape changed from a timestamp to a timestamp plus a window.
+    The old spacing has to survive the upgrade; the window starts empty, which
+    undercounts for at most one minute and invents nothing."""
+    path = tmp_path / "pace.json"
+    path.write_text(json.dumps({"indeed-ie": time.time()}), encoding="utf-8")
+    pace = SourcePace(path)
+
+    assert pace.next_wait_ms("indeed-ie", 5000) > 0
+    assert pace.next_wait_ms("indeed-ie", 5000, requests=14, max_per_minute=120) > 0
+    pace.mark("indeed-ie", requests=14, max_per_minute=120)
+    assert json.loads(path.read_text(encoding="utf-8"))["indeed-ie"]["window"]
+
+
+def test_the_stored_window_does_not_grow_without_bound(tmp_path):
+    import browser_control
+
+    pace = SourcePace(tmp_path / "pace.json")
+    now = time.time()
+
+    for index in range(400):
+        pace.mark("indeed-ie", now + index * 0.01, requests=1)
+
+    stored = json.loads((tmp_path / "pace.json").read_text(encoding="utf-8"))
+    assert len(stored["indeed-ie"]["window"]) == browser_control._MAX_WINDOW_ENTRIES
+
+
+def test_going_over_the_request_ceiling_costs_the_round_its_browser_coverage(tmp_path):
+    """Same consequence as speeding, under its own name so the two are told
+    apart in the metrics: this one kept every interval."""
+    run_id = "round-20260925-140200-cccccc"
+    controller = _paced(tmp_path, run_id=run_id)
+
+    controller.record_action(
+        "act", "ok", source_id="indeed-ie", min_interval_ms=5000,
+        requests=500, max_requests_per_minute=120,
+    )
+
+    event = json.loads((tmp_path / "metrics.jsonl").read_text(encoding="utf-8"))
+    assert event["ok"] is False
+    assert event["failure_kind"] == "browser_request_budget_exceeded"
+    assert event["requests"] == 500
+    completeness = assess_run_completeness(tmp_path / "metrics.jsonl", run_id, ["browser"])
+    assert "browser" in completeness["missing_operations"]
+
+
+def test_an_unpaced_action_reports_no_request_count(tmp_path):
+    """A local read sends nothing, so charging it anything would be inventing
+    traffic; a source-less action has no budget to spend in the first place."""
+    controller = _paced(tmp_path)
+
+    local = controller.record_action(
+        "read", "ok", source_id="indeed-ie", min_interval_ms=5000,
+        requests=99, max_requests_per_minute=120,
+    )
+    sourceless = controller.record_action("act", "ok", requests=99)
+
+    assert local["requests"] == 0 and local["over_budget"] is False
+    assert sourceless["requests"] == 0 and sourceless["paced"] is False
+    # And the event says the same, so nothing downstream counts traffic that
+    # was never sent.
+    events = [json.loads(line) for line in
+              (tmp_path / "metrics.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [event["requests"] for event in events] == [0, 0]
 
 
 def test_the_pace_file_location_is_resolved_when_asked_not_when_imported(tmp_path, monkeypatch):

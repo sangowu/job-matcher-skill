@@ -40,13 +40,31 @@ DEFAULT_SETTINGS = {
     # Added on top of the interval, never taken off it: it spreads requests
     # out for the site being read, and is not an attempt to look human.
     "browser_jitter_ms": 2000,
+    # What the site actually receives, which is not what the interval above
+    # counts. One card click on an Indeed result page issued 14 requests
+    # (measured 2026-09-25), so spacing actions five seconds apart is roughly
+    # 2.8 requests per second, not the 0.2 the interval looks like. This is the
+    # ceiling in the unit the site experiences.
+    "browser_max_requests_per_minute": 120,
+    # Used for an action whose cost was not measured. Set so that the two
+    # limits bind at the same moment: 120 / 10 = 12 actions a minute, which is
+    # one every 5000ms. An action that reports a real count is held to that
+    # count instead, so measuring can only make the pacing more accurate.
+    "browser_assumed_requests_per_action": 10,
 }
 SETTING_KEYS = frozenset(DEFAULT_SETTINGS)
 # Minimum spacing between two browser actions against one source. Unlike the
 # caps in HARD_LIMITS this is a floor: a person may slow a source down, never
 # speed it past the default.
-HARD_MINIMUMS = {"browser_min_source_interval_ms": 5000}
+HARD_MINIMUMS = {
+    "browser_min_source_interval_ms": 5000,
+    # A floor, because this number is what an unmeasured action is *charged*.
+    # Lowering it would let a caller spend the request budget more slowly than
+    # it really does, which is the same as raising the ceiling.
+    "browser_assumed_requests_per_action": 10,
+}
 HARD_LIMITS = {
+    "browser_max_requests_per_minute": 120,
     "browser_max_concurrency": 2,
     "browser_max_pages": 3,
     "browser_session_budget": 10,
@@ -93,6 +111,8 @@ def _validate_settings(values: dict[str, Any]) -> dict[str, Any]:
         "browser_handoff_timeout_minutes",
         "browser_timeout_seconds",
         "browser_min_source_interval_ms",
+        "browser_max_requests_per_minute",
+        "browser_assumed_requests_per_action",
     }
     for key in positive_integer_keys & settings.keys():
         value = settings[key]

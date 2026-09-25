@@ -59,6 +59,50 @@ PACED_ACTIONS = frozenset({"create", "navigate", "act", "extract"})
 # Reading an already-loaded page: no request leaves the browser, so no wait.
 LOCAL_ONLY_ACTIONS = frozenset({"read", "snapshot", "wait", "close"})
 
+# The interval above counts actions; a site counts requests, and the two are
+# not the same number. That one click was 14 requests means a 5s interval is
+# about 2.8 requests a second -- an order of magnitude more than the interval
+# reads like. So the request count is carried as its own quantity: measured in
+# the page when the caller can, charged at a configured assumption when it
+# cannot, and held to a ceiling expressed in the unit the site experiences.
+#
+# A trailing window rather than a wall-clock minute, so a caller cannot spend a
+# full budget at 0:59 and another at 1:01.
+REQUEST_WINDOW_SECONDS = 60.0
+# The file holds one window per source and must not grow without bound.
+_MAX_WINDOW_ENTRIES = 240
+
+
+def _request_budget_wait_ms(
+    window: list[tuple[float, int]],
+    now: float,
+    requests: int,
+    max_per_minute: float,
+) -> float:
+    """Milliseconds until `requests` more requests fit under the ceiling."""
+    if max_per_minute <= 0 or requests <= 0:
+        return 0.0
+    # Deliberately unfiltered. An expired observation cannot change the answer:
+    # the loop below walks oldest first, so it is freed before anything fresh,
+    # and its own expiry is already in the past, which the clamp reads as no
+    # wait. Filtering it out here would be a second place to keep a window
+    # bound in step with `mark`, for an answer that is the same either way.
+    observations = sorted(window)
+    spent = sum(count for _, count in observations)
+    if spent + requests <= max_per_minute:
+        return 0.0
+    needed = spent + requests - max_per_minute
+    freed = 0
+    for timestamp, count in observations:
+        freed += count
+        if freed >= needed:
+            return max(0.0, (timestamp + REQUEST_WINDOW_SECONDS - now) * 1000.0)
+    # This one action costs more than a whole minute of budget, so no amount of
+    # waiting makes room for it. Waiting out the window is the most waiting can
+    # do; the action is still recorded over budget, which is the honest answer
+    # to a page that expensive.
+    return REQUEST_WINDOW_SECONDS * 1000.0
+
 
 class BrowserRoundBudget:
     """Cross-process session, concurrency, and estimated-cost admission gate."""
@@ -153,6 +197,12 @@ class SourcePace:
     which keeps it visible and keeps it out of the round's completeness. A
     well-behaved caller asks `next_wait_ms` first and never trips it.
 
+    Alongside the spacing it keeps a trailing window of how many requests each
+    action actually sent, and refuses an action that would put the source over
+    `browser_max_requests_per_minute`. The two limits answer different
+    questions -- "how often do I touch this site" and "how much traffic does it
+    receive" -- and only the second is the one a site's own rate limiter asks.
+
     Kept per source rather than global: pacing exists out of courtesy to the
     site being read, and two different sites are not each other's traffic.
     """
@@ -165,14 +215,43 @@ class SourcePace:
         # on, and overwrite, this repository's own pacing state.
         self.path = Path(path) if path is not None else DEFAULT_PACE_PATH
 
-    def _load(self) -> dict[str, float]:
+    @staticmethod
+    def _entry(value: Any) -> dict | None:
+        """One source's state, from either file format.
+
+        Files written before request accounting hold a bare timestamp. The
+        spacing carries over; the window starts empty, so for up to one window
+        after the upgrade a source is charged only for what this version
+        recorded. That undercount is bounded and happens once, and the only
+        alternative -- backfilling a count -- would be inventing a number
+        nobody measured.
+        """
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return {"last": float(value), "window": []}
+        if not isinstance(value, dict) or not isinstance(
+            value.get("last"), (int, float)
+        ):
+            return None
+        window: list[tuple[float, int]] = []
+        for item in value.get("window") or []:
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                try:
+                    window.append((float(item[0]), int(item[1])))
+                except (TypeError, ValueError):
+                    continue
+        return {"last": float(value["last"]), "window": window}
+
+    def _load(self) -> dict[str, dict]:
         try:
             value = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return {}
-        return {k: float(v) for k, v in value.items()} if isinstance(value, dict) else {}
+        if not isinstance(value, dict):
+            return {}
+        entries = ((key, self._entry(item)) for key, item in value.items())
+        return {key: entry for key, entry in entries if entry is not None}
 
-    def _save(self, value: dict[str, float]) -> None:
+    def _save(self, value: dict[str, dict]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_name(f".{self.path.name}.{os.getpid()}.tmp")
         temporary.write_text(
@@ -198,9 +277,20 @@ class SourcePace:
                 _filelock.release(lock_path)
 
     def next_wait_ms(
-        self, source_id: str, interval_ms: float, jitter_ms: float = 0
+        self,
+        source_id: str,
+        interval_ms: float,
+        jitter_ms: float = 0,
+        *,
+        requests: int = 0,
+        max_per_minute: float = 0,
     ) -> float:
         """Milliseconds still to wait before touching this source again.
+
+        The answer is whichever of the two limits binds later: the spacing
+        since the last action, and the time until `requests` more requests fit
+        under the per-minute ceiling. Asked without a request count the
+        question is only about spacing, which is what it meant before.
 
         Jitter is added on top of the interval, never taken off it, so the
         enforced floor stays deterministic and waiting the advised time is
@@ -209,14 +299,32 @@ class SourcePace:
         between two page loads, and nothing here tries to defeat it.
         """
         with self._locked():
-            last = self._load().get(source_id)
+            entry = self._load().get(source_id)
         extra = random.uniform(0, jitter_ms) if jitter_ms > 0 else 0.0
-        if last is None:
+        if entry is None:
             return extra
-        return max(0.0, interval_ms - (time.time() - last) * 1000.0) + extra
+        now = time.time()
+        spacing = max(0.0, interval_ms - (now - entry["last"]) * 1000.0)
+        budget = _request_budget_wait_ms(
+            entry["window"], now, int(requests), max_per_minute
+        )
+        return max(spacing, budget) + extra
 
-    def mark(self, source_id: str, occurred_at: float | None = None) -> float:
-        """Note when an action touched a source; return the gap it actually kept.
+    def mark(
+        self,
+        source_id: str,
+        occurred_at: float | None = None,
+        *,
+        requests: int = 0,
+        max_per_minute: float = 0,
+    ) -> dict[str, Any]:
+        """Note an action against a source; report what it cost.
+
+        Returns the gap it kept since the previous action, how many requests
+        the trailing window now holds, and whether this action put the source
+        over the ceiling. Recording and judging happen under one lock, so two
+        processes pacing the same source cannot both read a budget that only
+        one of them can have.
 
         `occurred_at` is when the action happened, not when it was reported.
         The two are the same only for a caller that reports each action before
@@ -230,12 +338,31 @@ class SourcePace:
         quietly accepted; the stored time never moves backwards.
         """
         now = time.time() if occurred_at is None else float(occurred_at)
+        charged = max(0, int(requests))
         with self._locked():
             state = self._load()
-            last = state.get(source_id)
-            state[source_id] = now if last is None else max(now, last)
+            entry = state.get(source_id)
+            last = None if entry is None else entry["last"]
+            window = [
+                (timestamp, count)
+                for timestamp, count in (entry["window"] if entry else [])
+                if now - timestamp < REQUEST_WINDOW_SECONDS
+            ]
+            spent = sum(count for _, count in window)
+            if charged:
+                window.append((now, charged))
+            state[source_id] = {
+                "last": now if last is None else max(now, last),
+                "window": sorted(window)[-_MAX_WINDOW_ENTRIES:],
+            }
             self._save(state)
-        return float("inf") if last is None else (now - last) * 1000.0
+        return {
+            "gap_ms": float("inf") if last is None else (now - last) * 1000.0,
+            "requests_in_window": spent + charged,
+            "over_budget": bool(
+                max_per_minute > 0 and charged and spent + charged > max_per_minute
+            ),
+        }
 
 
 class BrowserController:
@@ -337,7 +464,10 @@ class BrowserController:
         source_id: str | None = None,
         min_interval_ms: float = 0,
         occurred_at: float | None = None,
-    ) -> dict[str, bool]:
+        requests: int | None = None,
+        assumed_requests: int = 1,
+        max_requests_per_minute: float = 0,
+    ) -> dict[str, Any]:
         """Record one Agent-executed local browser action.
 
         The remote path times its own calls; a local browser cannot be timed from
@@ -351,16 +481,27 @@ class BrowserController:
             raise ValueError(f"unsupported browser status: {status}")
         failed = status in _FAILED_STATUSES
         paced_too_fast = False
+        over_budget = False
+        # An unmeasured action is charged the configured assumption rather than
+        # one request, because one is the only count that is certainly wrong:
+        # every action that reaches a page pulls its subresources too.
+        charged = max(0, int(assumed_requests if requests is None else requests))
         # A local observation is neither gated nor marked. Marking it would make
         # the next real request wait out an interval measured from something that
         # sent nothing, which is the same waste wearing the gate's clothes.
         paced = bool(source_id) and min_interval_ms > 0 and action in PACED_ACTIONS
         if paced:
-            observed = self.pace.mark(source_id, occurred_at)
+            observation = self.pace.mark(
+                source_id,
+                occurred_at,
+                requests=charged,
+                max_per_minute=max_requests_per_minute,
+            )
             # Marked before the check so a burst is spaced from its own last
             # action rather than from the last one that happened to be legal.
-            paced_too_fast = observed < min_interval_ms
-            if paced_too_fast:
+            paced_too_fast = observation["gap_ms"] < min_interval_ms
+            over_budget = observation["over_budget"]
+            if paced_too_fast or over_budget:
                 failed = True
         written = record_metric(
             self.metrics_path,
@@ -378,16 +519,23 @@ class BrowserController:
             handoff_wait_ms=handoff_wait_ms,
             rate_limited=status == "rate_limited",
             estimated_cost_usd=estimated_cost_usd,
+            requests=charged if paced else 0,
             failure_kind=(
-                "browser_paced_too_fast" if paced_too_fast
+                # The ceiling is named first because it is the limit in the
+                # unit the site feels; spacing is the proxy for it.
+                "browser_request_budget_exceeded" if over_budget
+                else "browser_paced_too_fast" if paced_too_fast
                 else "local_browser_action_failed" if failed
                 else None
             ),
         )
         return {
-            "ok": written and not paced_too_fast,
+            "ok": written and not paced_too_fast and not over_budget,
             "paced": paced,
             "paced_too_fast": paced_too_fast,
+            "over_budget": over_budget,
+            "requests": charged if paced else 0,
+            "requests_measured": requests is not None,
         }
 
     def record_state(
@@ -419,6 +567,15 @@ class BrowserController:
             failure_kind="browser_state_failed" if status in {"failed", "timeout"} else None,
         )
         return {"ok": written}
+
+
+_REQUESTS_HELP = (
+    "how many requests this action sent to the source. Measure it in the page "
+    "by counting same-origin `performance.getEntriesByType('resource')` "
+    "entries before and after the action; the difference is this number. It is "
+    "what the per-minute ceiling is spent from, because a site counts requests "
+    "and not actions."
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -476,6 +633,11 @@ def _parser() -> argparse.ArgumentParser:
             "Omitted, the answer is about the source itself and is unchanged."
         ),
     )
+    pace.add_argument(
+        "--requests",
+        type=int,
+        help=_REQUESTS_HELP + " Omitted here, the configured assumption is used.",
+    )
 
     action.add_argument("--action", required=True, choices=LOCAL_ACTIONS)
     action.add_argument("--status", required=True, choices=ACTION_STATUSES)
@@ -486,6 +648,12 @@ def _parser() -> argparse.ArgumentParser:
         help="epoch milliseconds when the action happened; defaults to now. "
         "Pass it when reporting a batch of actions performed earlier, so pacing "
         "is judged on when the site was touched rather than on when you said so.",
+    )
+    action.add_argument(
+        "--requests",
+        type=int,
+        help=_REQUESTS_HELP + " Omitted, the action is charged the configured "
+        "assumption, which is deliberately not 1.",
     )
     action.add_argument("--duration-ms", type=float, default=0)
     action.add_argument("--page-number", type=int, default=0)
@@ -507,18 +675,39 @@ def main() -> int:
         if args.action is not None and args.action not in PACED_ACTIONS:
             print(
                 json.dumps(
-                    {"ok": True, "wait_ms": 0.0, "paced": False}, sort_keys=True
+                    {
+                        "ok": True,
+                        "wait_ms": 0.0,
+                        "paced": False,
+                        "requests": 0,
+                        "requests_measured": False,
+                    },
+                    sort_keys=True,
                 )
             )
             return 0
+        charged = (
+            int(settings["browser_assumed_requests_per_action"])
+            if args.requests is None
+            else max(0, args.requests)
+        )
         wait = SourcePace().next_wait_ms(
             args.source_id,
             float(settings["browser_min_source_interval_ms"]),
             float(settings.get("browser_jitter_ms", 0)),
+            requests=charged,
+            max_per_minute=float(settings["browser_max_requests_per_minute"]),
         )
         print(
             json.dumps(
-                {"ok": True, "wait_ms": round(wait, 1), "paced": True}, sort_keys=True
+                {
+                    "ok": True,
+                    "wait_ms": round(wait, 1),
+                    "paced": True,
+                    "requests": charged,
+                    "requests_measured": args.requests is not None,
+                },
+                sort_keys=True,
             )
         )
         return 0
@@ -548,6 +737,9 @@ def main() -> int:
             handoff_wait_ms=args.handoff_wait_ms,
             source_id=args.source_id,
             min_interval_ms=float(settings["browser_min_source_interval_ms"]),
+            requests=args.requests,
+            assumed_requests=int(settings["browser_assumed_requests_per_action"]),
+            max_requests_per_minute=float(settings["browser_max_requests_per_minute"]),
             occurred_at=(
                 None if args.occurred_at_ms is None else args.occurred_at_ms / 1000.0
             ),

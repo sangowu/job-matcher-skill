@@ -259,7 +259,18 @@ def build_discovery_plan(
     if not isinstance(request, dict):
         raise DiscoveryPlanError("request must be an object")
     market_plan, markets, queries = _validate_market_plan(request.get("market_plan"))
-    _, eligible = _validate_source_plan(request.get("source_plan"), markets)
+    source_plan, eligible = _validate_source_plan(request.get("source_plan"), markets)
+    # `source_registry.build_source_plan` has already dropped every risk-gated
+    # source the person did not acknowledge, so anything named here cleared that
+    # gate. Without reading it back the acknowledgement stops at the source plan
+    # and the browser channel below refuses the source anyway -- two keys turned
+    # in a lock whose bolt was never connected.
+    risk_accepted = set(
+        _string_list(
+            source_plan.get("risk_accepted_sources") or [],
+            "source_plan.risk_accepted_sources",
+        )
+    )
     route_plan, routes, browser_provider = _validate_route_plan(request.get("route_plan"))
     cookie_policy = _cookie_consent_policy(request, config)
     source_registry.validate_seed_payload(seeds)
@@ -355,7 +366,19 @@ def build_discovery_plan(
                     continue
                 if source["source_type"] == "ats_board":
                     continue
-                if source["automation_allowed"] is not True or "public_read_only_page" not in source["access_methods"]:
+                # A source the catalog marked `requires_risk_ack` is always
+                # `automation_allowed: false` -- `source_registry` refuses a seed
+                # claiming both -- so the acknowledgement is the only way it can
+                # reach this channel. Being named in `risk_accepted_sources` is
+                # not enough on its own: the catalog must have marked it too, so
+                # a stale local name cannot open a source nobody gated.
+                acknowledged = (
+                    bool(source.get("requires_risk_ack", False))
+                    and source_id in risk_accepted
+                )
+                if (
+                    source["automation_allowed"] is not True and not acknowledged
+                ) or "public_read_only_page" not in source["access_methods"]:
                     exclusions["browser_policy"].append(source_id)
                     continue
                 compatible = [
@@ -423,6 +446,7 @@ def build_discovery_plan(
                         "queries": task_queries,
                         "max_pages": browser_max_pages,
                         "constraints": list(source.get("constraints") or []),
+                        "requires_risk_ack": bool(source.get("requires_risk_ack", False)),
                         "stop_on": ["login", "captcha", "rate_limit", "consent_judgment"],
                         "candidate_contract": "CandidateEnvelope",
                     }

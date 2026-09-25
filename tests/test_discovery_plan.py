@@ -363,3 +363,90 @@ def test_browser_tasks_name_the_ats_hosts_that_are_a_handoff_not_a_violation():
         # The handoff list widens what a redirect means, not what may be browsed.
         assert task["allowed_hosts"] == [task["allowed_hosts"][0]]
         assert not set(task["ats_handoff_hosts"]) & set(task["allowed_hosts"])
+
+
+def _acknowledged_request(seeds: dict, *accepted: str) -> dict:
+    request = _request(seeds)
+    request["source_plan"]["risk_accepted_sources"] = list(accepted)
+    return request
+
+
+def _wide_config() -> dict:
+    # The risk-gated sources sit at the back of the diversity ordering, so a
+    # narrow wave budget hides them behind the same empty task list that a
+    # refused acknowledgement produces. Widen it so the assertions below are
+    # about the gate and not about capacity.
+    config = _config()
+    config["browser_sources_per_market"] = 8
+    return config
+
+
+def test_a_risk_gated_source_reaches_the_browser_channel_only_once_acknowledged():
+    seeds = source_registry.load_seeds()
+
+    refused = discovery_plan.build_discovery_plan(
+        _request(seeds), seeds=seeds, config=_wide_config()
+    )
+    accepted = discovery_plan.build_discovery_plan(
+        _acknowledged_request(seeds, "indeed-ie"), seeds=seeds, config=_wide_config()
+    )
+
+    assert "indeed-ie" not in {task["source_id"] for task in refused["tasks"]["browser"]}
+    assert "indeed-ie" in refused["excluded"]["browser_policy"]
+
+    task = next(
+        task for task in accepted["tasks"]["browser"] if task["source_id"] == "indeed-ie"
+    )
+    assert task["requires_risk_ack"] is True
+    assert "indeed-ie" not in accepted["excluded"]["browser_policy"]
+    # The operator's own terms travel with the task, so whoever executes it can
+    # see what the acknowledgement covered.
+    assert task["constraints"]
+    assert task["stop_on"] == ["login", "captcha", "rate_limit", "consent_judgment"]
+
+
+def test_an_acknowledgement_does_not_waive_the_direct_access_requirement():
+    # `jobs-ie` disables automation without declaring a direct access method, so
+    # it is refused for a reason the acknowledgement has nothing to say about.
+    # Naming it locally must not be a way around that.
+    seeds = source_registry.load_seeds()
+    plan = discovery_plan.build_discovery_plan(
+        _acknowledged_request(seeds, "jobs-ie"), seeds=seeds, config=_wide_config()
+    )
+
+    assert "jobs-ie" not in {task["source_id"] for task in plan["tasks"]["browser"]}
+    assert "jobs-ie" in plan["excluded"]["browser_policy"]
+
+
+def test_an_ordinary_browser_task_says_it_needed_no_acknowledgement():
+    seeds = source_registry.load_seeds()
+    plan = discovery_plan.build_discovery_plan(
+        _request(seeds), seeds=seeds, config=_config()
+    )
+
+    tasks = plan["tasks"]["browser"]
+    assert tasks
+    assert all(task["requires_risk_ack"] is False for task in tasks)
+
+
+def test_a_malformed_acknowledgement_list_is_rejected():
+    seeds = source_registry.load_seeds()
+    request = _request(seeds)
+    request["source_plan"]["risk_accepted_sources"] = ["indeed-ie", ""]
+
+    with pytest.raises(discovery_plan.DiscoveryPlanError):
+        discovery_plan.build_discovery_plan(request, seeds=seeds, config=_wide_config())
+
+
+def test_every_seed_with_a_direct_access_method_but_no_automation_is_risk_gated():
+    # This invariant is why `build_discovery_plan` also checks the catalog's own
+    # `requires_risk_ack` before honouring an acknowledgement, and why no test
+    # can reach that check: `source_registry` refuses the seed shape that would
+    # let a locally named source through without the catalog having gated it.
+    # If this ever stops holding, the acknowledgement list becomes a bypass and
+    # that check is the thing standing in the way -- so it fails here first.
+    direct = {"public_read_only_page", "public_read_only_endpoint", "ats_public_api"}
+    for source in source_registry.load_seeds()["sources"]:
+        if source["automation_allowed"] or not direct & set(source["access_methods"]):
+            continue
+        assert source.get("requires_risk_ack") is True, source["source_id"]

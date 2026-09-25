@@ -46,6 +46,19 @@ LOCAL_ACTIONS = (
 ACTION_STATUSES = ("ok", "user_action_required", "rate_limited", "resumed", "failed", "timeout")
 _FAILED_STATUSES = {"failed", "timeout"}
 
+# Pacing is courtesy to the site being read, so it belongs to the actions that
+# actually reach it. Measured on an Indeed result page on 2026-09-25 by counting
+# `performance.getEntriesByType('resource')` entries for the origin: four
+# observations back to back (two snapshots, two reads) issued 0 requests in
+# 102ms, an idle page issued 0 over four seconds, and one card click issued 14.
+# Pacing a local observation therefore buys the site nothing and costs the whole
+# interval -- 95% of a paged run was this wait. `extract` is paced with the
+# network actions because its name does not say where its data comes from, and
+# pacing something local is only slow while not pacing something remote is rude.
+PACED_ACTIONS = frozenset({"create", "navigate", "act", "extract"})
+# Reading an already-loaded page: no request leaves the browser, so no wait.
+LOCAL_ONLY_ACTIONS = frozenset({"read", "snapshot", "wait", "close"})
+
 
 class BrowserRoundBudget:
     """Cross-process session, concurrency, and estimated-cost admission gate."""
@@ -144,8 +157,13 @@ class SourcePace:
     site being read, and two different sites are not each other's traffic.
     """
 
-    def __init__(self, path: Path = DEFAULT_PACE_PATH) -> None:
-        self.path = path
+    def __init__(self, path: Path | None = None) -> None:
+        # Resolved on construction rather than bound as a default at import
+        # time, so redirecting `DEFAULT_PACE_PATH` actually redirects. Bound as
+        # a default, a test that pointed it at a temporary directory still
+        # read and wrote the real one -- which is how the suite came to depend
+        # on, and overwrite, this repository's own pacing state.
+        self.path = Path(path) if path is not None else DEFAULT_PACE_PATH
 
     def _load(self) -> dict[str, float]:
         try:
@@ -333,7 +351,11 @@ class BrowserController:
             raise ValueError(f"unsupported browser status: {status}")
         failed = status in _FAILED_STATUSES
         paced_too_fast = False
-        if source_id and min_interval_ms > 0:
+        # A local observation is neither gated nor marked. Marking it would make
+        # the next real request wait out an interval measured from something that
+        # sent nothing, which is the same waste wearing the gate's clothes.
+        paced = bool(source_id) and min_interval_ms > 0 and action in PACED_ACTIONS
+        if paced:
             observed = self.pace.mark(source_id, occurred_at)
             # Marked before the check so a burst is spaced from its own last
             # action rather than from the last one that happened to be legal.
@@ -362,7 +384,11 @@ class BrowserController:
                 else None
             ),
         )
-        return {"ok": written and not paced_too_fast, "paced_too_fast": paced_too_fast}
+        return {
+            "ok": written and not paced_too_fast,
+            "paced": paced,
+            "paced_too_fast": paced_too_fast,
+        }
 
     def record_state(
         self,
@@ -441,6 +467,15 @@ def _parser() -> argparse.ArgumentParser:
         "pace", help="how long to wait before touching a source again"
     )
     pace.add_argument("--source-id", required=True)
+    pace.add_argument(
+        "--action",
+        choices=LOCAL_ACTIONS,
+        help=(
+            "the action about to be performed; an action that reads the loaded "
+            "page rather than requesting it needs no wait and returns 0. "
+            "Omitted, the answer is about the source itself and is unchanged."
+        ),
+    )
 
     action.add_argument("--action", required=True, choices=LOCAL_ACTIONS)
     action.add_argument("--status", required=True, choices=ACTION_STATUSES)
@@ -469,12 +504,23 @@ def main() -> int:
     metrics_run_id = args.metrics_run_id or getattr(args, "round_id", None)
     provider_name = settings["browser_provider"]
     if args.command == "pace":
+        if args.action is not None and args.action not in PACED_ACTIONS:
+            print(
+                json.dumps(
+                    {"ok": True, "wait_ms": 0.0, "paced": False}, sort_keys=True
+                )
+            )
+            return 0
         wait = SourcePace().next_wait_ms(
             args.source_id,
             float(settings["browser_min_source_interval_ms"]),
             float(settings.get("browser_jitter_ms", 0)),
         )
-        print(json.dumps({"ok": True, "wait_ms": round(wait, 1)}, sort_keys=True))
+        print(
+            json.dumps(
+                {"ok": True, "wait_ms": round(wait, 1), "paced": True}, sort_keys=True
+            )
+        )
         return 0
     if args.command == "action":
         # A local browser has no provider object here, so this path must never

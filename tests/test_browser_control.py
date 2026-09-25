@@ -289,11 +289,11 @@ def test_going_too_fast_at_one_source_costs_the_round_its_browser_coverage(tmp_p
 
     first = controller.record_action("navigate", "ok", source_id="linkedin-jobs",
                                      min_interval_ms=5000)
-    immediate = controller.record_action("read", "ok", source_id="linkedin-jobs",
+    immediate = controller.record_action("act", "ok", source_id="linkedin-jobs",
                                          min_interval_ms=5000)
 
-    assert first == {"ok": True, "paced_too_fast": False}
-    assert immediate == {"ok": False, "paced_too_fast": True}
+    assert first == {"ok": True, "paced": True, "paced_too_fast": False}
+    assert immediate == {"ok": False, "paced": True, "paced_too_fast": True}
     events = [json.loads(line) for line in
               (tmp_path / "metrics.jsonl").read_text(encoding="utf-8").splitlines()]
     assert events[1]["ok"] is False
@@ -309,7 +309,7 @@ def test_only_failures_remain_when_every_action_was_too_fast(tmp_path):
     pace = controller.pace
     pace.mark("linkedin-jobs")
 
-    controller.record_action("read", "ok", source_id="linkedin-jobs", min_interval_ms=5000)
+    controller.record_action("act", "ok", source_id="linkedin-jobs", min_interval_ms=5000)
 
     completeness = assess_run_completeness(
         tmp_path / "metrics.jsonl", "round-20260925-140100-bbbbbb", ["browser"]
@@ -402,9 +402,9 @@ def test_pacing_is_judged_on_when_the_site_was_touched_not_when_it_was_reported(
 
     first = controller.record_action("create", "ok", source_id="irishjobs-ie",
                                      min_interval_ms=5000, occurred_at=now - 10.0)
-    spaced = controller.record_action("snapshot", "ok", source_id="irishjobs-ie",
+    spaced = controller.record_action("navigate", "ok", source_id="irishjobs-ie",
                                       min_interval_ms=5000, occurred_at=now - 4.8)
-    crowded = controller.record_action("read", "ok", source_id="irishjobs-ie",
+    crowded = controller.record_action("act", "ok", source_id="irishjobs-ie",
                                        min_interval_ms=5000, occurred_at=now - 4.7)
 
     assert first["ok"] is True
@@ -420,7 +420,7 @@ def test_a_report_that_arrives_out_of_order_is_not_read_as_a_gap(tmp_path):
 
     controller.record_action("create", "ok", source_id="irishjobs-ie",
                              min_interval_ms=5000, occurred_at=now)
-    stale = controller.record_action("snapshot", "ok", source_id="irishjobs-ie",
+    stale = controller.record_action("act", "ok", source_id="irishjobs-ie",
                                      min_interval_ms=5000, occurred_at=now - 30.0)
 
     assert stale["paced_too_fast"] is True
@@ -432,7 +432,7 @@ def test_omitting_the_time_still_means_now(tmp_path):
 
     controller.record_action("create", "ok", source_id="irishjobs-ie",
                              min_interval_ms=5000)
-    immediate = controller.record_action("snapshot", "ok", source_id="irishjobs-ie",
+    immediate = controller.record_action("act", "ok", source_id="irishjobs-ie",
                                          min_interval_ms=5000)
 
     assert immediate["paced_too_fast"] is True
@@ -465,8 +465,8 @@ def test_the_cli_passes_the_action_time_through(tmp_path, monkeypatch):
         return browser_control.main()
 
     assert run("create", now - 10.0) == 0
-    assert run("snapshot", now - 4.8) == 0, "5.2s apart at the browser is not too fast"
-    assert run("read", now - 4.7) == 1, "0.1s apart at the browser is"
+    assert run("navigate", now - 4.8) == 0, "5.2s apart at the browser is not too fast"
+    assert run("act", now - 4.7) == 1, "0.1s apart at the browser is"
 
 
 def test_the_jitter_setting_rejects_a_negative_bound():
@@ -477,3 +477,91 @@ def test_the_jitter_setting_rejects_a_negative_bound():
     }
     with pytest.raises(ValueError, match="browser_jitter_ms"):
         browser_provider._validate_settings({"browser_jitter_ms": -1})
+
+
+def test_reading_an_already_loaded_page_is_not_paced(tmp_path):
+    """Measured on a live result page: four observations back to back issued no
+    requests at all, while one click issued fourteen. Waiting before an action
+    that sends nothing is courtesy to nobody -- and it was 95% of a paged run."""
+    import browser_control
+
+    controller = _paced(tmp_path)
+
+    controller.record_action("create", "ok", source_id="indeed-ie", min_interval_ms=5000)
+    for action in sorted(browser_control.LOCAL_ONLY_ACTIONS):
+        result = controller.record_action(
+            action, "ok", source_id="indeed-ie", min_interval_ms=5000
+        )
+        assert result == {"ok": True, "paced": False, "paced_too_fast": False}, action
+
+
+def test_an_observation_does_not_push_the_next_request_back(tmp_path):
+    """The waste the gate would otherwise hide: if a local read moved the stored
+    time, the next real request would wait out an interval measured from
+    something that never reached the site."""
+    controller = _paced(tmp_path)
+    now = time.time()
+
+    controller.record_action("create", "ok", source_id="indeed-ie",
+                             min_interval_ms=5000, occurred_at=now - 6.0)
+    controller.record_action("read", "ok", source_id="indeed-ie",
+                             min_interval_ms=5000, occurred_at=now - 0.1)
+    following = controller.record_action("act", "ok", source_id="indeed-ie",
+                                         min_interval_ms=5000, occurred_at=now)
+
+    assert following["ok"] is True, "the interval runs from the last request, not the last read"
+
+
+def test_every_action_is_classified_as_reaching_the_site_or_not(tmp_path):
+    """A new action must be placed deliberately on one side or the other.
+    Defaulting it to unpaced would let a request slip the gate silently."""
+    import browser_control
+
+    paced = browser_control.PACED_ACTIONS
+    local = browser_control.LOCAL_ONLY_ACTIONS
+
+    assert paced | local == set(browser_control.LOCAL_ACTIONS)
+    assert not paced & local
+    # These two are the ones actually measured against a live page -- four of
+    # them back to back issued no requests at all. Moving either into the paced
+    # set would reinstate the wait this removed, so it has to be deliberate.
+    assert {"read", "snapshot"} <= local
+    # A click issued fourteen requests; loading a page obviously issues some.
+    assert {"create", "navigate", "act"} <= paced
+
+
+def test_the_pace_cli_answers_zero_for_an_action_that_sends_nothing(
+    tmp_path, monkeypatch, capsys
+):
+    import browser_control
+
+    monkeypatch.setattr(browser_control, "DEFAULT_PACE_PATH", tmp_path / "pace.json")
+    browser_control.SourcePace(tmp_path / "pace.json").mark("indeed-ie")
+
+    def run(*extra):
+        monkeypatch.setattr(sys, "argv", [
+            "browser_control.py", "--provider", "browseros_neo",
+            "pace", "--source-id", "indeed-ie", *extra,
+        ])
+        browser_control.main()
+        return json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+
+    assert run("--action", "read") == {"ok": True, "paced": False, "wait_ms": 0.0}
+    asked = run("--action", "act")
+    assert asked["paced"] is True and asked["wait_ms"] > 0
+    # Asked about the source rather than an action, the answer is unchanged.
+    assert run()["paced"] is True
+
+
+def test_the_pace_file_location_is_resolved_when_asked_not_when_imported(tmp_path, monkeypatch):
+    """Bound as a default argument, the path was fixed at import and a test that
+    redirected it still read and wrote the repository's own pacing state --
+    which made the suite depend on live data and quietly corrupt it."""
+    import browser_control
+
+    redirected = tmp_path / "elsewhere.json"
+    monkeypatch.setattr(browser_control, "DEFAULT_PACE_PATH", redirected)
+
+    browser_control.SourcePace().mark("indeed-ie")
+
+    assert redirected.exists()

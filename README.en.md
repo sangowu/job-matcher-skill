@@ -229,7 +229,7 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `discovery_mode` | coverage | `coverage` runs browser + model search; legacy `auto` keeps one route; `model_only`, `browser_only`, and `combined` remain available |
 | `cookie_consent_policy` | necessary_only | automatically reject optional cookies only through one unambiguous semantic button; `ask_every_time` is also available |
 | `discovery_max_waves` | 3 | deterministic discovery-wave cap per plan |
-| `browser_sources_per_market` | 2 | per-market, per-wave browser-source cap, with source-type diversity in the browser's own first wave |
+| `browser_sources_per_market` | 4 | per-market, per-wave browser-source cap, with source-type diversity in the browser's own first wave |
 | `browser_first_wave` | 2 | wave the browser starts in; structured/Web Search run first so the browser stays a fallback |
 | `browser_queries_per_source` | 2 | localized query cap per browser source and run |
 | `web_queries_per_market_per_wave` | 2 | per-market Web Search query cap in each wave |

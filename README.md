@@ -202,7 +202,7 @@ agent 会自动识别。然后在对话里：
 | `discovery_mode` | coverage | `coverage` 默认并行浏览器+模型搜索；`auto` 保留单 route 兼容；也支持 `model_only`、`browser_only`、`combined` |
 | `cookie_consent_policy` | necessary_only | 只在唯一明确语义按钮上自动拒绝可选 Cookie；也可设 `ask_every_time` |
 | `discovery_max_waves` | 3 | 单次计划最多生成的确定性发现波次数 |
-| `browser_sources_per_market` | 2 | 每个市场、每个波次的浏览器来源上限；浏览器首个波次内先保证来源类型多样性 |
+| `browser_sources_per_market` | 4 | 每个市场、每个波次的浏览器来源上限；浏览器首个波次内先保证来源类型多样性 |
 | `browser_first_wave` | 2 | 浏览器从第几个波次开始；默认让结构化/Web Search 先跑一波，浏览器退为兜底 |
 | `browser_queries_per_source` | 2 | 单个浏览器来源本轮执行的地区化查询上限 |
 | `web_queries_per_market_per_wave` | 2 | 每市场、每波次执行的 Web Search 查询上限 |

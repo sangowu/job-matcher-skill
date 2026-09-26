@@ -105,6 +105,7 @@ job-matcher/
 │   ├── benchmark_ats_compression.py # interleaved ATS HTTP compression A/B
 │   ├── cp_hash.py            # stable candidate_profile hash
 │   ├── verify_jobs.py        # dead-link / closed-posting detection
+│   ├── check_robots.py      # read robots.txt the way RFC 9309 specifies, and say whether a URL is permitted
 │   ├── fetch_rendered.py     # headless render fallback (reuses system browser)
 │   ├── render_html.py        # render HTML report
 │   ├── _jobutil.py           # shared: normalization / dedup keys / URL canonicalization

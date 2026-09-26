@@ -135,7 +135,9 @@ def test_plan_builds_bounded_cross_channel_waves():
     assert sorted(assigned) == sorted(planned)
     # The browser now has two waves instead of three, so three more eligible
     # browser sources fall outside the budget.
-    assert plan["omitted_by_wave_budget"]["browser"] == 6
+    # Five, not six, since accenture-careers lost `public_read_only_page`: its
+    # robots.txt allows the landing page and forbids every search query.
+    assert plan["omitted_by_wave_budget"]["browser"] == 5
 
 
 def test_browser_tasks_are_semantic_bounded_and_contain_no_selectors():

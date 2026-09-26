@@ -41,6 +41,9 @@ REGISTRY_PATH = DATA_DIR / "source_registry.json"
 LEGACY_ATS_PATH = DATA_DIR / "ats_companies.json"
 MANIFESTS_DIR = DATA_DIR / "candidate_runs"
 METRICS_PATH = DATA_DIR / "metrics.jsonl"
+# Named here so a caller -- or a test -- can point the merge subprocess
+# somewhere else; the child cannot inherit a redirected global.
+TABLE_PATH = DATA_DIR / "jobs_table.json"
 _BATCH_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
 _SAFE_FAILURE = re.compile(r"[A-Za-z0-9_.:-]{1,80}")
 _ROUTE_STATUS = {"succeeded", "failed", "skipped"}
@@ -96,6 +99,8 @@ def run_merge_subprocess(
     *,
     batch_id: str,
     metrics_run_id: str | None,
+    metrics_path: Path | None = None,
+    table_path: Path | None = None,
 ) -> dict[str, Any]:
     command = [
         sys.executable,
@@ -110,6 +115,12 @@ def run_merge_subprocess(
     ]
     if metrics_run_id:
         command.extend(["--metrics-run-id", metrics_run_id])
+    if metrics_path is not None:
+        # The child cannot inherit a redirected module global, so where its
+        # metrics go has to travel on the command line with everything else.
+        command.extend(["--metrics-path", str(metrics_path)])
+    if table_path is not None:
+        command.extend(["--table-path", str(table_path)])
     try:
         completed = subprocess.run(
             command,
@@ -428,6 +439,8 @@ def run_handoff(
                 cp_hash,
                 batch_id=batch_id,
                 metrics_run_id=metrics_run_id,
+                metrics_path=METRICS_PATH,
+                table_path=TABLE_PATH,
             )
             if not isinstance(merge_result, dict) or merge_result.get("ok") is not True:
                 raise CandidateHandoffError("merge runner failed")

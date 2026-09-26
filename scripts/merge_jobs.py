@@ -1330,7 +1330,29 @@ def main() -> None:
         type=validate_run_id,
         help="Pipeline run id returned by round_timer.py start.",
     )
+    ap.add_argument(
+        "--table-path",
+        type=Path,
+        help="where the job table lives; defaults to the skill's own "
+        "data/jobs_table.json. Same reason as --metrics-path: this runs as a "
+        "subprocess, and the two files it writes are the two a caller has to "
+        "be able to redirect.",
+    )
+    ap.add_argument(
+        "--metrics-path",
+        type=Path,
+        help="where to append this run's metrics; defaults to the skill's own "
+        "data/metrics.jsonl. A caller that runs this as a subprocess cannot "
+        "redirect a module global, so it says so here instead -- which is how "
+        "the test suite came to be appending to the live store.",
+    )
     args = ap.parse_args()
+    if args.metrics_path is not None:
+        global METRICS_PATH  # noqa: PLW0603 - the module's own single sink
+        METRICS_PATH = args.metrics_path
+    if args.table_path is not None:
+        global TABLE_PATH  # noqa: PLW0603 - the module's own single store
+        TABLE_PATH = args.table_path
     started = time.monotonic()
     try:
         if args.mode == "merge":

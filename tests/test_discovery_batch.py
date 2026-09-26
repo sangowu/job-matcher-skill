@@ -655,12 +655,24 @@ def test_a_page_that_could_not_be_timed_still_commits_its_candidates(
     completeness = assess_run_completeness(metrics_path, run_id, ["search"])
     assert "search" not in completeness["missing_operations"]
 
-    event = json.loads(metrics_path.read_text(encoding="utf-8").splitlines()[-1])
-    assert event["operation"] == "search"
+    event = _search_event(metrics_path)
     assert event["timing"] == "unavailable"
     # Absent, not zero: a zero here would enter the latency percentiles.
     assert event["duration_ms"] is None
     assert event["raw_results"] == 1
+
+
+def _search_event(metrics_path):
+    """The search page's own event. The merge subprocess now writes to the same
+    file, so the last line is no longer necessarily the one under test."""
+    events = [
+        json.loads(line)
+        for line in metrics_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    pages = [event for event in events if event.get("operation") == "search"]
+    assert len(pages) == 1, pages
+    return pages[0]
 
 
 def test_a_timed_page_says_so_without_being_asked(stores, tmp_path, monkeypatch):
@@ -673,7 +685,7 @@ def test_a_timed_page_says_so_without_being_asked(stores, tmp_path, monkeypatch)
     result = run_batch(stores, value, metrics_run_id="round-20260924-091500-abc123")
 
     assert result["task_summary"]["search_pages_untimed"] == 0
-    event = json.loads(metrics_path.read_text(encoding="utf-8").splitlines()[-1])
+    event = _search_event(metrics_path)
     assert event["timing"] == "measured"
     assert event["duration_ms"] == 120.0
 

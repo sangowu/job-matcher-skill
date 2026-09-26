@@ -138,11 +138,13 @@ python scripts/round_timer.py finish --round-id <R> --orchestration overlapped \
 | `evaluation_success_rate` | ≥ 98% |
 | `lock_wait_ms p95` | ≤ 100 ms |
 | `oldest_pending_age_minutes` | ≤ 30 分钟 |
-| failed events | 0 |
+| `failed_event_rate` | ≤ 2% |
 | data-store write failures | 0 |
 | malformed metric events | 0 |
 | malformed active manifests | 0 |
 | unfinished run age | ≤ 120 分钟 |
+
+失败事件看的是**比例**不是条数。原先按 7 天窗口内条数 ≤ 0 判定，任何一次失败都会让状态变红并持续一整周——一个永远亮着的灯不提供信息。改为与 `conflict_rate` 同为 2%；`failed events` 条数仍然照常显示，那才是人想看的数字。下面三项**仍然是 0**：写入丢失、事件损坏、清单损坏都不是「某次操作失败」，而是记录本身错了，一条都算多。
 
 任何一项数值阈值违规时汇总状态为 `degraded`。已完成 run 缺少必需事件，或未完成 run 超过 `unfinished_run_age_minutes_max` 时，`metrics_status` 为 `incomplete`、健康状态为 `unknown`，绝不显示 `healthy`。没有事件时为 `no_data`。进行中的未超时 run 标为 `collecting`，不会立即污染历史健康判定。
 

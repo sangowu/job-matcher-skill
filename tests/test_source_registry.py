@@ -576,6 +576,50 @@ def test_ats_board_seeds_reach_the_pipeline_with_their_identity(tmp_path):
     assert all(board["board_token"] for board in view["boards"])
 
 
+def test_a_company_endpoint_reaches_the_board_view_too(tmp_path):
+    """The view is keyed on what can be fetched, not on what the source is
+    called. Keyed on `source_type == "ats_board"` it dropped every source using
+    `public_read_only_endpoint` -- which is why that access method existed in
+    the catalog and no seed could use it."""
+    registry_path, _, _ = _initialize(tmp_path)
+    registry = source_registry.load_registry(registry_path)
+
+    view = source_registry.ats_view_from_registry(registry)
+    boards = {board["board_id"]: board for board in view["boards"]}
+
+    assert "amazon-jobs-ie" in boards, "a structured non-ATS source must be fetchable"
+    assert boards["amazon-jobs-ie"]["provider"] == "amazon_jobs"
+    assert boards["amazon-jobs-ie"]["board_token"] == "IRL"
+    # And the source it came from is still what it is, not relabelled.
+    source = next(s for s in registry["sources"] if s["source_id"] == "amazon-jobs-ie")
+    assert source["source_type"] == "company_careers"
+    assert source["access_methods"] == ["public_read_only_endpoint"]
+
+
+def test_recording_a_fetch_does_not_relabel_the_source_it_read(tmp_path):
+    """`commit_ats_view` writes health back. Rebuilding a whole record from the
+    board view would turn a seeded `company_careers` endpoint into an
+    `ats_board` with ATS access methods it does not have."""
+    registry_path, _, lock_path = _initialize(tmp_path)
+    registry = source_registry.load_registry(registry_path)
+    view = source_registry.ats_view_from_registry(registry)
+
+    source_registry.commit_ats_view(
+        {"schema_version": 1, "boards": [
+            {**board, "last_success_at": "2026-09-26T10:00:00Z", "status": "verified"}
+            for board in view["boards"] if board["board_id"] == "amazon-jobs-ie"
+        ]},
+        registry_path=registry_path,
+        lock_path=lock_path,
+    )
+
+    after = source_registry.load_registry(registry_path)
+    source = next(s for s in after["sources"] if s["source_id"] == "amazon-jobs-ie")
+    assert source["source_type"] == "company_careers"
+    assert source["access_methods"] == ["public_read_only_endpoint"]
+    assert source["last_success_at"] == "2026-09-26T10:00:00Z"
+
+
 def test_seeded_lever_board_keeps_its_instance(tmp_path):
     registry_path, _, _ = _initialize(tmp_path)
     registry = source_registry.load_registry(registry_path)
@@ -594,9 +638,15 @@ def test_seeded_lever_board_keeps_its_instance(tmp_path):
 
 
 def test_structured_access_is_limited_to_providers_with_an_adapter():
+    """Two sets, because they answer two questions. `ats_public_api` is a claim
+    about the provider having an ATS API; being fetchable by the structured
+    channel is not the same claim, and Amazon's own search endpoint is the
+    case where they differ."""
     import ats_provider
 
-    assert source_registry.ATS_API_PROVIDERS == set(ats_provider.PROVIDERS)
+    assert source_registry.ATS_API_PROVIDERS == set(ats_provider.ATS_PROVIDERS)
+    assert source_registry.STRUCTURED_PROVIDERS == set(ats_provider.PROVIDERS)
+    assert source_registry.ATS_API_PROVIDERS < source_registry.STRUCTURED_PROVIDERS
 
 
 def test_ats_board_seed_without_a_token_is_rejected():

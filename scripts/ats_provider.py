@@ -21,7 +21,32 @@ from _jobutil import canonicalize_url
 
 MAX_RESPONSE_BYTES = 25 * 1024 * 1024
 ATS_JD_MAX_CHARS = 50_000
-PROVIDERS = ("ashby", "greenhouse", "lever")
+# `amazon_jobs` is not an applicant tracking system: it is Amazon's own public
+# job search endpoint, and it is here because this module is where a listing is
+# fetched over HTTPS and normalized, which is the same job. Measured 2026-09-26:
+# `search.json` filtered by country and asked for no query behaves exactly like
+# a board -- 208 Irish postings, 32 fields each including the full description,
+# offset pagination, `hits` giving the total. The alternative was clicking
+# through the same postings in a browser at roughly five seconds a page.
+# The three applicant tracking systems. `amazon_jobs` is fetched by the same
+# machinery and is not one of them, and the distinction matters wherever a
+# rule is about ATS boards rather than about anything this module can fetch.
+ATS_PROVIDERS = ("ashby", "greenhouse", "lever")
+PROVIDERS = ("amazon_jobs", *ATS_PROVIDERS)
+AMAZON_JOBS_HOST = "https://www.amazon.jobs"
+# ISO-3166 alpha-3, which is what the endpoint's country filter takes.
+_AMAZON_COUNTRY = re.compile(r"[A-Z]{3}\Z")
+_AMAZON_DATE = re.compile(r"([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})")
+_MONTHS = {
+    name: number
+    for number, name in enumerate(
+        (
+            "january", "february", "march", "april", "may", "june",
+            "july", "august", "september", "october", "november", "december",
+        ),
+        start=1,
+    )
+}
 _BOARD_TOKEN = re.compile(r"[A-Za-z0-9_-]{1,100}\Z")
 _SAFE_FAILURES = {
     "http_error",
@@ -227,6 +252,10 @@ def validate_board(board: dict[str, Any]) -> tuple[str, str, str]:
         raise AtsProviderError("unsupported_provider")
     if not company or not _BOARD_TOKEN.fullmatch(token):
         raise AtsProviderError("invalid_board_token")
+    if provider == "amazon_jobs" and not _AMAZON_COUNTRY.fullmatch(token):
+        # Here the token is which country's listing to read, so a board token
+        # shaped like an ATS slug would silently fetch the global listing.
+        raise AtsProviderError("invalid_board_token")
     return provider, company, token
 
 
@@ -237,6 +266,73 @@ def greenhouse_url(token: str, *, include_content: bool = True) -> str:
 
 def ashby_url(token: str) -> str:
     return f"https://api.ashbyhq.com/posting-api/job-board/{token}?includeCompensation=true"
+
+
+def amazon_jobs_url(country: str, *, offset: int, limit: int) -> str:
+    """One page of Amazon's public job search, filtered only by country.
+
+    No `base_query`. An ATS board is fetched whole and filtered locally, which
+    is what makes its result reproducible and its query-writing unnecessary;
+    sending search terms here would give this one source a different and
+    unrepeatable basis from every other. The country filter is not a search
+    term -- it is which listing is being read.
+    """
+    query = urlencode(
+        {
+            "normalized_country_code[]": country,
+            "offset": offset,
+            "result_limit": limit,
+            "sort": "recent",
+        }
+    )
+    return f"{AMAZON_JOBS_HOST}/search.json?{query}"
+
+
+def _amazon_date(value: Any) -> str:
+    """`September  9, 2026` -> `2026-09-09`; anything else -> empty.
+
+    Every other provider hands over a machine-readable timestamp. This one
+    hands over the string it prints on the page, so it is parsed here rather
+    than passed downstream for something else to guess at.
+    """
+    match = _AMAZON_DATE.search(str(value or ""))
+    if match is None:
+        return ""
+    month = _MONTHS.get(match.group(1).strip().lower())
+    if month is None:
+        return ""
+    return f"{int(match.group(3)):04d}-{month:02d}-{int(match.group(2)):02d}"
+
+
+def amazon_jobs_job(company: str, job: dict[str, Any]) -> dict[str, Any] | None:
+    path = str(job.get("job_path") or "").strip()
+    # A posting is identified by the numeric id in its own URL. `id` is a uuid
+    # that the URL does not contain, so it could not be matched back to a link
+    # found anywhere else.
+    provider_id = str(job.get("id_icims") or "").strip()
+    description = "".join(
+        f"<p>{section}</p>"
+        for section in (
+            str(job.get("description") or ""),
+            str(job.get("basic_qualifications") or ""),
+            str(job.get("preferred_qualifications") or ""),
+        )
+        if section.strip()
+    )
+    return _candidate(
+        provider="amazon_jobs",
+        provider_id=provider_id,
+        # The board's name, not the posting's `company_name`: that field holds
+        # the hiring legal entity ("Amazon Data Services Ireland Limited"), and
+        # letting it through would split one employer into several dedup keys.
+        company=company,
+        title=str(job.get("title") or "").strip(),
+        location=str(job.get("normalized_location") or job.get("location") or "").strip(),
+        url=f"{AMAZON_JOBS_HOST}{path}" if path.startswith("/") else "",
+        description=description,
+        description_is_html=True,
+        date_posted=_amazon_date(job.get("posted_date")),
+    )
 
 
 def lever_url(token: str, instance: str, *, skip: int, limit: int) -> str:
@@ -446,6 +542,29 @@ def fetch_board(
                 raise AtsProviderError("invalid_payload")
             raw_jobs = payload["jobs"]
             converter = ashby_job
+        elif provider == "amazon_jobs":
+            metrics["pagination"] = "offset_limit"
+            exhausted = False
+            for page in range(max_pages):
+                payload = fetch(
+                    amazon_jobs_url(token, offset=page * page_size, limit=page_size)
+                )
+                if not isinstance(payload, dict) or not isinstance(
+                    payload.get("jobs"), list
+                ):
+                    raise AtsProviderError("invalid_payload")
+                raw_jobs.extend(payload["jobs"])
+                # `hits` is the total the endpoint says it has. Trusting only
+                # a short page would spend one extra request per board when the
+                # last page happens to be full.
+                hits = payload.get("hits")
+                if len(payload["jobs"]) < page_size or (
+                    isinstance(hits, int) and len(raw_jobs) >= hits
+                ):
+                    exhausted = True
+                    break
+            metrics["truncated"] = not exhausted
+            converter = amazon_jobs_job
         else:
             metrics["pagination"] = "offset_limit"
             instance = str(board.get("instance", "global")).lower()

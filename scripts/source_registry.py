@@ -57,10 +57,16 @@ ACCESS_METHODS = {
     "ats_public_api",
 }
 SOURCE_STATUSES = {"candidate", "verified", "unavailable", "disabled"}
-# Providers the structured channel can actually fetch. Kept here so this module
-# stays free of local imports; tests/test_source_registry.py pins it against
-# ats_provider.PROVIDERS so the two cannot drift apart.
+# Providers with an applicant-tracking-system API, which is what the
+# `ats_public_api` access method names. Kept here so this module stays free of
+# local imports; tests/test_source_registry.py pins both sets against
+# ats_provider so they cannot drift apart.
 ATS_API_PROVIDERS = {"ashby", "greenhouse", "lever"}
+# Everything the structured channel can fetch. Wider than the set above:
+# `amazon_jobs` is a company's own public search endpoint reached through
+# `public_read_only_endpoint`, not an ATS, and calling it one would let a seed
+# claim `ats_public_api` for a provider that has no such API.
+STRUCTURED_PROVIDERS = {"amazon_jobs", *ATS_API_PROVIDERS}
 LOCAL_SOURCE_TYPES = {
     "local_job_board",
     "public_sector_portal",
@@ -740,18 +746,22 @@ def _load_legacy(path: Path) -> tuple[dict[str, Any], str] | None:
     return payload, hashlib.sha256(raw).hexdigest()
 
 
-def _legacy_record(board: dict[str, Any], *, now: datetime) -> dict[str, Any]:
-    provider = str(board.get("provider") or "")
-    token = str(board.get("board_token") or "")
-    if provider not in {"ashby", "greenhouse", "lever"} or not _TOKEN_PATTERN.fullmatch(token):
-        raise SourceValidationError("legacy ATS board has invalid provider or board_token")
+def _board_health(board: dict[str, Any], *, now: datetime) -> dict[str, Any]:
+    """The fields a fetch can legitimately change about a source it read.
+
+    Identity, type and access methods are not among them. A source already in
+    the registry keeps its own; only when a board is new is a whole record
+    built for it, and only an ATS board is ever new here -- discovery finds
+    those, while a structured source like Amazon's own search endpoint is
+    seeded by hand and would be rewritten into an `ats_board` by a round trip
+    through `_legacy_record`.
+    """
     display_name = str(board.get("company") or board.get("company_key") or "").strip()
     if not display_name:
         raise SourceValidationError("legacy ATS board requires a company display name")
     status = str(board.get("status") or "candidate")
     if status not in SOURCE_STATUSES:
         raise SourceValidationError(f"legacy ATS board has invalid status: {status}")
-    enabled = bool(board.get("enabled", True)) and status != "disabled"
     first_seen = str(board.get("first_seen_at") or _timestamp(now))
     last_seen = str(board.get("last_seen_at") or first_seen)
     last_attempt = board.get("last_attempt_at")
@@ -764,8 +774,25 @@ def _legacy_record(board: dict[str, Any], *, now: datetime) -> dict[str, Any]:
     ):
         _parse_timestamp(value, f"legacy.{field}", optional=optional)
     return {
-        "source_id": _legacy_source_id(board),
         "display_name": display_name,
+        "status": status,
+        "enabled": bool(board.get("enabled", True)) and status != "disabled",
+        "first_seen_at": first_seen,
+        "last_seen_at": last_seen,
+        "last_attempt_at": last_attempt,
+        "last_success_at": last_success,
+        "definitive_failures": int(board.get("consecutive_unavailable") or 0),
+    }
+
+
+def _legacy_record(board: dict[str, Any], *, now: datetime) -> dict[str, Any]:
+    provider = str(board.get("provider") or "")
+    token = str(board.get("board_token") or "")
+    if provider not in {"ashby", "greenhouse", "lever"} or not _TOKEN_PATTERN.fullmatch(token):
+        raise SourceValidationError("legacy ATS board has invalid provider or board_token")
+    health = _board_health(board, now=now)
+    return {
+        "source_id": _legacy_source_id(board),
         "source_type": "ats_board",
         "provider": provider,
         "board_token": token,
@@ -773,18 +800,12 @@ def _legacy_record(board: dict[str, Any], *, now: datetime) -> dict[str, Any]:
         "markets": _legacy_markets(board.get("region_focus")),
         "search_languages": ["en"],
         "access_methods": ["public_read_only_endpoint", "ats_public_api"],
-        "enabled": enabled,
-        "status": status,
-        "verified_at": last_success,
+        "verified_at": health["last_success_at"],
         "verification_ttl_days": 7,
         "priority": 70,
-        "first_seen_at": first_seen,
-        "last_seen_at": last_seen,
-        "last_attempt_at": last_attempt,
-        "last_success_at": last_success,
-        "definitive_failures": int(board.get("consecutive_unavailable") or 0),
         "transient_failures": 0,
         "origin": "legacy_ats",
+        **health,
     }
 
 
@@ -894,7 +915,14 @@ def ats_view_from_registry(registry: dict[str, Any]) -> dict[str, Any]:
     validate_registry(registry)
     boards: list[dict[str, Any]] = []
     for source in registry["sources"]:
-        if source["source_type"] != "ats_board" or "board_token" not in source:
+        # Selected by what can be fetched, not by what it is called. Amazon's
+        # own search endpoint is read by the same machinery as a board and is
+        # a `company_careers` source, and keying this on `ats_board` was why
+        # `public_read_only_endpoint` was an access method no seed could use.
+        if (
+            source["provider"] not in STRUCTURED_PROVIDERS
+            or "board_token" not in source
+        ):
             continue
         status = source["status"]
         boards.append(
@@ -940,37 +968,40 @@ def commit_ats_view(
         added = 0
         updated = 0
         for board in boards:
-            candidate = _legacy_record(board, now=current_time)
-            source_id = candidate["source_id"]
+            source_id = _legacy_source_id(board)
             current = by_id.get(source_id)
             if current is None:
+                # Only a newly discovered board reaches here, and discovery
+                # only ever finds the three ATS providers, so building a whole
+                # `ats_board` record is safe. A hand-seeded structured source
+                # is already in the registry and takes the branch below.
+                candidate = _legacy_record(board, now=current_time)
                 candidate["origin"] = "agent"
                 candidate["enabled"] = False
                 result["sources"].append(candidate)
                 by_id[source_id] = candidate
                 added += 1
                 continue
-            if current["source_type"] != "ats_board":
-                raise SourceValidationError(
-                    f"ATS board collides with non-ATS source: {source_id}"
-                )
-            if (
-                current["provider"] != candidate["provider"]
-                or current.get("board_token") != candidate["board_token"]
-                or current.get("instance", "global") != candidate["instance"]
-            ):
+            health = _board_health(board, now=current_time)
+            if current["provider"] != str(board.get("provider") or "") or current.get(
+                "board_token"
+            ) != str(board.get("board_token") or ""):
+                raise SourceValidationError(f"ATS board identity changed: {source_id}")
+            if current["source_type"] == "ats_board" and current.get(
+                "instance", "global"
+            ) != str(board.get("instance") or "global"):
                 raise SourceValidationError(f"ATS board identity changed: {source_id}")
             changed = False
             updates = {
-                "display_name": candidate["display_name"],
-                "last_seen_at": candidate["last_seen_at"],
-                "last_attempt_at": candidate["last_attempt_at"],
-                "last_success_at": candidate["last_success_at"],
-                "verified_at": candidate["last_success_at"],
-                "definitive_failures": candidate["definitive_failures"],
+                "display_name": health["display_name"],
+                "last_seen_at": health["last_seen_at"],
+                "last_attempt_at": health["last_attempt_at"],
+                "last_success_at": health["last_success_at"],
+                "verified_at": health["last_success_at"],
+                "definitive_failures": health["definitive_failures"],
             }
             if current["status"] != "disabled":
-                updates["status"] = candidate["status"]
+                updates["status"] = health["status"]
             for field, value in updates.items():
                 if current.get(field) != value:
                     current[field] = value

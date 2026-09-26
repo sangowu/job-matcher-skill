@@ -228,7 +228,9 @@ def test_phase1_reference_has_two_boards_per_provider_and_region_coverage():
     boards = json.loads(path.read_text(encoding="utf-8"))["boards"]
     counts = {
         provider: sum(board["provider"] == provider for board in boards)
-        for provider in benchmark_ats.PROVIDERS
+        # The ATS providers only: this fixture is an ATS-board regression set,
+        # and `amazon_jobs` is fetched by the same code without being one.
+        for provider in benchmark_ats.ATS_PROVIDERS
     }
     regions = {region for board in boards for region in board["region_focus"]}
 

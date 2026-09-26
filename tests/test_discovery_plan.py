@@ -95,7 +95,9 @@ def test_coverage_plan_is_deterministic_and_uses_diverse_browser_sources():
         if task["wave_id"] == first_browser_wave
     ]
     assert first_browser_wave == "wave:2"
-    assert browser_sources == ["irishjobs-ie", "publicjobs-ie", "amazon-careers"]
+    # amazon-careers is no longer a browser source: its listings are fetched
+    # as JSON through amazon-jobs-ie, so microsoft-careers takes the slot.
+    assert browser_sources == ["irishjobs-ie", "publicjobs-ie", "microsoft-careers"]
     assert {task["source_category"] for task in first["tasks"]["browser"]} == {
         "local",
         "public",
@@ -135,9 +137,10 @@ def test_plan_builds_bounded_cross_channel_waves():
     assert sorted(assigned) == sorted(planned)
     # The browser now has two waves instead of three, so three more eligible
     # browser sources fall outside the budget.
-    # Five, not six, since accenture-careers lost `public_read_only_page`: its
-    # robots.txt allows the landing page and forbids every search query.
-    assert plan["omitted_by_wave_budget"]["browser"] == 5
+    # Four: accenture-careers lost `public_read_only_page` because its robots.txt
+    # forbids every search query, and amazon-careers lost it because the same
+    # listings are fetched as JSON instead.
+    assert plan["omitted_by_wave_budget"]["browser"] == 4
 
 
 def test_browser_tasks_are_semantic_bounded_and_contain_no_selectors():
@@ -278,7 +281,12 @@ def test_structured_tasks_carry_the_identity_needed_to_fetch_a_board():
     for task in structured:
         source = by_id[task["source_id"]]
         assert task["provider"] == source["provider"]
-        assert task["access_method"] == "ats_public_api"
+        # The method the seed actually declares. Not every structured source is
+        # an ATS: amazon-jobs-ie is Amazon's own search endpoint, reached
+        # through `public_read_only_endpoint`.
+        assert task["access_method"] in set(source["access_methods"]) & {
+            "ats_public_api", "public_read_only_endpoint"
+        }
         assert task["board_token"] == source["board_token"]
         assert task.get("instance") == source.get("instance")
 
@@ -452,3 +460,24 @@ def test_every_seed_with_a_direct_access_method_but_no_automation_is_risk_gated(
         if source["automation_allowed"] or not direct & set(source["access_methods"]):
             continue
         assert source.get("requires_risk_ack") is True, source["source_id"]
+
+
+def test_a_company_endpoint_is_planned_as_a_structured_task_not_a_browser_one():
+    """`public_read_only_endpoint` was an access method the catalog accepted and
+    no seed used, so the structured channel only ever meant ATS boards. Amazon
+    publishes its own search endpoint: 208 Irish postings with full descriptions
+    for about twenty requests, against clicking through the same postings a page
+    at a time."""
+    seeds = source_registry.load_seeds()
+    config = {**_config(), "ats_enabled": True}
+
+    plan = discovery_plan.build_discovery_plan(_request(seeds), seeds=seeds, config=config)
+
+    structured = {task["source_id"]: task for task in plan["tasks"]["structured"]}
+    browser = {task["source_id"] for task in plan["tasks"]["browser"]}
+
+    assert structured["amazon-jobs-ie"]["access_method"] == "public_read_only_endpoint"
+    assert structured["amazon-jobs-ie"]["board_token"] == "IRL"
+    assert structured["amazon-jobs-ie"]["provider"] == "amazon_jobs"
+    # And the same employer is not also browsed, which would fetch it twice.
+    assert "amazon-careers" not in browser

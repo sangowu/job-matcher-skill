@@ -20,6 +20,7 @@ from _jobutil import canonicalize_url, make_dedup_key, skill_version
 from _stdio import use_utf8_stdout
 from ats_provider import (
     MAX_RESPONSE_BYTES,
+    ATS_PROVIDERS as ATS_PROVIDERS,
     PROVIDERS as PROVIDERS,
     AtsProviderError,
     HttpAtsProvider,

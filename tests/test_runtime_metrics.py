@@ -513,6 +513,69 @@ def test_the_live_data_guard_notices_a_write():
     ) == ["metrics.jsonl"]
 
 
+def test_the_live_data_guard_notices_a_new_file_in_a_watched_directory():
+    """The damage this misses is a file appearing, not a file changing.
+
+    A test that writes `data/eval_runs/eval-X.json` leaves every watched file
+    exactly as it was, so fingerprinting files could not catch it in principle:
+    the suite left five pending evaluation runs in the live store on every run
+    until 2026-09-26, by which point 81 had accumulated and their age was
+    breaching `oldest_pending_age_minutes` in the health report.
+    """
+    from conftest import touched_files
+
+    eval_runs = Path("data") / "eval_runs"
+    before = {eval_runs: frozenset({"history.jsonl"})}
+
+    assert touched_files(before, dict(before)) == []
+    assert touched_files(
+        before, {eval_runs: frozenset({"history.jsonl", "eval-20260926-220534-0d15.json"})}
+    ) == ["eval_runs"]
+    # A file removed from the directory counts the same way.
+    assert touched_files(before, {eval_runs: frozenset()}) == ["eval_runs"]
+    # And a directory that vanished or appeared.
+    assert touched_files(before, {eval_runs: None}) == ["eval_runs"]
+
+
+def test_the_guard_watches_every_directory_a_run_writes_into():
+    """A store whose writes are new files needs the directory watched, not a file."""
+    from conftest import LIVE_DIRS, _fingerprints
+
+    assert {path.name for path in LIVE_DIRS} >= {
+        "eval_runs",
+        "discovery_batches",
+        "rounds",
+    }
+
+    # Listing them is not watching them: the comparison only sees what the
+    # fingerprint collected, so every watched directory has to appear in it.
+    marks = _fingerprints()
+    for path in LIVE_DIRS:
+        assert path in marks, f"{path.name} is listed but never fingerprinted"
+
+
+def test_every_store_the_merge_child_writes_can_be_redirected():
+    """A subprocess cannot inherit a monkeypatch, so each store needs a flag.
+
+    `--metrics-path` and `--table-path` were added for exactly this and the
+    evaluation snapshot directory was missed, which is how the live store came
+    to hold 81 test eval runs. The check is on the CLI, because that is the only
+    surface a child process has.
+    """
+    import merge_jobs
+
+    parser_source = Path(merge_jobs.__file__).read_text(encoding="utf-8")
+
+    for flag in ("--metrics-path", "--table-path", "--eval-runs-dir"):
+        assert f'"{flag}"' in parser_source, f"merge_jobs.py has no {flag}"
+
+    # And the caller that runs it as a subprocess passes all three.
+    handoff = (Path(merge_jobs.__file__).with_name("candidate_handoff.py")
+               .read_text(encoding="utf-8"))
+    for flag in ("--metrics-path", "--table-path", "--eval-runs-dir"):
+        assert f'"{flag}"' in handoff, f"run_merge_subprocess never passes {flag}"
+
+
 def test_the_guard_watches_every_file_a_run_writes():
     """A path missing from the list is a path nothing protects."""
     from conftest import LIVE_FILES
@@ -521,6 +584,7 @@ def test_the_guard_watches_every_file_a_run_writes():
 
     assert watched >= {
         "metrics.jsonl",
+        "history.jsonl",
         "jobs_table.json",
         "source_registry.json",
         "browser_source_pace.json",

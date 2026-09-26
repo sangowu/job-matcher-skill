@@ -39,6 +39,9 @@ LEGACY_ATS_PATH = DATA_DIR / "ats_companies.json"
 MANIFESTS_DIR = DATA_DIR / "discovery_batches"
 METRICS_PATH = DATA_DIR / "metrics.jsonl"
 TABLE_PATH = DATA_DIR / "jobs_table.json"
+# Passed to the merge subprocess for the same reason as the two above: a
+# child process cannot inherit a redirected module global.
+EVAL_RUNS_DIR = DATA_DIR / "eval_runs"
 CONFIG_PATH = SKILL_ROOT / "config.json"
 TERMINAL_STATUSES = {"succeeded", "failed", "skipped"}
 TASK_CHANNELS = {
@@ -938,6 +941,7 @@ def run_discovery_batch(
                 metrics_run_id=metrics_run_id,
                 metrics_path=METRICS_PATH,
                 table_path=TABLE_PATH,
+                eval_runs_dir=EVAL_RUNS_DIR,
             )
             if not isinstance(merge_result, dict) or merge_result.get("ok") is not True:
                 raise DiscoveryBatchError("merge runner failed")

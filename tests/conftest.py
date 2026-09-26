@@ -28,16 +28,29 @@ import source_registry  # noqa: E402
 # mutations of the code that redirects it.
 LIVE_FILES = (
     SKILL_ROOT / "data" / "metrics.jsonl",
+    SKILL_ROOT / "data" / "eval_runs" / "history.jsonl",
     SKILL_ROOT / "data" / "browser_source_pace.json",
     SKILL_ROOT / "data" / "browser_round_budget.json",
     SKILL_ROOT / "data" / "source_registry.json",
     SKILL_ROOT / "data" / "jobs_table.json",
     SKILL_ROOT / "data" / "ats_sync_state.json",
 )
+# Stores whose damage is a new file rather than a changed one. Fingerprinting
+# files could never catch this: a test that writes `data/eval_runs/eval-X.json`
+# leaves every listed file untouched, so the suite left five pending eval runs
+# in the live store on every run until 2026-09-26 -- 81 of them, old enough by
+# then to breach `oldest_pending_age_minutes`. Entry names only, not a stat per
+# entry: the point is to catch a file appearing or vanishing, and this runs
+# twice for every test in the suite.
+LIVE_DIRS = (
+    SKILL_ROOT / "data" / "eval_runs",
+    SKILL_ROOT / "data" / "discovery_batches",
+    SKILL_ROOT / "data" / "rounds",
+)
 
 
-def _fingerprints() -> dict[Path, tuple[int, int] | None]:
-    marks: dict[Path, tuple[int, int] | None] = {}
+def _fingerprints() -> dict[Path, object]:
+    marks: dict[Path, object] = {}
     for path in LIVE_FILES:
         try:
             stat = path.stat()
@@ -45,6 +58,11 @@ def _fingerprints() -> dict[Path, tuple[int, int] | None]:
             marks[path] = None
         else:
             marks[path] = (stat.st_size, stat.st_mtime_ns)
+    for path in LIVE_DIRS:
+        try:
+            marks[path] = frozenset(entry.name for entry in path.iterdir())
+        except OSError:
+            marks[path] = None
     return marks
 
 
@@ -67,9 +85,10 @@ def live_data_is_read_only():
     """Fail the test that writes to this installation's own data.
 
     Checked per test rather than once per session, so the failure names the
-    test that did it instead of the suite. Size and mtime, not content: the
-    point is to catch a write, and reading six files twice per test has to stay
-    cheap enough that nobody is tempted to remove it.
+    test that did it instead of the suite. Size and mtime for files, entry names
+    for directories, never content: the point is to catch a write, and this runs
+    twice for every test, so it has to stay cheap enough that nobody is tempted
+    to remove it.
     """
     before = _fingerprints()
     yield
@@ -95,8 +114,11 @@ _REDIRECTED_PATHS = (
     ("candidate_handoff", "TABLE_PATH", "jobs_table.json"),
     ("discovery_batch", "METRICS_PATH", "metrics.jsonl"),
     ("discovery_batch", "TABLE_PATH", "jobs_table.json"),
+    ("discovery_batch", "EVAL_RUNS_DIR", "eval_runs"),
     ("merge_jobs", "METRICS_PATH", "metrics.jsonl"),
     ("merge_jobs", "TABLE_PATH", "jobs_table.json"),
+    ("merge_jobs", "EVAL_RUNS_DIR", "eval_runs"),
+    ("merge_jobs", "EVAL_HISTORY_PATH", "eval_runs/history.jsonl"),
     ("render_html", "METRICS_PATH", "metrics.jsonl"),
     ("round_timer", "METRICS_PATH", "metrics.jsonl"),
 )

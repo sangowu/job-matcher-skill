@@ -1335,8 +1335,8 @@ def main() -> None:
         type=Path,
         help="where the job table lives; defaults to the skill's own "
         "data/jobs_table.json. Same reason as --metrics-path: this runs as a "
-        "subprocess, and the two files it writes are the two a caller has to "
-        "be able to redirect.",
+        "subprocess, and every store it writes has to be redirectable from "
+        "the command line.",
     )
     ap.add_argument(
         "--metrics-path",
@@ -1346,7 +1346,22 @@ def main() -> None:
         "redirect a module global, so it says so here instead -- which is how "
         "the test suite came to be appending to the live store.",
     )
+    ap.add_argument(
+        "--eval-runs-dir",
+        type=Path,
+        help="where to write this run's evaluation snapshot and history; "
+        "defaults to the skill's own data/eval_runs. The third store this "
+        "script writes, and the one that had no flag: --metrics-path and "
+        "--table-path were added for the subprocess case and the snapshot "
+        "directory was missed, so every suite run left five pending eval "
+        "runs in the live store (2026-09-26: 81 of them, ageing until they "
+        "breached oldest_pending_age_minutes).",
+    )
     args = ap.parse_args()
+    if args.eval_runs_dir is not None:
+        global EVAL_RUNS_DIR, EVAL_HISTORY_PATH  # noqa: PLW0603 - one store, two paths
+        EVAL_RUNS_DIR = args.eval_runs_dir
+        EVAL_HISTORY_PATH = args.eval_runs_dir / "history.jsonl"
     if args.metrics_path is not None:
         global METRICS_PATH  # noqa: PLW0603 - the module's own single sink
         METRICS_PATH = args.metrics_path

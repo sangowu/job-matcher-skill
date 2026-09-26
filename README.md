@@ -105,6 +105,7 @@ job-matcher/
 │   ├── benchmark_ats_compression.py # ATS HTTP 压缩交错 A/B
 │   ├── cp_hash.py            # 稳定的 candidate_profile hash
 │   ├── verify_jobs.py        # 失效职位状态码检测
+│   ├── check_robots.py      # 按 RFC 9309 读 robots.txt，回答某个 URL 站点是否允许抓取
 │   ├── fetch_rendered.py     # headless 渲染兜底（复用系统浏览器）
 │   ├── render_html.py        # 渲染 HTML 报告
 │   ├── _jobutil.py           # 共享：归一化/去重键/URL 规范化

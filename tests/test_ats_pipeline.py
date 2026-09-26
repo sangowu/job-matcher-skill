@@ -502,3 +502,21 @@ def test_the_out_of_market_drop_is_counted_rather_than_silent(isolated_ats):
     assert row["jobs_out_of_market"] == 1
     assert result["summary"]["jobs_out_of_market"] == 1
     assert result["candidates"] == []
+
+
+def test_the_market_filter_refuses_a_namesake_city_abroad():
+    """The filter is the last thing between a board's world and the round.
+
+    A US-heavy board is exactly what `board_harvest.py` keeps adding, and
+    "Dublin, OH" carried `confidence: exact` for Ireland.
+    """
+    resources = market_plan.load_resources()[0]
+    jobs = [
+        {"title": "AI Engineer", "location": "Dublin, Ireland"},
+        {"title": "AI Engineer", "location": "Dublin, OH"},
+        {"title": "AI Engineer", "location": "Dublin, CA 94568"},
+    ]
+
+    kept = ats_pipeline.filter_to_markets(jobs, ["ie"], resources=resources)
+
+    assert [job["location"] for job in kept] == ["Dublin, Ireland"]

@@ -575,3 +575,101 @@ def test_no_city_name_is_claimed_by_two_cities(resources):
 
     shared = {alias: ids for alias, ids in owners.items() if len(set(ids)) > 1}
     assert not shared, f"city name claimed by more than one city: {shared}"
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "Dublin, OH",
+        "Dublin, Ohio, United States",
+        "Dublin, OH 43017",
+        "Dublin, CA",
+        "Berlin, CT",
+        "London, ON, Canada",
+        "Hamburg, NY",
+        "Cork, PA",
+    ],
+)
+def test_a_city_qualified_by_a_foreign_state_is_not_that_city(resources, location):
+    """These every one resolved as an exact match before.
+
+    The catalog holds no US or Canadian market, so a qualifier naming one had
+    nothing to be read against and the city alias won alone -- and
+    `filter_to_markets`, the last thing between a board's world and a
+    market-scoped round, asks this function.
+    """
+    markets, _ = resources
+
+    normalized = market_plan.normalize_location(location, markets)
+
+    assert normalized["market_ids"] == []
+    assert normalized["confidence"] == "unknown"
+    assert normalized["city_id"] is None
+    # Not `unknown`: naming a place we do not serve contradicts the claim,
+    # while never having heard of a place only fails to corroborate it.
+    assert normalized["location_type"] == "foreign"
+    assert market_plan.normalize_location("Blanchardstown", markets)[
+        "location_type"
+    ] == "unknown"
+
+
+@pytest.mark.parametrize(
+    "location,market_id",
+    [
+        ("Dublin", "ie"),
+        ("Dublin, Ireland", "ie"),
+        ("Dublin, County Dublin", "ie"),
+        ("Dublin, County Dublin, Ireland (Hybrid)", "ie"),
+        ("Ireland, Dublin, Dublin", "ie"),
+        ("Hybrid work in Dublin, County Dublin", "ie"),
+        ("Dublin 2", "ie"),
+        ("Cork, Ireland; Dublin, Ireland", "ie"),
+        ("Munich, Bavaria", "de"),
+        ("London, England", "uk"),
+    ],
+)
+def test_the_foreign_check_leaves_real_postings_alone(resources, location, market_id):
+    """`IN` is Indiana in ", IN" and the English word in "Hybrid work in
+    Dublin", which is why a bare code counts only as a segment of its own."""
+    markets, _ = resources
+
+    assert market_plan.normalize_location(location, markets)["market_ids"][0] == market_id
+
+
+def test_a_code_that_is_also_our_own_alias_is_settled_by_corroboration(resources):
+    """`DE` is Delaware and Germany at once."""
+    markets, _ = resources
+
+    assert market_plan.normalize_location("Berlin, DE", markets)["market_ids"] == ["de"]
+
+
+def test_a_posting_open_in_several_countries_keeps_the_ones_we_serve(resources):
+    markets, _ = resources
+
+    normalized = market_plan.normalize_location(
+        "United Kingdom; Dublin; United States; New York; Germany", markets
+    )
+
+    assert set(normalized["market_ids"]) == {"ie", "uk", "de"}
+
+
+def test_a_foreign_area_name_may_not_be_a_supported_market_alias(resources):
+    """The same catalog pointed the other way would read a whole market as
+    foreign."""
+    markets, _ = resources
+    payload = copy.deepcopy(markets)
+    payload["foreign_administrative_areas"]["names"].append("Ireland")
+
+    with pytest.raises(market_plan.MarketPlanError, match="supported market alias"):
+        market_plan.validate_markets(payload)
+
+
+def test_the_foreign_catalog_is_optional(resources):
+    """Its absence leaves the behaviour it was added to change, not an error."""
+    markets, _ = resources
+    payload = copy.deepcopy(markets)
+    payload.pop("foreign_administrative_areas")
+
+    market_plan.validate_markets(payload)
+
+    assert market_plan.normalize_location("Dublin, OH", payload)["market_ids"] == ["ie"]

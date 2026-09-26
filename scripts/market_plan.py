@@ -96,6 +96,42 @@ def normalize_language(value: Any) -> str | None:
     return _LANGUAGE_ALIASES.get(raw.casefold())
 
 
+def _validate_foreign_areas(value: Any, markets: list[Any]) -> None:
+    """Check the negative catalog, including that it stays negative.
+
+    A name that is also one of our own country aliases would read every
+    posting in that market as foreign, which is the failure this catalog
+    exists to prevent, pointed the other way. Codes are exempt: "DE" is
+    Delaware and Germany both, and the corroboration rule in
+    `_foreign_qualifier` is what settles it.
+    """
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        raise MarketPlanError("foreign_administrative_areas must be an object")
+    names = _strings(value.get("names"), "foreign_administrative_areas.names")
+    codes = _strings(value.get("codes"), "foreign_administrative_areas.codes")
+    _require_unique(names, "foreign administrative area name")
+    _require_unique(codes, "foreign administrative area code")
+    for code in codes:
+        if not re.fullmatch(r"[A-Z]{2}", code):
+            raise MarketPlanError(
+                f"foreign administrative area code must be two capitals: {code}"
+            )
+    owned = {
+        _normalize_text(alias)
+        for market in markets
+        if isinstance(market, dict)
+        for alias in (market.get("country_aliases") or [])
+    }
+    clashing = sorted({name for name in names if _normalize_text(name) in owned})
+    if clashing:
+        raise MarketPlanError(
+            "foreign administrative area name is a supported market alias: "
+            + ", ".join(clashing)
+        )
+
+
 def validate_markets(
     payload: dict[str, Any], *, known_source_ids: set[str] | None = None
 ) -> dict[str, Any]:
@@ -104,6 +140,7 @@ def validate_markets(
     markets = payload.get("markets")
     if not isinstance(markets, list) or not markets:
         raise MarketPlanError("markets must be a non-empty list")
+    _validate_foreign_areas(payload.get("foreign_administrative_areas"), markets)
     market_ids: list[str] = []
     city_ids: list[str] = []
     template_ids: list[str] = []
@@ -264,6 +301,57 @@ def _work_mode(value: str) -> str:
     return "unspecified"
 
 
+def _foreign_qualifier(raw: str, normalized: str, markets: dict[str, Any]) -> str | None:
+    """The US state or Canadian province this location names, if any.
+
+    A city name is not unique to a country. "Dublin, OH", "Dublin, CA",
+    "Berlin, CT" and "London, ON" every one resolved to Ireland, Germany and
+    the United Kingdom with `confidence: exact`, because the catalog holds no
+    US or Canadian market and so had nothing to read the qualifier against --
+    the city alias won alone. `filter_to_markets` is the last thing standing
+    between a board's world and a market-scoped round, and it asks this
+    function, so an Ohio posting entered an Irish report as an exact match.
+    The exposure grows with `board_harvest.py`, which adds US-heavy boards.
+
+    This is a negative catalog, and it is closed: fifty states, thirteen
+    provinces and DC, a set that does not change. Missing an entry leaves
+    today's behaviour for that entry rather than producing a new wrong answer,
+    which is the opposite risk profile from the remote-scope catalog that was
+    removed in v2.4.0 -- there the default was a confident "global", here the
+    default is what the code already does.
+
+    A qualifier only decides when the text names none of the supported
+    markets: "Berlin, DE" is Delaware's code and Germany's alias at once, and
+    "United Kingdom; Dublin; United States; New York" is a genuinely
+    multi-country posting whose Dublin is Irish. Corroboration wins.
+    """
+    catalog = markets.get("foreign_administrative_areas")
+    if not isinstance(catalog, dict):
+        return None
+    for name in catalog.get("names", ()):
+        if _alias_matches(str(name), normalized):
+            return _normalize_text(name)
+    codes = {str(code).casefold() for code in catalog.get("codes", ())}
+    if codes:
+        for segment in re.split(r"[;,/|()]", str(raw)):
+            # A bare two-letter code is only a place where a place belongs.
+            # "IN" is Indiana in ", IN" and the English word in "Hybrid work
+            # in Dublin", and only the segment tells them apart. A trailing
+            # ZIP ("Dublin, OH 43017") is dropped rather than read.
+            text = _normalize_text(re.sub(r"\b\d[\w-]*\b", " ", segment))
+            if text in codes:
+                return text
+    return None
+
+
+def _names_supported_market(normalized: str, markets: dict[str, Any]) -> bool:
+    return any(
+        _alias_matches(alias, normalized)
+        for market in markets["markets"]
+        for alias in market["country_aliases"]
+    )
+
+
 def _alias_matches(alias: str, normalized_value: str) -> bool:
     alias_normalized = _normalize_text(alias)
     if alias_normalized == normalized_value:
@@ -291,6 +379,27 @@ def normalize_location(value: Any, markets: dict[str, Any]) -> dict[str, Any]:
         }
     normalized = _normalize_text(raw)
     mode = _work_mode(raw)
+    if _foreign_qualifier(raw, normalized, markets) and not _names_supported_market(
+        normalized, markets
+    ):
+        # `foreign`, not `unknown`: "this names a place outside every market
+        # we serve" and "we have never heard of this place" are different
+        # answers, and a caller weighing a location somebody else normalized
+        # needs to tell them apart -- one contradicts the claim, the other
+        # only fails to corroborate it. `market_ids` is empty either way, so
+        # everything that reads that field is unaffected.
+        return {
+            "input": raw,
+            "market_ids": [],
+            "city_id": None,
+            "location_id": None,
+            "location_type": "foreign",
+            "remote_scope": None,
+            "work_mode": mode,
+            "confidence": "unknown",
+            "canonical_name": None,
+            "names": {},
+        }
 
     def _position(alias_norm: str) -> int:
         """Where this alias sits in the text; unfound aliases sort to the end."""

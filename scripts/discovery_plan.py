@@ -447,6 +447,16 @@ def build_discovery_plan(
                         "on_ats_handoff": "record_board_then_stop",
                         "interaction_mode": "semantic_accessibility",
                         "auth_policy": "reuse_browser_session_without_cookie_access",
+                        # Reusing the person's own signed-in browser is the
+                        # design: it is how a source is read without simulating
+                        # a login. The cost is that the list it returns is not
+                        # the list anyone else would get. irishjobs.ie answered
+                        # a live round with `searchOrigin=membersarea`, and
+                        # LinkedIn and Indeed were signed in too. Saying so here
+                        # is what keeps a round-to-round comparison honest --
+                        # otherwise two runs that saw different lists for that
+                        # reason look like a change in the market.
+                        "reproducibility": "session_dependent",
                         "cookie_consent": {
                             "policy": cookie_policy,
                             "classifier": "accessibility_exact_v1",

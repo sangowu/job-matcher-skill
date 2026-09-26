@@ -608,3 +608,100 @@ def test_four_market_fixture_produces_one_report_job_per_ground_truth_identity()
     )
     assert any(job["title"] == "人工智能工程师" for job in report_jobs)
     assert any(job["title"] == "KI-Ingenieur" for job in report_jobs)
+
+
+# ── Results that depend on who is signed in ──────────────────────────────────
+
+def _found_by(route, *, source_type="local_job_board"):
+    return {
+        "title": "AI Engineer",
+        "company": "Example",
+        "location": "Dublin",
+        "url": "https://example.com/jobs/1",
+        "raw_sources": [{
+            "source": "Example",
+            "source_id": "example",
+            "source_type": source_type,
+            "discovery_route": route,
+            "search_language": "en",
+            "link_verification_status": "alive",
+            "location_normalized": {"market_id": "ie", "city_id": "dublin",
+                                    "remote_scope": None, "confidence": "exact"},
+            "url": "https://example.com/jobs/1",
+        }],
+        "match_scores": {MK: _score()},
+    }
+
+
+@pytest.mark.parametrize("route", ["browseros_neo", "user_browser"])
+def test_a_row_read_through_a_signed_in_browser_says_so(monkeypatch, tmp_path, capsys, route):
+    """Reusing the person's own signed-in browser is the design -- it is how a
+    source is read without simulating a login. The cost is that the list is not
+    the list anyone else would get: a live round came back from irishjobs.ie
+    with `searchOrigin=membersarea`. Unsaid, two runs that saw different lists
+    for that reason look like a change in the market."""
+    _configure(monkeypatch, tmp_path, [_found_by(route)])
+
+    _, jobs = _render(monkeypatch, capsys)
+
+    assert jobs[0]["session_dependent"] is True
+
+
+@pytest.mark.parametrize("route", ["ats_expansion", "agent_web_search", "regional_registry"])
+def test_a_row_nobody_had_to_be_signed_in_for_does_not(monkeypatch, tmp_path, capsys, route):
+    """An ATS API and a Web Search return the same thing to anyone. Marking
+    those too would make the label mean nothing."""
+    _configure(monkeypatch, tmp_path, [_found_by(route)])
+
+    _, jobs = _render(monkeypatch, capsys)
+
+    assert jobs[0]["session_dependent"] is False
+
+
+def test_one_signed_in_source_among_several_is_enough(monkeypatch, tmp_path, capsys):
+    """The question is whether this row's visibility depended on the session,
+    and one route that did is enough for the answer to be yes."""
+    job = _found_by("ats_expansion")
+    job["raw_sources"].append({
+        **job["raw_sources"][0],
+        "discovery_route": "browseros_neo",
+        "url": "https://example.com/jobs/1?via=browser",
+    })
+    _configure(monkeypatch, tmp_path, [job])
+
+    _, jobs = _render(monkeypatch, capsys)
+
+    assert jobs[0]["session_dependent"] is True
+
+
+def test_the_header_counts_them_so_a_shorter_list_is_not_a_mystery(
+    monkeypatch, tmp_path, capsys
+):
+    """Three of these came from your signed-in browser -- the sentence that
+    stops a shorter list next week from reading as the market having moved."""
+    _configure(monkeypatch, tmp_path, [
+        _found_by("browseros_neo"),
+        _found_by("user_browser"),
+        _found_by("ats_expansion"),
+    ])
+
+    html, _ = _render(monkeypatch, capsys)
+    meta = json.loads(re.search(r"const META = (.*);", html).group(1))
+
+    assert meta["session_dependent_count"] == 2
+
+
+def test_the_template_names_the_signed_in_case_in_both_languages():
+    template = (
+        Path(__file__).resolve().parents[1] / "assets" / "template.html"
+    ).read_text(encoding="utf-8")
+
+    assert "Signed-in result" in template
+    assert "登录态结果" in template
+    # The chip on the card, the note in the detail pane, and the header line.
+    assert 'rounded">${t("session_dependent")}</span>' in template
+    # Counted, not merely present: an i18n key keeps matching after the line
+    # that used it is gone, which is how the detail note slipped a mutation.
+    assert template.count("session_dependent_detail") == 3
+    assert '${t("session_dependent_detail")}' in template
+    assert template.count("session_dependent_count") == 1

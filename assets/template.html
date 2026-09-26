@@ -33,6 +33,7 @@
     </div>
   </div>
   <p id="profile-line" class="text-xs text-gray-400 dark:text-gray-500 mt-1"></p>
+  <p id="session-line" class="text-xs text-sky-700 dark:text-sky-400 mt-1"></p>
   <div id="run-context" class="mt-2 flex flex-wrap gap-1.5"></div>
   <div id="coverage-summary" class="mt-2 hidden grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4"></div>
 </header>
@@ -164,6 +165,9 @@ const I18N = {
     coverage_counts: "来源成功 {0}/{1} · 失败 {2} · 跳过 {3} · 增量候选 {4}",
     multi_source: "多来源", provenance: "发现证据", normalized_location: "规范地点",
     same_role: "重复发布", same_role_heading: "同一岗位的其他发布",
+    session_dependent: "登录态结果",
+    session_dependent_note: "这 {0} 条来自你已登录的浏览器会话，换个账号看到的列表会不一样；下一轮变少不一定是职位减少了。",
+    session_dependent_detail: "这条是通过你自己已登录的浏览器读到的。这不是问题，只是说明它的可见性取决于该会话。",
     same_role_note: "同一家公司用同一个职位名发布了 {0} 条，各有独立投递链接，不会自动合并。",
     discovery_route: "发现路径", link_status: "链接状态", search_language: "搜索语言",
     empty_filtered: "没有职位符合当前筛选条件",
@@ -224,6 +228,9 @@ const I18N = {
     coverage_counts: "Sources {0}/{1} succeeded · {2} failed · {3} skipped · {4} incremental candidates",
     multi_source: "Multiple sources", provenance: "Discovery evidence", normalized_location: "Normalized location",
     same_role: "Posted twice", same_role_heading: "Other postings of this role",
+    session_dependent: "Signed-in result",
+    session_dependent_note: "{0} of these came from your signed-in browser. Another account would see a different list, so a shorter one next time is not necessarily fewer jobs.",
+    session_dependent_detail: "This was read through your own signed-in browser. Not a problem -- it means its visibility depends on that session.",
     same_role_note: "The same company advertised this title {0} more times, each with its own apply link. They are kept apart rather than merged.",
     discovery_route: "Discovery route", link_status: "Link status", search_language: "Search language",
     empty_filtered: "No jobs match the current filters",
@@ -470,6 +477,7 @@ function card(job, idx) {
           ${isNew ? `<span class="text-[10px] font-semibold px-1 py-0.5 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 rounded">NEW</span>` : ""}
           ${job.multi_source ? `<span class="text-[10px] font-semibold px-1 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 rounded">${t("multi_source")}</span>` : ""}
           ${job.same_role_count ? `<span class="text-[10px] font-semibold px-1 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded">${t("same_role")}</span>` : ""}
+          ${job.session_dependent ? `<span class="text-[10px] font-semibold px-1 py-0.5 bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300 rounded">${t("session_dependent")}</span>` : ""}
         </div>
         <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">${esc(job.company)}${job.location ? " · " + esc(job.location) : ""}</div>
         <div class="mt-1">${recBadge(job.recommendation)}</div>
@@ -515,6 +523,7 @@ function renderDetail(job) {
   if (job.stale_score && job.score == null) flags.push(chip(t("stale_score"), "bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400"));
   if (job.multi_source) flags.push(chip(t("multi_source"), "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300"));
   if (job.same_role_count) flags.push(chip(t("same_role"), "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"));
+  if (job.session_dependent) flags.push(chip(t("session_dependent"), "bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-400"));
 
   pane.innerHTML = `
     <div class="max-w-3xl card-enter">
@@ -555,6 +564,7 @@ function renderDetail(job) {
       </div>
 
       ${sameRole}
+      ${job.session_dependent ? `<p class="mt-4 text-xs text-sky-700 dark:text-sky-400">${t("session_dependent_detail")}</p>` : ""}
       <section class="mt-4">
         <h4 class="text-xs font-bold text-gray-500 mb-2">${t("provenance")}</h4>
         <div class="space-y-2">${provenance || `<p class="text-xs text-gray-400">${t("na")}</p>`}</div>
@@ -628,6 +638,8 @@ function applyStaticLabels() {
   document.documentElement.lang = LANG;
   document.getElementById("summary").textContent = t("summary", META.new_count ?? 0, META.cached_count ?? 0, JOBS.length);
   document.getElementById("profile-line").textContent = META.profile_summary ? t("profile", META.profile_summary) : "";
+  const signedIn = META.session_dependent_count ?? 0;
+  document.getElementById("session-line").textContent = signedIn ? t("session_dependent_note", signedIn) : "";
   renderRunContext();
   renderCoverage();
   document.getElementById("search").placeholder = t("search_ph");

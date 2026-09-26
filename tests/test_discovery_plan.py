@@ -519,3 +519,21 @@ def test_a_browser_task_carries_the_pace_its_source_asked_for():
     assert by_source["publicjobs-ie"]["min_interval_ms"] == 10000
     # A source that asked for nothing carries nothing, and takes the floor.
     assert by_source["irishjobs-ie"]["min_interval_ms"] == 0
+
+
+def test_a_browser_task_states_that_its_results_depend_on_the_session():
+    """The task already says it reuses the person's signed-in browser. Saying
+    what that costs -- that the list is not the list another account would get
+    -- is what lets the report explain a round-to-round difference instead of
+    leaving it to look like the market moving."""
+    seeds = source_registry.load_seeds()
+
+    plan = discovery_plan.build_discovery_plan(_request(seeds), seeds=seeds, config=_config())
+
+    assert plan["tasks"]["browser"]
+    for task in plan["tasks"]["browser"]:
+        assert task["auth_policy"] == "reuse_browser_session_without_cookie_access"
+        assert task["reproducibility"] == "session_dependent"
+    # The structured channel asks no one to be signed in.
+    for task in plan["tasks"]["web_search"]:
+        assert "reproducibility" not in task

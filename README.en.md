@@ -230,7 +230,8 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `cookie_consent_policy` | necessary_only | automatically reject optional cookies only through one unambiguous semantic button; `ask_every_time` is also available |
 | `discovery_max_waves` | 3 | deterministic discovery-wave cap per plan |
 | `browser_sources_per_market` | 4 | per-market, per-wave browser-source cap, with source-type diversity in the browser's own first wave |
-| `browser_first_wave` | 2 | wave the browser starts in; structured/Web Search run first so the browser stays a fallback |
+| `browser_first_wave` | 2 | wave the browser starts in; the structured channel runs first so the browser stays a fallback |
+| `web_first_wave` | 3 | wave Web Search starts in; measured 2 new candidates over 22 calls and none in its last five rounds, so it opens behind the structured channel and the browser |
 | `browser_queries_per_source` | 2 | localized query cap per browser source and run |
 | `web_queries_per_market_per_wave` | 2 | per-market Web Search query cap in each wave |
 | `web_source_hints_per_task` | 6 | public source-hint cap per Web Search task |

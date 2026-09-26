@@ -111,12 +111,11 @@ def test_plan_builds_bounded_cross_channel_waves():
         _request(seeds), seeds=seeds, config=_config()
     )
 
-    assert plan["initial_wave_id"] == "wave:1"
-    assert [wave["wave_id"] for wave in plan["waves"]] == [
-        "wave:1",
-        "wave:2",
-        "wave:3",
-    ]
+    # No structured channel in this config and both of the others open late,
+    # so wave 1 has nothing in it and is not emitted. The first wave is
+    # whichever one has tasks, not always the first index.
+    assert plan["initial_wave_id"] == "wave:2"
+    assert [wave["wave_id"] for wave in plan["waves"]] == ["wave:2", "wave:3"]
     for wave in plan["waves"]:
         assert len(wave["task_ids"]["browser"]) <= 3
         assert len(wave["task_ids"]["web_search"]) <= 1
@@ -300,18 +299,24 @@ def test_structured_channel_stays_empty_while_ats_is_disabled():
     assert "structured" not in plan["channels"]
 
 
-def test_cheap_channels_own_the_first_wave_and_the_browser_waits():
-    """The browser costs minutes per task, so it must not spend wave 1."""
+def test_the_channels_open_in_the_order_they_produce():
+    """Structured first, browser next, Web Search last.
+
+    The browser costs minutes per task. Web Search returned 2 new candidates
+    over 22 calls and none at all in its last five rounds, so it opens behind
+    the browser rather than spending wave 1 finding nothing.
+    """
     seeds = source_registry.load_seeds()
     config = {**_config(), "ats_enabled": True}
 
     plan = discovery_plan.build_discovery_plan(_request(seeds), seeds=seeds, config=config)
     first_wave = next(wave for wave in plan["waves"] if wave["wave_id"] == "wave:1")
 
-    assert first_wave["task_ids"]["browser"] == []
     assert first_wave["task_ids"]["structured"]
-    assert first_wave["task_ids"]["web_search"]
-    assert all(task["wave_id"] != "wave:1" for task in plan["tasks"]["browser"])
+    assert first_wave["task_ids"]["browser"] == []
+    assert first_wave["task_ids"]["web_search"] == []
+    assert min(task["wave_id"] for task in plan["tasks"]["browser"]) == "wave:2"
+    assert min(task["wave_id"] for task in plan["tasks"]["web_search"]) == "wave:3"
 
 
 def test_browser_first_wave_is_configurable():
@@ -537,3 +542,35 @@ def test_a_browser_task_states_that_its_results_depend_on_the_session():
     # The structured channel asks no one to be signed in.
     for task in plan["tasks"]["web_search"]:
         assert "reproducibility" not in task
+
+
+def test_web_first_wave_is_configurable():
+    """Measured yield put it last; a caller who disagrees can say so."""
+    seeds = source_registry.load_seeds()
+
+    eager = discovery_plan.build_discovery_plan(
+        _request(seeds), seeds=seeds, config={**_config(), "web_first_wave": 1}
+    )
+    late = discovery_plan.build_discovery_plan(
+        _request(seeds), seeds=seeds, config={**_config(), "web_first_wave": 3}
+    )
+
+    assert min(task["wave_id"] for task in eager["tasks"]["web_search"]) == "wave:1"
+    assert min(task["wave_id"] for task in late["tasks"]["web_search"]) == "wave:3"
+    assert eager["omitted_by_wave_budget"]["web_search"] == 0
+    # Only one wave is left for them, so the queries past it are dropped and
+    # counted rather than silently folded into the last wave.
+    assert late["omitted_by_wave_budget"]["web_search"] > 0
+
+
+def test_a_channel_that_opens_past_the_last_wave_plans_nothing():
+    seeds = source_registry.load_seeds()
+
+    plan = discovery_plan.build_discovery_plan(
+        _request(seeds),
+        seeds=seeds,
+        config={**_config(), "web_first_wave": 4, "discovery_max_waves": 3},
+    )
+
+    assert plan["tasks"]["web_search"] == []
+    assert plan["omitted_by_wave_budget"]["web_search"] > 0

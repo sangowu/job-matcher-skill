@@ -301,6 +301,13 @@ def build_discovery_plan(
     # existing wave gate then withholds it entirely when they already produced
     # enough, which is what makes it a fallback rather than the default.
     browser_first_wave = config.get("browser_first_wave", 2)
+    # Web Search opens last, behind the browser, because it is the channel
+    # that stopped producing. Measured over six rounds to 2026-09-26: 22
+    # calls, 204 raw results, 2 new candidates, and none at all in the last
+    # five; 3 of the 54 rows in the table came from it. It stays in the plan
+    # because a source whose operator forbids automation can be reached no
+    # other way, but it no longer spends the first wave finding nothing.
+    web_first_wave = config.get("web_first_wave", 3)
     for label, value, maximum in (
         ("browser_sources_per_market", browser_limit, 10),
         ("browser_queries_per_source", browser_query_limit, 10),
@@ -309,6 +316,7 @@ def build_discovery_plan(
         ("discovery_max_waves", max_waves, 10),
         ("web_queries_per_market_per_wave", web_tasks_per_market, 10),
         ("browser_first_wave", browser_first_wave, 10),
+        ("web_first_wave", web_first_wave, 10),
     ):
         if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= maximum:
             raise DiscoveryPlanError(f"config.{label} must be an integer from 1 to {maximum}")
@@ -333,7 +341,7 @@ def build_discovery_plan(
         for index, query in enumerate(queries, start=1):
             position = web_positions[query["market_id"]]
             web_positions[query["market_id"]] += 1
-            wave_index = position // web_tasks_per_market + 1
+            wave_index = position // web_tasks_per_market + web_first_wave
             if wave_index > max_waves:
                 omitted["web_search"] += 1
                 continue

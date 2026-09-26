@@ -33,6 +33,12 @@ REPORTS_DIR = DATA_DIR / "reports"
 METRICS_PATH = DATA_DIR / "metrics.jsonl"
 EVAL_RUNS_DIR = DATA_DIR / "eval_runs"
 SUPPORTED_MARKETS = {"ie", "uk", "cn", "de"}
+# Routes that read a page through the person's own signed-in browser. What
+# they return depends on who is signed in, so a row found only this way is not
+# a row a different account would necessarily see. Not a fault and not a
+# warning -- a fact about how that row was found, which the report would
+# otherwise leave the reader to remember on their own.
+SESSION_DEPENDENT_ROUTES = {"browseros_neo", "user_browser"}
 INTERNAL_LANGUAGES = {"en", "de", "zh-Hans"}
 COVERAGE_STATUSES = {"executed", "partial", "failed", "skipped", "not_collected", "unknown"}
 
@@ -313,6 +319,9 @@ def flatten(job: dict, mk: str, *, same_role: list[dict] | None = None) -> dict:
                 "url": _safe_url(source.get("url", "")),
             }
         )
+    session_dependent = any(
+        row["discovery_route"] in SESSION_DEPENDENT_ROUTES for row in provenance
+    )
     market_ids = _unique_strings(job.get("market_ids"), SUPPORTED_MARKETS)
     if not market_ids:
         market_ids = _unique_strings(
@@ -345,6 +354,7 @@ def flatten(job: dict, mk: str, *, same_role: list[dict] | None = None) -> dict:
         "source_types": source_types or ["unknown"],
         "discovery_routes": discovery_routes or ["unknown"],
         "verification_statuses": verification_statuses or ["unknown"],
+        "session_dependent": session_dependent,
         "market_ids": market_ids,
         "market_status": "known" if market_ids else "unknown",
         "possibly_closed": job.get("possibly_closed", False),
@@ -412,6 +422,10 @@ def main() -> None:
         flatten(job, mk, same_role=siblings.get(position))
         for position, job in enumerate(table_jobs)
     ]
+    # Counted for the report header: "three of these came from your signed-in
+    # browser" is the sentence that stops a shorter list next week from reading
+    # as the market having moved.
+    meta["session_dependent_count"] = sum(job["session_dependent"] for job in jobs)
     health = build_health_payload()
 
     template = TEMPLATE_PATH.read_text(encoding="utf-8")

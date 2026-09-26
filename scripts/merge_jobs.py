@@ -1331,6 +1331,14 @@ def main() -> None:
         help="Pipeline run id returned by round_timer.py start.",
     )
     ap.add_argument(
+        "--table-path",
+        type=Path,
+        help="where the job table lives; defaults to the skill's own "
+        "data/jobs_table.json. Same reason as --metrics-path: this runs as a "
+        "subprocess, and the two files it writes are the two a caller has to "
+        "be able to redirect.",
+    )
+    ap.add_argument(
         "--metrics-path",
         type=Path,
         help="where to append this run's metrics; defaults to the skill's own "
@@ -1342,6 +1350,9 @@ def main() -> None:
     if args.metrics_path is not None:
         global METRICS_PATH  # noqa: PLW0603 - the module's own single sink
         METRICS_PATH = args.metrics_path
+    if args.table_path is not None:
+        global TABLE_PATH  # noqa: PLW0603 - the module's own single store
+        TABLE_PATH = args.table_path
     started = time.monotonic()
     try:
         if args.mode == "merge":

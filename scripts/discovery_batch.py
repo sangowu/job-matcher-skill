@@ -38,6 +38,7 @@ REGISTRY_PATH = DATA_DIR / "source_registry.json"
 LEGACY_ATS_PATH = DATA_DIR / "ats_companies.json"
 MANIFESTS_DIR = DATA_DIR / "discovery_batches"
 METRICS_PATH = DATA_DIR / "metrics.jsonl"
+TABLE_PATH = DATA_DIR / "jobs_table.json"
 CONFIG_PATH = SKILL_ROOT / "config.json"
 TERMINAL_STATUSES = {"succeeded", "failed", "skipped"}
 TASK_CHANNELS = {
@@ -920,6 +921,7 @@ def run_discovery_batch(
                 batch_id=batch_id,
                 metrics_run_id=metrics_run_id,
                 metrics_path=METRICS_PATH,
+                table_path=TABLE_PATH,
             )
             if not isinstance(merge_result, dict) or merge_result.get("ok") is not True:
                 raise DiscoveryBatchError("merge runner failed")

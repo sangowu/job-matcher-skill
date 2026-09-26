@@ -263,8 +263,52 @@ def test_summary_reports_malformed_events_and_failed_writes(tmp_path):
     assert summary["metrics"]["write_failures"] == 1
     assert summary["metrics"]["malformed_events"] == 1
     assert {breach["metric"] for breach in summary["breaches"]} >= {
-        "failed_events", "write_failures", "malformed_events",
+        "failed_event_rate", "write_failures", "malformed_events",
     }
+
+
+def test_a_failure_threshold_of_zero_is_a_light_that_never_goes_off(tmp_path):
+    """Held at a count of zero over a seven-day window, one failure anywhere
+    turned the status red and kept it red for the week. A share says the thing
+    a person actually wants to know, and can come back down."""
+    now = datetime(2026, 8, 26, 12, tzinfo=timezone.utc)
+    path = tmp_path / "metrics.jsonl"
+    for index in range(100):
+        record_metric(path, "merge", index != 0, now=now, duration_ms=5,
+                      failure_kind=None if index else "input_validation")
+
+    summary = build_summary(path, tmp_path / "eval_runs", now=now)
+
+    assert summary["metrics"]["failed_events"] == 1
+    assert summary["metrics"]["failed_event_rate"] == 0.01
+    # One failure in a hundred operations is not a breach; the count still says
+    # there was one.
+    assert "failed_event_rate" not in {b["metric"] for b in summary["breaches"]}
+
+
+def test_a_run_that_mostly_failed_is_still_a_breach(tmp_path):
+    now = datetime(2026, 8, 26, 12, tzinfo=timezone.utc)
+    path = tmp_path / "metrics.jsonl"
+    for index in range(100):
+        record_metric(path, "merge", index >= 5, now=now, duration_ms=5,
+                      failure_kind=None if index >= 5 else "input_validation")
+
+    summary = build_summary(path, tmp_path / "eval_runs", now=now)
+
+    assert summary["metrics"]["failed_event_rate"] == 0.05
+    assert "failed_event_rate" in {b["metric"] for b in summary["breaches"]}
+
+
+def test_corruption_is_still_held_at_zero():
+    """A dropped write, a malformed event and a malformed manifest are not
+    operations that failed -- they are the record itself being wrong, and one
+    is already one too many."""
+    from runtime_metrics import DEFAULT_THRESHOLDS
+
+    assert DEFAULT_THRESHOLDS["write_failures_max"] == 0
+    assert DEFAULT_THRESHOLDS["malformed_events_max"] == 0
+    assert DEFAULT_THRESHOLDS["malformed_manifests_max"] == 0
+    assert "failed_events_max" not in DEFAULT_THRESHOLDS
 
 
 def test_ats_metrics_are_sanitized_and_summarized_by_provider(tmp_path):
@@ -442,3 +486,44 @@ def test_a_round_that_timed_nothing_does_not_read_as_a_round_that_searched_nothi
     silent = build_summary(tmp_path / "empty.jsonl", tmp_path / "eval_runs")["metrics"]
     assert silent["search"]["runs"] == 0
     assert silent["search"]["duration_ms"]["reported_rate"] is None
+
+
+# ── The guard that keeps this suite out of the live data ─────────────────────
+
+def test_the_live_data_guard_notices_a_write():
+    """Its failure path is the whole point and nothing else runs it: with the
+    redirects in place no test writes to live data, so a guard that never
+    asserted would pass the suite exactly as a working one does."""
+    from conftest import touched_files
+
+    root = Path("data")
+    before = {root / "metrics.jsonl": (10, 1), root / "jobs_table.json": (5, 1)}
+
+    assert touched_files(before, dict(before)) == []
+    assert touched_files(before, {**before, root / "metrics.jsonl": (11, 2)}) == [
+        "metrics.jsonl"
+    ]
+    # Appearing and vanishing both count: deleting the live store is as bad as
+    # appending to it.
+    assert touched_files(before, {**before, root / "metrics.jsonl": None}) == [
+        "metrics.jsonl"
+    ]
+    assert touched_files(
+        {root / "metrics.jsonl": None}, {root / "metrics.jsonl": (1, 1)}
+    ) == ["metrics.jsonl"]
+
+
+def test_the_guard_watches_every_file_a_run_writes():
+    """A path missing from the list is a path nothing protects."""
+    from conftest import LIVE_FILES
+
+    watched = {path.name for path in LIVE_FILES}
+
+    assert watched >= {
+        "metrics.jsonl",
+        "jobs_table.json",
+        "source_registry.json",
+        "browser_source_pace.json",
+        "browser_round_budget.json",
+        "ats_sync_state.json",
+    }

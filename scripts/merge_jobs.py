@@ -1330,7 +1330,18 @@ def main() -> None:
         type=validate_run_id,
         help="Pipeline run id returned by round_timer.py start.",
     )
+    ap.add_argument(
+        "--metrics-path",
+        type=Path,
+        help="where to append this run's metrics; defaults to the skill's own "
+        "data/metrics.jsonl. A caller that runs this as a subprocess cannot "
+        "redirect a module global, so it says so here instead -- which is how "
+        "the test suite came to be appending to the live store.",
+    )
     args = ap.parse_args()
+    if args.metrics_path is not None:
+        global METRICS_PATH  # noqa: PLW0603 - the module's own single sink
+        METRICS_PATH = args.metrics_path
     started = time.monotonic()
     try:
         if args.mode == "merge":

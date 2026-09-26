@@ -24,7 +24,15 @@ DEFAULT_THRESHOLDS = {
     "evaluation_success_rate_min": 0.98,
     "lock_wait_p95_ms_max": 100.0,
     "oldest_pending_age_minutes_max": 30.0,
-    "failed_events_max": 0,
+    # A share, not a count. At zero over a seven-day window, one failure
+    # anywhere turned the health status red and kept it red for the week, so
+    # the signal was on permanently and told nobody anything. Set to the same
+    # 2% as `conflict_rate_max`, and reported next to the raw count, which is
+    # still the number a person wants to see. The three zeros below stay zero:
+    # a dropped write, a malformed event and a malformed manifest are
+    # corruption rather than an operation that failed, and one of those is
+    # already one too many.
+    "failed_event_rate_max": 0.02,
     "write_failures_max": 0,
     "malformed_events_max": 0,
     "malformed_manifests_max": 0,
@@ -787,6 +795,7 @@ def _build_summary_from_events(
         "events_total": len(events),
         "successful_events": len(events) - len(failed_events),
         "failed_events": len(failed_events),
+        "failed_event_rate": _ratio(len(failed_events), len(events)),
         "malformed_events": malformed_events,
         "merge_runs": len(merge_events),
         "update_runs": len(update_events),
@@ -988,7 +997,13 @@ def _build_summary_from_events(
         limits["oldest_pending_age_minutes_max"],
         "max",
     )
-    _breach(breaches, "failed_events", metrics["failed_events"], limits["failed_events_max"], "max")
+    _breach(
+        breaches,
+        "failed_event_rate",
+        metrics["failed_event_rate"],
+        limits["failed_event_rate_max"],
+        "max",
+    )
     _breach(breaches, "write_failures", write_failures, limits["write_failures_max"], "max")
     _breach(breaches, "malformed_events", malformed_events, limits["malformed_events_max"], "max")
     _breach(
@@ -1090,6 +1105,7 @@ def render_markdown(summary: dict) -> str:
     rows = [
         ("Events", metrics["events_total"]),
         ("Failed events", metrics["failed_events"]),
+        ("Failed event rate", metrics["failed_event_rate"]),
         ("Runs complete", metrics["runs"]["complete"]),
         ("Runs incomplete", metrics["runs"]["incomplete"]),
         ("Runs stale unfinished", metrics["runs"]["stale_unfinished"]),

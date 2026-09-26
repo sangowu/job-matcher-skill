@@ -919,6 +919,7 @@ def run_discovery_batch(
                 cp_hash,
                 batch_id=batch_id,
                 metrics_run_id=metrics_run_id,
+                metrics_path=METRICS_PATH,
             )
             if not isinstance(merge_result, dict) or merge_result.get("ok") is not True:
                 raise DiscoveryBatchError("merge runner failed")

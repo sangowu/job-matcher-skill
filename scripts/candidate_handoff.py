@@ -96,6 +96,7 @@ def run_merge_subprocess(
     *,
     batch_id: str,
     metrics_run_id: str | None,
+    metrics_path: Path | None = None,
 ) -> dict[str, Any]:
     command = [
         sys.executable,
@@ -110,6 +111,10 @@ def run_merge_subprocess(
     ]
     if metrics_run_id:
         command.extend(["--metrics-run-id", metrics_run_id])
+    if metrics_path is not None:
+        # The child cannot inherit a redirected module global, so where its
+        # metrics go has to travel on the command line with everything else.
+        command.extend(["--metrics-path", str(metrics_path)])
     try:
         completed = subprocess.run(
             command,
@@ -428,6 +433,7 @@ def run_handoff(
                 cp_hash,
                 batch_id=batch_id,
                 metrics_run_id=metrics_run_id,
+                metrics_path=METRICS_PATH,
             )
             if not isinstance(merge_result, dict) or merge_result.get("ok") is not True:
                 raise CandidateHandoffError("merge runner failed")

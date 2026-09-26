@@ -196,6 +196,19 @@ _RUN_FINISH_FIELDS = {
     "expected_count",
     "observed_count",
 }
+# A round that stopped and will never finish. Before this there was no way to
+# say so: a `run_start` with no `run_finish` sat in the window as
+# `stale_unfinished` until it aged out, and `metrics_status` stayed `incomplete`
+# the whole time -- 2 of the 11 runs started in one week were interruptions, so
+# the completeness signal read `incomplete` for reasons nobody could act on.
+# Recording the abandonment is not the same as claiming the round finished:
+# `complete` is never written here, the round contributes no coverage, and the
+# count is reported on its own line.
+ABANDON_REASONS = ("interrupted", "superseded", "rate_limited", "operator_stopped", "unknown")
+# `unknown` is deliberately in the set. An abandonment whose cause nobody
+# recorded is still worth stating, because the fact the signal needs is that
+# the round will never report -- the cause is detail on top of that.
+_RUN_ABANDONED_FIELDS = {"reason"}
 ORCHESTRATION_MODES = ("serial", "overlapped")
 _FAILURE_FIELDS = {"failure_kind"}
 # Statuses that report the route's lifecycle rather than work it did.
@@ -223,11 +236,13 @@ OPERATIONS = (
     "ats",
     "run_start",
     "run_finish",
+    "run_abandoned",
 )
 _THREAD_APPEND_LOCK = threading.Lock()
 _CATEGORY_FIELDS = {
     "operation",
     "failure_kind",
+    "reason",
     "orchestration",
     "role",
     "model_requested",
@@ -411,6 +426,8 @@ def record_metric(
         allowed = set(_RUN_START_FIELDS)
     elif operation == "run_finish":
         allowed = set(_RUN_FINISH_FIELDS)
+    elif operation == "run_abandoned":
+        allowed = set(_RUN_ABANDONED_FIELDS)
     else:
         allowed = _COMMON_FIELDS | (_MERGE_FIELDS if operation == "merge" else _UPDATE_FIELDS)
     allowed |= _RUN_FIELDS
@@ -765,14 +782,26 @@ def _build_summary_from_events(
 
     run_start_events = [event for event in events if event.get("operation") == "run_start"]
     run_finish_events = [event for event in events if event.get("operation") == "run_finish"]
+    run_abandoned_events = [
+        event for event in events if event.get("operation") == "run_abandoned"
+    ]
     finished_ids = {
         event.get("run_id") for event in run_finish_events if isinstance(event.get("run_id"), str)
     }
+    # A round recorded as abandoned has been answered for. It is not waiting to
+    # report and it is not a finished run that reported badly, so it belongs in
+    # neither bucket -- and it is counted on its own line rather than dropped,
+    # because a round that produced nothing is something a reader should see.
+    abandoned_ids = {
+        event.get("run_id") for event in run_abandoned_events
+        if isinstance(event.get("run_id"), str)
+    }
+    closed_ids = finished_ids | abandoned_ids
     unfinished_ages = []
     for event in run_start_events:
         run_id = event.get("run_id")
         timestamp = _parse_timestamp(event.get("timestamp"))
-        if isinstance(run_id, str) and run_id not in finished_ids and timestamp is not None:
+        if isinstance(run_id, str) and run_id not in closed_ids and timestamp is not None:
             unfinished_ages.append(max(0.0, (current - timestamp).total_seconds() / 60))
     stale_unfinished = sum(
         age > float(limits["unfinished_run_age_minutes_max"])
@@ -869,6 +898,7 @@ def _build_summary_from_events(
             "incomplete": incomplete_finished,
             "active": len(unfinished_ages),
             "stale_unfinished": stale_unfinished,
+            "abandoned": len(abandoned_ids),
         },
         "subagents": {
             "runs": len(subagent_events),
@@ -1110,6 +1140,7 @@ def render_markdown(summary: dict) -> str:
         ("Runs complete", metrics["runs"]["complete"]),
         ("Runs incomplete", metrics["runs"]["incomplete"]),
         ("Runs stale unfinished", metrics["runs"]["stale_unfinished"]),
+        ("Runs abandoned", metrics["runs"]["abandoned"]),
         ("Web Search calls", metrics["search"]["calls"]),
         ("Web Search new candidates", metrics["search"]["new_candidates"]),
         ("Effective candidates / call", metrics["search"]["effective_candidates_per_call"]),

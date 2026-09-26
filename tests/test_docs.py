@@ -13,6 +13,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
+from analysis_contract import (  # noqa: E402
+    RECOMMENDATIONS,
+    SCORE_FIELDS,
+    SCORE_WEIGHTS,
+    SCORED_FROM,
+)
 from runtime_metrics import DEFAULT_THRESHOLDS  # noqa: E402
 
 
@@ -80,6 +86,38 @@ def test_configured_thresholds_are_all_enforced():
         "config.json sets thresholds that nothing checks: "
         f"{', '.join(unenforced)}"
     )
+
+
+def test_the_evaluation_result_contract_is_written_down_where_prompts_are_written():
+    """A worker prompt is written from this doc, so the doc must match the code.
+
+    On 2026-09-26 the shape in a worker prompt was composed from memory --
+    `match_score.total`, a nested `dimensions` object, `scored_from:
+    "jd_profile"` -- and `merge_jobs.py update` rejected all eight results,
+    which put `rejected_rate` through its threshold for the whole window. The
+    contract lives in `analysis_contract.py` and nothing outside it stated the
+    shape, so reading the validator was the only way to get it right. Now
+    WORKFLOW.md states it, and this test is what keeps the two in step.
+    """
+    text = (SKILL_ROOT / "WORKFLOW.md").read_text(encoding="utf-8")
+
+    missing = [field for field in SCORE_FIELDS if f"`{field}`" not in text]
+    assert not missing, f"WORKFLOW.md does not name: {', '.join(missing)}"
+
+    # The weights decide whether a returned `overall_score` validates at all.
+    for field, weight in SCORE_WEIGHTS.items():
+        assert f"{weight:.2f}"[1:] in text, f"WORKFLOW.md omits the weight for {field}"
+
+    for value in sorted(RECOMMENDATIONS):
+        assert f"`{value}`" in text, f"WORKFLOW.md omits recommendation {value}"
+
+    for value in sorted(SCORED_FROM):
+        assert f"`{value}`" in text, f"WORKFLOW.md omits scored_from {value}"
+
+    # The trap that cost the eight results: the five dimensions are flat, and a
+    # reader who takes them as nested writes something the validator refuses.
+    assert "analysis_contract.py" in text
+    assert "dimensions" not in text.split("### 5.")[1].split("### 6.")[0]
 
 
 def test_release_notes_are_linked_from_both_readmes():

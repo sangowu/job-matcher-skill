@@ -6,9 +6,14 @@ review; these tests turn that into a CI failure.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+from runtime_metrics import DEFAULT_THRESHOLDS  # noqa: E402
 
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
@@ -51,10 +56,30 @@ def test_config_knobs_are_actually_consumed():
     )
     haystack = "\n".join(sources)
 
-    # monitoring_thresholds is consumed by nested key, not by its own name.
+    # monitoring_thresholds is consumed by nested key, not by its own name;
+    # test_configured_thresholds_are_all_enforced checks inside it.
     exempt = {"monitoring_thresholds"}
     orphans = [key for key in _config_keys() if key not in exempt and key not in haystack]
     assert not orphans, f"config keys read by nothing: {', '.join(orphans)}"
+
+
+def test_configured_thresholds_are_all_enforced():
+    """The exemption above covers the whole block, and something hid under it.
+
+    `summarize_metrics` merges this block over DEFAULT_THRESHOLDS and reports
+    the result as the thresholds in force, so a key that no `_breach` call
+    reads is still published as one -- `failed_events_max: 0` outlived the
+    switch to `failed_event_rate_max` that way, and the health report went on
+    naming a limit nothing measured. Every key here has to be one the defaults
+    declare.
+    """
+    config = json.loads((SKILL_ROOT / "config.json").read_text(encoding="utf-8"))
+    configured = set(config["monitoring_thresholds"])
+    unenforced = sorted(configured - set(DEFAULT_THRESHOLDS))
+    assert not unenforced, (
+        "config.json sets thresholds that nothing checks: "
+        f"{', '.join(unenforced)}"
+    )
 
 
 def test_release_notes_are_linked_from_both_readmes():

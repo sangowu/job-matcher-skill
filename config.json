@@ -83,7 +83,6 @@
     "evaluation_success_rate_min": 0.98,
     "lock_wait_p95_ms_max": 100,
     "oldest_pending_age_minutes_max": 30,
-    "failed_events_max": 0,
     "write_failures_max": 0,
     "malformed_events_max": 0,
     "malformed_manifests_max": 0,

@@ -121,6 +121,12 @@ _PLATFORM_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("lagou", re.compile(r"lagou\.com/(?:wn/)?jobs/(\d+)", re.I)),
     ("seek", re.compile(r"seek\.(?:com\.au|co\.nz)/job/(\d+)", re.I)),
     ("reed", re.compile(r"reed\.co\.uk/jobs/[^/]+/(\d+)", re.I)),
+    # amazon.jobs 的职位 URL 是 /<lang>/jobs/<id_icims>/<slug>，其中的数字就是
+    # search.json 返回的 `id_icims`。没有这条规则时，API 候选带的
+    # `amazon_jobs:<id>` 不算强身份而被 candidate_contract 拒收，一条候选就能
+    # 让整批 structured 任务失败（2026-09-26 实测：23 个 board 因此一个都没进表）。
+    # slug 会随标题改写而变，所以只认 id、不认 slug。
+    ("amazon_jobs", re.compile(r"amazon\.jobs/(?:[a-z]{2}(?:-[a-z]{2})?/)?jobs/(\d+)", re.I)),
 ]
 _STRONG_ID_PREFIXES = frozenset(platform for platform, _ in _PLATFORM_PATTERNS) | {"indeed"}
 

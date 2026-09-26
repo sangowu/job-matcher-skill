@@ -36,6 +36,15 @@ from _jobutil import (  # noqa: E402
             "https://huaweiireland.teamtailor.com/jobs/8181244-2026-senior-llm-agent-researcher-engineer-permanent",
             "teamtailor:8181244",
         ),
+        (
+            "https://www.amazon.jobs/en/jobs/10560207/hv-mv-senior-electrical-design-engineer",
+            "amazon_jobs:10560207",
+        ),
+        (
+            "https://www.amazon.jobs/en-gb/jobs/10560207/a-retitled-slug",
+            "amazon_jobs:10560207",
+        ),
+        ("https://www.amazon.jobs/jobs/10560207/no-language-segment", "amazon_jobs:10560207"),
     ],
 )
 def test_regional_platform_urls_canonicalize_to_stable_keys(url, expected):
@@ -69,6 +78,40 @@ def test_identity_keys_exclude_generic_urls_and_keep_provider_ids():
         "ashby:11111111-1111-1111-1111-111111111111",
         "greenhouse:4567890",
     ]
+
+
+def test_an_amazon_posting_is_a_strong_identity():
+    """`amazon_jobs` was a provider the identity rules had never heard of.
+
+    PR #63 added the provider and had `amazon_jobs_job` emit
+    `amazon_jobs:<id_icims>`, but `_STRONG_ID_PREFIXES` is derived from the URL
+    patterns and no Amazon pattern existed, so every Amazon candidate was
+    rejected by `candidate_contract` as a weak identity -- and because one bad
+    candidate fails the whole batch, the 22 other boards planned in the same
+    wave went down with it. Measured 2026-09-26 on a live round.
+    """
+    assert is_strong_identity_key("amazon_jobs:10560207")
+    assert all_identity_keys({"identity_keys": ["AMAZON_JOBS:10560207"]}) == [
+        "amazon_jobs:10560207"
+    ]
+
+
+def test_an_amazon_api_candidate_and_its_own_url_are_one_job():
+    """The point of the pattern rather than a bare prefix: the id the endpoint
+    returns is the id in the posting's URL, so a link found by any other route
+    has to land on the same key."""
+    job = {
+        "identity_keys": ["amazon_jobs:10560207"],
+        "url": "https://www.amazon.jobs/en/jobs/10560207/hv-mv-senior-electrical-design-engineer",
+    }
+    assert all_identity_keys(job) == ["amazon_jobs:10560207"]
+
+
+def test_an_amazon_search_page_is_not_a_posting():
+    """A listing URL carries no job id and must not become one."""
+    assert canonicalize_url(
+        "https://www.amazon.jobs/en/search?normalized_country_code%5B%5D=IRL"
+    ) == "amazon.jobs/en/search"
 
 
 def test_teamtailor_job_id_is_a_strong_identity():

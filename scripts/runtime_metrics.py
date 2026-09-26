@@ -172,6 +172,7 @@ _ATS_FIELDS = {
     "jobs_received",
     "jobs_normalized",
     "jobs_prefiltered",
+    "jobs_out_of_market",
     "jobs_emitted",
     "jobs_with_jd",
     "jobs_with_jd_emitted",

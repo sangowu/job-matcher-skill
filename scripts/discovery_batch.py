@@ -557,6 +557,13 @@ def _run_structured_channel(
             config=config,
             metrics_run_id=metrics_run_id,
             board_ids=set(board_ids.values()),
+            # The round is scoped to a market and only the plan knows it. A
+            # board lists every country it hires in, and the CV profile this
+            # channel prefilters against may name no location at all.
+            markets_by_board={
+                source_id: list(tasks[task_id].get("markets") or [])
+                for task_id, source_id in board_ids.items()
+            },
         )
     except Exception as error:  # noqa: BLE001 - one bad board must not lose the wave
         raise DiscoveryBatchError("structured channel failed") from error
@@ -576,7 +583,16 @@ def _run_structured_channel(
         )
 
     merge_candidates: list[dict[str, Any]] = []
-    for envelope, jd in ats_pipeline.to_candidate_envelopes(result.get("candidates") or []):
+    # Each candidate's `source_type` is checked against its task's below, so it
+    # is derived from the same task objects rather than read from the catalog a
+    # second time: the two cannot drift apart.
+    source_types = {
+        source_id: tasks[task_id].get("source_type")
+        for task_id, source_id in board_ids.items()
+    }
+    for envelope, jd in ats_pipeline.to_candidate_envelopes(
+        result.get("candidates") or [], source_types=source_types
+    ):
         task_id = task_of_board.get(envelope.get("source_id"))
         if task_id is None:
             raise DiscoveryBatchError("structured candidate belongs to no planned task")

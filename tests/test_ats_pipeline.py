@@ -12,6 +12,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import ats_pipeline  # noqa: E402
+import market_plan  # noqa: E402
 from ats_provider import AtsProviderError, FakeAtsProvider  # noqa: E402
 
 
@@ -405,7 +406,12 @@ def test_the_envelope_keeps_its_remote_scope_field_and_never_fills_it():
          "identity_keys": ["greenhouse:2"], "jd_text": "text"},
     ]
 
-    envelopes = [envelope for envelope, _ in ats_pipeline.to_candidate_envelopes(candidates)]
+    envelopes = [
+        envelope
+        for envelope, _ in ats_pipeline.to_candidate_envelopes(
+            candidates, source_types={"acme-greenhouse": "ats_board"}
+        )
+    ]
 
     for envelope in envelopes:
         assert "remote_scope" in envelope["location_normalized"]
@@ -414,3 +420,85 @@ def test_the_envelope_keeps_its_remote_scope_field_and_never_fills_it():
     # "Remote - US" used to resolve as worldwide; it now resolves as unknown.
     assert envelopes[1]["location_normalized"]["market_id"] is None
     assert envelopes[1]["location_normalized"]["confidence"] == "unknown"
+
+
+def test_a_candidate_whose_source_type_is_unknown_is_an_error():
+    """No default, because the default was the bug.
+
+    The builder used to write `ats_board` for every structured candidate. When
+    `amazon-jobs-ie` arrived as a `company_careers` source the label was simply
+    wrong, and nothing said so until `discovery_batch.py` compared it with the
+    task and threw the entire wave away. An unmapped source now fails here,
+    where the message names the field.
+    """
+    candidates = [
+        {"title": "AI Engineer", "company": "Acme", "location": "Dublin, Ireland",
+         "url": "https://example.com/jobs/1", "source_id": "acme-portal",
+         "identity_keys": ["greenhouse:1"], "jd_text": "text"},
+    ]
+
+    with pytest.raises(ats_pipeline.AtsPipelineError, match="source_type"):
+        ats_pipeline.to_candidate_envelopes(
+            candidates, source_types={"acme-portal": "public_sector_portal"}
+        )
+
+    with pytest.raises(ats_pipeline.AtsPipelineError, match="unmapped source_id"):
+        ats_pipeline.to_candidate_envelopes(candidates, source_types={})
+
+    # And the argument stays required: a caller that forgets it cannot fall back
+    # to a label that happens to be right for most boards.
+    with pytest.raises(TypeError, match="source_types"):
+        ats_pipeline.to_candidate_envelopes(candidates)
+def test_only_the_planned_markets_survive_the_prefilter():
+    """An empty `preferred_locations` used to mean "anywhere on earth".
+
+    `_location_matches` returns True when the profile lists no locations, and
+    `extract_cv.py` reports `target_locations` as missing for exactly the kind of
+    CV this skill is written for. The market scope has to come from the plan.
+    """
+    resources = market_plan.load_resources()[0]
+    jobs = [
+        {"title": "AI Engineer", "location": "Dublin, Ireland"},
+        {"title": "AI Engineer", "location": "London, United Kingdom"},
+        {"title": "AI Engineer", "location": "Seattle, WA"},
+    ]
+
+    kept = ats_pipeline.filter_to_markets(jobs, ["ie"], resources=resources)
+
+    assert [job["location"] for job in kept] == ["Dublin, Ireland"]
+    # A location the catalog cannot place is not this market's by default.
+    assert ats_pipeline.filter_to_markets(jobs, ["uk"], resources=resources) == [jobs[1]]
+    assert ats_pipeline.filter_to_markets(jobs, [], resources=resources) == []
+
+
+def test_a_board_fetched_without_a_planned_market_is_an_error(isolated_ats):
+    """Silently keeping the world for one board is how the wave died twice."""
+    provider = FakeAtsProvider([greenhouse_payload()])
+
+    with pytest.raises(ats_pipeline.AtsPipelineError, match="planned markets"):
+        ats_pipeline.sync_registry(
+            registry(board()), profile(), config=config(),
+            provider_client=provider, markets_by_board={"other-board": ["ie"]},
+        )
+
+
+def test_the_out_of_market_drop_is_counted_rather_than_silent(isolated_ats):
+    """One zero cannot mean both "nothing in this market" and "nothing to do"."""
+    provider = FakeAtsProvider([greenhouse_payload(location="London, United Kingdom")])
+    acme = board()
+    # The profile this matters for is the one with no locations of its own; with
+    # `preferred_locations` set, `_location_matches` would have caught London
+    # first and the market filter would never be reached.
+    no_locations = {"preferred_roles": ["AI Engineer"], "blocked_levels": ["lead"]}
+
+    result = ats_pipeline.sync_registry(
+        registry(acme), no_locations, config=config(),
+        provider_client=provider,
+        markets_by_board={acme["board_id"]: ["ie"]},
+    )
+
+    row = result["boards"][0]
+    assert row["jobs_prefiltered"] == 0
+    assert row["jobs_out_of_market"] == 1
+    assert result["summary"]["jobs_out_of_market"] == 1
+    assert result["candidates"] == []

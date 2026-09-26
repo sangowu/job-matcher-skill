@@ -25,6 +25,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 import ats_pipeline
+import job_prefilter
+import market_plan
 from candidate_contract import CandidateContractError, validate_candidate_envelope
 from candidate_handoff import run_merge_subprocess
 from runtime_metrics import record_metric, validate_run_id
@@ -499,6 +501,54 @@ def _validate_candidate_for_task(
     return normalized
 
 
+def _prefilter_reported_candidates(
+    normalized: list[dict[str, Any]],
+    *,
+    channel: str,
+    task: dict[str, Any],
+    profile: dict[str, Any] | None,
+    markets: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Hold a reported candidate to the same rule the boards are held to.
+
+    The structured channel runs `job_prefilter` inside this process. The
+    browser and Web Search channels reported `candidates_prefiltered` as a
+    number, and the only check on it was that the funnel did not widen -- so
+    whatever reading a worker had applied was the rule for two of the three
+    channels, and nothing here could tell a strict worker from a lax one.
+
+    The market is re-derived rather than believed for the same reason:
+    `location_normalized.market_id` arrives from the worker, and "Dublin, OH"
+    is exactly the claim the catalog exists to refuse. Where the catalog can
+    place the location it decides; where it cannot it stays quiet and the
+    worker's reading stands, because silence is not a contradiction.
+    """
+    if not normalized:
+        return [], {}
+    if profile is None:
+        raise DiscoveryBatchError(
+            "a batch carrying candidates requires --profile to prefilter them"
+        )
+    kept: list[dict[str, Any]] = []
+    dropped: dict[str, int] = {}
+    planned = task.get("markets") if channel == "structured" else [task.get("market_id")]
+    scope = {value for value in (planned or []) if value}
+    for candidate in normalized:
+        reason = job_prefilter.rejection_reason(candidate, profile)
+        if reason is None and scope:
+            placed = market_plan.normalize_location(candidate.get("location"), markets)
+            contradicted = placed["market_ids"] and not scope & set(
+                placed["market_ids"]
+            )
+            if contradicted or placed["location_type"] == "foreign":
+                reason = "market"
+        if reason is None:
+            kept.append(candidate)
+        else:
+            dropped[reason] = dropped.get(reason, 0) + 1
+    return kept, dropped
+
+
 STRUCTURED_FAILURE = "ats_fetch_failed"
 
 
@@ -631,9 +681,12 @@ def _validate_results(
     tasks: dict[str, tuple[str, dict[str, Any]]],
     known_sources: set[str],
     self_executed: frozenset[str] = frozenset(),
+    profile: dict[str, Any] | None = None,
+    markets: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if not isinstance(raw_results, list):
         raise DiscoveryBatchError("task_results must be a list")
+    markets = market_plan.load_resources()[0] if markets is None else markets
     # Fall through to the per-result loop below; the page contract lives in
     # _validate_search_pages so both the loop and its tests read one rule.
     by_task: dict[str, dict[str, Any]] = {}
@@ -716,15 +769,22 @@ def _validate_results(
             )
             for candidate in candidates
         ]
-        combined.extend(normalized)
+        kept, dropped = _prefilter_reported_candidates(
+            normalized, channel=channel, task=task, profile=profile, markets=markets
+        )
+        combined.extend(kept)
         counts[status] += 1
         channel_counts[channel][status] += 1
         by_task[task_id] = {
             "status": status,
             "failure_kind": failure_kind,
             "candidates_raw": raw_count,
+            # What the worker said it kept, beside what this rule kept of it.
+            # Both are reported: a large gap is the worker reading the rule
+            # differently, which is worth seeing rather than smoothing over.
             "candidates_prefiltered": prefiltered,
-            "candidates_unique": len(normalized),
+            "candidates_dropped": dropped,
+            "candidates_unique": len(kept),
             "pages": pages,
         }
     missing = sorted(set(tasks) - set(by_task) - self_executed)
@@ -737,6 +797,7 @@ def _validate_results(
         "candidates_prefiltered": sum(
             value["candidates_prefiltered"] for value in by_task.values()
         ),
+        "candidates_dropped": _sum_drops(by_task.values()),
         "candidates_validated": len(combined),
         "channels": channel_counts,
         "search_pages": [
@@ -750,6 +811,14 @@ def _validate_results(
             for page in value["pages"]
         ),
     }
+
+
+def _sum_drops(values: Any) -> dict[str, int]:
+    totals: dict[str, int] = {}
+    for value in values:
+        for reason, count in value["candidates_dropped"].items():
+            totals[reason] = totals.get(reason, 0) + count
+    return dict(sorted(totals.items()))
 
 
 def _validate_progress(value: Any, *, allow_legacy_has_more: bool) -> dict[str, Any]:
@@ -881,9 +950,11 @@ def run_discovery_batch(
         task_id: task for task_id, (channel, task) in tasks.items()
         if channel == "structured"
     }
+    profile = _read_json(profile_path, "profile") if profile_path else None
     candidates, task_summary = _validate_results(
         payload.get("task_results"), tasks, known_sources,
         self_executed=frozenset(structured_tasks),
+        profile=profile,
     )
     progress = _validate_progress(
         payload.get("progress"), allow_legacy_has_more=not wave["managed"]
@@ -925,7 +996,7 @@ def run_discovery_batch(
         structured_candidates, structured_outcomes = _run_structured_channel(
             structured_tasks,
             config=config,
-            profile=_read_json(profile_path, "profile") if profile_path else None,
+            profile=profile,
             known_sources=known_sources,
             metrics_run_id=metrics_run_id,
             ats_sync=ats_sync,

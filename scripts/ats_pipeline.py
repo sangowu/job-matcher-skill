@@ -16,6 +16,19 @@ from urllib.parse import urlparse
 
 from _jobutil import load_config, normalize_company
 from _stdio import StdinUnavailable, read_stdin_text, use_utf8_stdout
+# The prefilter is a rule about jobs, not about this channel; it lives in
+# its own module now so the browser and Web Search channels are held to the
+# same one. Re-exported here because these names are this module's API to
+# its existing callers.
+from job_prefilter import (  # noqa: F401
+    _location_matches,
+    _normalized_text,
+    _role_families,
+    _seniority_matches,
+    _title_matches,
+    prefilter_jobs,
+    rejection_reason,
+)
 from ats_provider import AtsProvider, HttpAtsProvider, RequestBudget, fetch_board
 from runtime_metrics import record_metric, validate_run_id
 import market_plan
@@ -32,7 +45,6 @@ _UNAVAILABLE_STATUSES = {404, 410}
 # alone cannot tell the two apart -- half of them name the eligible countries,
 # or even the eligible US states, only in the description. Rather than guess a
 # jurisdiction, a round does not search remote work at all. See docs/roadmap.md.
-_REMOTE_TERMS = ("remote", "anywhere", "distributed", "远程")
 # Not every structured source is an ATS board. `amazon-jobs-ie` is catalogued
 # as `company_careers` reading a `public_read_only_endpoint`, and
 # `discovery_batch.py` checks each candidate's `source_type` against the type
@@ -45,34 +57,6 @@ _STRUCTURED_ROUTES = {
     "ats_board": "ats_expansion",
     "company_careers": "company_careers",
 }
-_LEVEL_TERMS = {
-    "intern": ("intern", "internship", "实习"),
-    "new_grad": ("graduate", "new grad", "entry level", "校招", "应届"),
-    "junior": ("junior", "jr ", "初级"),
-    "mid": ("mid-level", "mid level", "intermediate", "中级"),
-    "senior": ("senior", "sr ", "资深", "高级"),
-    "lead": ("lead", "principal", "staff", "architect", "manager", "主管", "负责人"),
-}
-_ROLE_FAMILIES = {
-    "applied_ai": (
-        "ai engineer", "ai developer", "artificial intelligence", "machine learning",
-        "ml engineer", "ai evaluation", "ai systems", "agent systems", "agentic ai",
-        "llm", "nlp", "data scientist", "算法工程师", "人工智能", "机器学习",
-    ),
-    "backend": ("backend", "back-end", "server-side", "后端"),
-    "frontend": ("frontend", "front-end", "前端"),
-    "fullstack": ("full stack", "full-stack", "全栈"),
-    "data": ("data engineer", "analytics engineer", "数据工程"),
-    "platform": ("devops", "site reliability", "sre", "cloud engineer", "平台工程"),
-    "product": ("product manager", "产品经理"),
-}
-_GENERIC_TITLE_TOKENS = {
-    "ai", "artificial", "intelligence", "engineer", "engineering", "developer",
-    "specialist", "manager", "lead", "senior", "junior", "staff", "principal",
-    "工程师", "开发", "经理", "高级", "初级",
-}
-
-
 class AtsPipelineError(ValueError):
     pass
 
@@ -232,76 +216,6 @@ def discover_candidates(
             existing += 1
     registry["schema_version"] = 1
     return {"discovered": discovered, "existing": existing, "registry_size": len(boards)}
-
-
-def _normalized_text(value: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"[^\w+#.]+", " ", value or "").lower()).strip()
-
-
-def _role_families(value: str) -> set[str]:
-    normalized = _normalized_text(value)
-    return {
-        family for family, terms in _ROLE_FAMILIES.items()
-        if any(_normalized_text(term) in normalized for term in terms)
-    }
-
-
-def _title_matches(title: str, roles: list[str]) -> bool:
-    if not roles:
-        return True
-    normalized_title = _normalized_text(title)
-    title_families = _role_families(title)
-    title_tokens = set(normalized_title.split()) - _GENERIC_TITLE_TOKENS
-    for role in roles:
-        normalized_role = _normalized_text(str(role))
-        if normalized_role and (
-            normalized_role in normalized_title or normalized_title in normalized_role
-        ):
-            return True
-        if title_families & _role_families(str(role)):
-            return True
-        role_tokens = set(normalized_role.split()) - _GENERIC_TITLE_TOKENS
-        if title_tokens & role_tokens:
-            return True
-    return False
-
-
-def _location_matches(location: str, locations: list[str]) -> bool:
-    normalized = _normalized_text(location)
-    if not normalized or not locations:
-        return True
-    if any(term in normalized for term in _REMOTE_TERMS):
-        return False
-    return any(
-        (preferred := _normalized_text(str(value)))
-        and (preferred in normalized or normalized in preferred)
-        for value in locations
-    )
-
-
-def _seniority_matches(title: str, blocked_levels: list[str]) -> bool:
-    normalized = f"{_normalized_text(title)} "
-    detected = {
-        level for level, terms in _LEVEL_TERMS.items()
-        if any(term in normalized for term in terms)
-    }
-    return not (detected & {str(level) for level in blocked_levels})
-
-
-def prefilter_jobs(jobs: list[dict[str, Any]], profile: dict[str, Any]) -> list[dict[str, Any]]:
-    roles = [str(value) for value in (profile.get("roles") or profile.get("preferred_roles") or [])]
-    locations = [
-        str(value) for value in (
-            profile.get("locations") or profile.get("preferred_locations") or []
-        )
-    ]
-    blocked_levels = [str(value) for value in (profile.get("blocked_levels") or [])]
-    return [
-        job for job in jobs
-        if _title_matches(str(job.get("title") or ""), roles)
-        and _location_matches(str(job.get("location") or ""), locations)
-        and _seniority_matches(str(job.get("title") or ""), blocked_levels)
-    ]
 
 
 def filter_to_markets(

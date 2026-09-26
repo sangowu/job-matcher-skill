@@ -31,7 +31,7 @@
   "discovery_mode": "coverage",
   "cookie_consent_policy": "necessary_only",
   "discovery_max_waves": 3,
-  "browser_sources_per_market": 2,
+  "browser_sources_per_market": 4,
   "browser_first_wave": 2,
   "browser_queries_per_source": 2,
   "web_queries_per_market_per_wave": 2,

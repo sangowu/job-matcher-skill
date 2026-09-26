@@ -95,7 +95,8 @@ job-matcher/
 │   ├── browser_setup.py      # 一次性 localhost 配置页面
 │   ├── browser_workflow.py   # 列表翻页/暂停状态机
 │   ├── ats_provider.py       # Ashby/Greenhouse/Lever 公开 GET 适配器与 Fake
-│   ├── ats_pipeline.py       # ATS 标识库、初筛、同步与候选归一化
+│   ├── job_prefilter.py      # 角色/地点/资历确定性初筛，三个通道共用一份规则
+│   ├── ats_pipeline.py       # ATS 标识库、同步与候选归一化
 │   ├── ats_handoff.py        # ATS 正文内存直送统一 merge，避免主上下文暴露
 │   ├── board_harvest.py      # 从职位 URL 反推 ATS board，复验后写入来源注册表
 │   ├── seed_promotion.py    # 把已复验的采集来源提升进版本控制的种子目录

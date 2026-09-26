@@ -136,9 +136,16 @@ def board_row(source_id: str = BOARD, *, ok: bool = True, **overrides) -> dict:
 
 
 def fake_sync(candidates, boards, *, seen=None):
-    def sync(registry, profile, *, config, metrics_run_id, board_ids):
+    # `markets_by_board` is required, not optional: the round's market scope is
+    # something only the plan knows, and a channel that can be called without it
+    # is a channel that will be.
+    def sync(registry, profile, *, config, metrics_run_id, board_ids, markets_by_board):
         if seen is not None:
-            seen.append({"board_ids": set(board_ids), "profile": profile})
+            seen.append({
+                "board_ids": set(board_ids),
+                "profile": profile,
+                "markets_by_board": markets_by_board,
+            })
         return {"ok": True, "candidates": list(candidates), "boards": list(boards)}
     return sync
 
@@ -214,6 +221,68 @@ def test_the_wave_fetches_its_structured_jobs_and_commits_them_in_one_merge(
     assert result["task_summary"]["channels"]["structured"]["succeeded"] == 1
 
 
+def amazon_task(value: dict) -> dict:
+    """Recatalogue the wave's one structured task as amazon-jobs-ie.
+
+    Its `access_method` is `public_read_only_endpoint` and its `source_type` is
+    `company_careers`: the structured channel is not only ATS boards.
+    """
+    task = value["discovery_plan"]["tasks"]["structured"][0]
+    task.update(
+        source_id="amazon-jobs-ie",
+        source_type="company_careers",
+        provider="amazon_jobs",
+        board_token="IRL",
+        access_method="public_read_only_endpoint",
+    )
+    return value
+
+
+def amazon_job() -> dict:
+    job = ats_job("10560207", source_id="amazon-jobs-ie")
+    job.update(
+        company="Amazon",
+        url="https://www.amazon.jobs/en/jobs/10560207/software-development-engineer",
+        source="amazon_jobs",
+        identity_keys=["amazon_jobs:10560207"],
+    )
+    return job
+
+
+def test_a_company_careers_source_is_not_relabelled_as_an_ats_board(
+    ats_config, tmp_path
+):
+    """One wrong field on one board emptied a whole round.
+
+    `amazon-jobs-ie` is catalogued as `company_careers`, and the envelope
+    builder used to stamp `ats_board` on every structured candidate regardless.
+    `_validate_candidate_for_task` compares that field against the type the task
+    carries from the catalog, and one mismatch aborts the batch -- so the
+    2026-09-26 round fetched 23 boards and 4,187 jobs and committed none of
+    them, Amazon's and everyone else's alike.
+    """
+    merge_calls: list = []
+
+    run(ats_config, amazon_task(payload()), tmp_path, merge_calls=merge_calls,
+        ats_sync=fake_sync([amazon_job()], [board_row("amazon-jobs-ie")]))
+
+    committed = merge_calls[0][0]
+    assert committed["source_type"] == "company_careers"
+    assert committed["discovery_route"] == "company_careers"
+
+
+def test_an_ats_board_still_reports_itself_as_ats_expansion(ats_config, tmp_path):
+    """The other half of the mapping: a board's route is not the careers route."""
+    merge_calls: list = []
+
+    run(ats_config, payload(), tmp_path, merge_calls=merge_calls,
+        ats_sync=fake_sync([ats_job("1")], [board_row()]))
+
+    committed = merge_calls[0][0]
+    assert committed["source_type"] == "ats_board"
+    assert committed["discovery_route"] == "ats_expansion"
+
+
 def test_the_structured_counts_are_measured_rather_than_taken_on_trust(
     ats_config, tmp_path
 ):
@@ -273,6 +342,22 @@ def test_only_the_boards_this_wave_planned_are_fetched(ats_config, tmp_path):
         ats_sync=fake_sync([ats_job("1")], [board_row()], seen=seen))
 
     assert seen[0]["board_ids"] == {BOARD}, "wave:2's board must wait its turn"
+
+
+def test_each_board_is_scoped_to_the_markets_its_task_plans(ats_config, tmp_path):
+    """The CV profile cannot supply this and the board will not volunteer it.
+
+    A global board lists every country it hires in, and `prefilter_jobs` reads
+    locations off the CV profile -- which for a profile whose `target_locations`
+    came back missing means no location filter at all. The scope comes from the
+    task.
+    """
+    seen: list = []
+
+    run(ats_config, payload(), tmp_path,
+        ats_sync=fake_sync([ats_job("1")], [board_row()], seen=seen))
+
+    assert seen[0]["markets_by_board"] == {BOARD: ["ie"]}
 
 
 def test_the_profile_the_boards_are_prefiltered_against_is_the_cv_profile(

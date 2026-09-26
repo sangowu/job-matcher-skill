@@ -33,6 +33,18 @@ _UNAVAILABLE_STATUSES = {404, 410}
 # or even the eligible US states, only in the description. Rather than guess a
 # jurisdiction, a round does not search remote work at all. See docs/roadmap.md.
 _REMOTE_TERMS = ("remote", "anywhere", "distributed", "远程")
+# Not every structured source is an ATS board. `amazon-jobs-ie` is catalogued
+# as `company_careers` reading a `public_read_only_endpoint`, and
+# `discovery_batch.py` checks each candidate's `source_type` against the type
+# its task carries from the catalog, so a hardcoded `ats_board` made every
+# Amazon candidate mismatch its own task. One mismatch fails the whole wave:
+# 2026-09-26 fetched 23 boards and 4,187 jobs and committed none of them.
+# The caller supplies the catalogued type per source and an unmapped type is
+# an error, because a default is what mislabelled this one in silence.
+_STRUCTURED_ROUTES = {
+    "ats_board": "ats_expansion",
+    "company_careers": "company_careers",
+}
 _LEVEL_TERMS = {
     "intern": ("intern", "internship", "实习"),
     "new_grad": ("graduate", "new grad", "entry level", "校招", "应届"),
@@ -292,6 +304,36 @@ def prefilter_jobs(jobs: list[dict[str, Any]], profile: dict[str, Any]) -> list[
     ]
 
 
+def filter_to_markets(
+    jobs: list[dict[str, Any]],
+    markets: list[str],
+    *,
+    resources: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Keep only the jobs the market plan attributes to one of `markets`.
+
+    A round is scoped to a market and the structured channel had no way to know
+    it. `prefilter_jobs` reads locations off the CV profile, and this profile
+    lists none -- `extract_cv.py` reports `target_locations` as missing -- so
+    `_location_matches` read "no preferred locations" as "anywhere" and a global
+    board's entire world passed. That spent the candidate cap on postings
+    outside the round, and then aborted the whole wave as soon as one of them
+    landed in another supported market, because `discovery_batch.py` checks each
+    candidate's market against its task's (2026-09-26: 23 boards fetched, 4,187
+    jobs, nothing committed).
+
+    A job whose location resolves to no market at all is dropped too. "Seattle,
+    WA" is not an Irish posting just because the catalog has no US market.
+    """
+    scoped = set(markets)
+    kept = []
+    for job in jobs:
+        location = market_plan.normalize_location(job.get("location"), resources)
+        if scoped & set(location["market_ids"]):
+            kept.append(job)
+    return kept
+
+
 def _clean_candidate(job: dict[str, Any], board_id: str) -> dict[str, Any]:
     fields = (
         "title", "company", "location", "url", "snippet", "salary",
@@ -315,6 +357,7 @@ def _clean_candidate(job: dict[str, Any], board_id: str) -> dict[str, Any]:
 def to_candidate_envelopes(
     candidates: list[dict[str, Any]],
     *,
+    source_types: dict[str, str],
     markets: dict[str, Any] | None = None,
     now: datetime | None = None,
 ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
@@ -327,6 +370,11 @@ def to_candidate_envelopes(
     it: the contract stays intact and the text never has to pass through the
     orchestrator on its way to the merge.
 
+    `source_types` maps each candidate's `source_id` to the `source_type` the
+    public catalog gives that source. It has no default: the envelope must say
+    which kind of source the posting actually came from, and the caller is the
+    one holding the catalog.
+
     Returns one `(envelope, jd)` pair per candidate, in the order given.
     """
     resolved = markets if markets is not None else market_plan.load_resources()[0]
@@ -337,6 +385,13 @@ def to_candidate_envelopes(
     }
     pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for candidate in candidates:
+        source_type = source_types.get(candidate.get("source_id", ""))
+        route = _STRUCTURED_ROUTES.get(source_type or "")
+        if route is None:
+            raise AtsPipelineError(
+                "structured candidate has no catalogued source_type: "
+                f"{source_type or 'unmapped source_id'}"
+            )
         location = market_plan.normalize_location(candidate.get("location"), resolved)
         market_ids = location["market_ids"]
         # Exactly one market is an attribution. Several is a guess, so say
@@ -352,8 +407,8 @@ def to_candidate_envelopes(
             "date_posted": candidate.get("date_posted", ""),
             "source": candidate.get("source", ""),
             "source_id": candidate.get("source_id", ""),
-            "source_type": "ats_board",
-            "discovery_route": "ats_expansion",
+            "source_type": source_type,
+            "discovery_route": route,
             # No search happened here; this is the board API's own language.
             "search_language": languages.get(market_id, "en"),
             "observed_at": observed_at,
@@ -421,7 +476,12 @@ def _bounded_number(
     return value
 
 
-def _safe_state_row(board: dict[str, Any], metrics: dict[str, Any], filtered: int) -> dict[str, Any]:
+def _safe_state_row(
+    board: dict[str, Any],
+    metrics: dict[str, Any],
+    filtered: int,
+    out_of_market: int = 0,
+) -> dict[str, Any]:
     return {
         "board_id": board["board_id"],
         "provider": metrics.get("provider", board.get("provider", "unknown")),
@@ -436,6 +496,9 @@ def _safe_state_row(board: dict[str, Any], metrics: dict[str, Any], filtered: in
         "jobs_with_jd": int(metrics.get("jobs_with_jd", 0)),
         "jd_text_truncated": int(metrics.get("jd_text_truncated", 0)),
         "jobs_prefiltered": filtered,
+        # Without this, a board with nothing in this market and a board with
+        # nothing matching the role both report the same single zero.
+        "jobs_out_of_market": out_of_market,
         "truncated": bool(metrics.get("truncated")),
         "rate_limited": bool(metrics.get("rate_limited")),
         "content_fallback": bool(metrics.get("content_fallback")),
@@ -454,12 +517,19 @@ def sync_registry(
     provider_client: AtsProvider | None = None,
     metrics_run_id: str | None = None,
     board_ids: set[str] | None = None,
+    markets_by_board: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
     """Synchronize eligible boards and return bounded merge-ready candidates.
 
     `board_ids` restricts the run to those boards. A discovery wave plans a
     specific set of structured tasks, and a candidate from a board outside that
     set has no task to be attributed to.
+
+    `markets_by_board` scopes each board to the markets its task plans. Without
+    it the channel keeps every country the board lists, which is right for
+    registry maintenance and wrong for a market-scoped round; a board that is
+    fetched but missing from the mapping is an error rather than a board with
+    no scope.
     """
     cfg = config or load_config()
     if not cfg.get("ats_enabled", False):
@@ -530,6 +600,9 @@ def sync_registry(
 
     state_rows: list[dict[str, Any]] = []
     filtered_by_board: list[list[dict[str, Any]]] = []
+    market_resources = (
+        market_plan.load_resources()[0] if markets_by_board is not None else {}
+    )
     for board, (metrics, jobs) in zip(eligible, results):
         board["last_attempt_at"] = now.isoformat()
         if metrics.get("ok"):
@@ -543,8 +616,24 @@ def sync_registry(
         else:
             board["consecutive_unavailable"] = 0
         filtered = prefilter_jobs(jobs, profile)
-        filtered_by_board.append(filtered)
-        state_rows.append(_safe_state_row(board, metrics, len(filtered)))
+        if markets_by_board is None:
+            in_market = filtered
+        else:
+            planned = markets_by_board.get(board["board_id"])
+            if planned is None:
+                raise AtsPipelineError(
+                    "a fetched board has no planned markets: "
+                    f"{board['board_id']}"
+                )
+            in_market = filter_to_markets(
+                filtered, planned, resources=market_resources
+            )
+        filtered_by_board.append(in_market)
+        state_rows.append(
+            _safe_state_row(
+                board, metrics, len(in_market), len(filtered) - len(in_market)
+            )
+        )
 
     candidate_limit = min(
         100,
@@ -609,6 +698,9 @@ def sync_registry(
             ),
             "jd_text_truncated": sum(row["jd_text_truncated"] for row in state_rows),
             "jobs_prefiltered": sum(row["jobs_prefiltered"] for row in state_rows),
+            "jobs_out_of_market": sum(
+                row["jobs_out_of_market"] for row in state_rows
+            ),
             "jobs_emitted": len(emitted),
             "content_fallback_boards": sum(
                 row["content_fallback"] for row in state_rows

@@ -241,6 +241,7 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `stop_threshold` | 12 | stop once enough net-valid jobs found |
 | `consecutive_empty_stop` | 2 | stop after N consecutive empty batches |
 | `ats_enabled` | false | enable the public ATS enhancement pipeline; explicitly off by default |
+| `ats_defer_jd` | true | read the listing without job descriptions, then fetch one description per posting the round keeps; false restores one request per board with the descriptions inline |
 | `ats_max_concurrency` | 3 | hard cap for concurrent ATS boards |
 | `ats_boards_per_round` | 30 | hard cap for boards synced per round (pipeline ceiling 30) |
 | `ats_requests_per_round` | 100 | hard cap for ATS HTTP requests per round |

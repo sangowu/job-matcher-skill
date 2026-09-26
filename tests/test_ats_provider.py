@@ -511,3 +511,97 @@ def test_the_two_provider_sets_say_different_things():
     assert set(ats_provider.ATS_PROVIDERS) < set(ats_provider.PROVIDERS)
     assert "amazon_jobs" in ats_provider.PROVIDERS
     assert "amazon_jobs" not in ats_provider.ATS_PROVIDERS
+
+
+def test_deferred_greenhouse_listing_omits_content_and_keeps_identity_fields():
+    """The prefilter and the identity key need the listing, not the JD."""
+    provider = FakeAtsProvider([{"jobs": [{
+        "id": 123,
+        "title": "AI Engineer",
+        "location": {"name": "Dublin"},
+        "absolute_url": "https://job-boards.greenhouse.io/acme/jobs/123",
+    }]}])
+
+    metrics, jobs = ats_provider.fetch_board(
+        {"provider": "greenhouse", "company": "Acme", "board_token": "acme"},
+        provider_client=provider,
+        defer_content=True,
+    )
+
+    assert provider.calls == ["https://boards-api.greenhouse.io/v1/boards/acme/jobs"]
+    assert metrics["content_deferred"] is True
+    assert metrics["jobs_with_jd"] == 0
+    assert jobs[0]["identity_keys"] == ["greenhouse:123"]
+    assert jobs[0]["title"] == "AI Engineer"
+    assert jobs[0]["jd_text"] == ""
+
+
+def test_fetch_job_content_fills_descriptions_in_place():
+    provider = FakeAtsProvider([{"content": "<p>Real JD</p>"}])
+    jobs = [{"provider_job_id": "123", "jd_text": "", "jd_text_truncated": False}]
+
+    metrics = ats_provider.fetch_job_content(
+        {"provider": "greenhouse", "company": "Acme", "board_token": "acme"},
+        jobs,
+        provider_client=provider,
+    )
+
+    assert provider.calls == ["https://boards-api.greenhouse.io/v1/boards/acme/jobs/123"]
+    assert metrics["jobs_filled"] == 1
+    assert metrics["jobs_failed"] == 0
+    assert jobs[0]["jd_text"] == "Real JD"
+
+
+def test_fetch_job_content_stops_at_an_exhausted_budget_without_failing():
+    """A spent budget is the round's limit, not this board's failure."""
+    provider = FakeAtsProvider([{"content": "First"}])
+    jobs = [{"provider_job_id": "1"}, {"provider_job_id": "2"}, {"provider_job_id": "3"}]
+    budget = ats_provider.RequestBudget(1)
+
+    metrics = ats_provider.fetch_job_content(
+        {"provider": "greenhouse", "company": "Acme", "board_token": "acme"},
+        jobs,
+        provider_client=provider,
+        request_budget=budget,
+    )
+
+    assert metrics["ok"] is True
+    assert metrics["jobs_filled"] == 1
+    assert metrics["jobs_skipped"] == 2
+    assert metrics["jobs_failed"] == 0
+    assert len(provider.calls) == 1
+
+
+def test_fetch_job_content_refuses_a_posting_id_that_is_not_one():
+    """The id goes into a URL path, so it is checked rather than trusted."""
+    provider = FakeAtsProvider([])
+    jobs = [{"provider_job_id": "../../boards/other/jobs/1"}]
+
+    metrics = ats_provider.fetch_job_content(
+        {"provider": "greenhouse", "company": "Acme", "board_token": "acme"},
+        jobs,
+        provider_client=provider,
+    )
+
+    assert provider.calls == []
+    assert metrics["jobs_skipped"] == 1
+    assert metrics["jobs_filled"] == 0
+
+
+def test_a_provider_with_no_content_free_listing_ignores_the_defer_flag():
+    provider = FakeAtsProvider([{"jobs": [{
+        "title": "AI Engineer",
+        "location": "Dublin",
+        "jobUrl": "https://jobs.ashbyhq.com/acme/11111111-1111-4111-8111-111111111111",
+        "descriptionPlain": "Ashby JD",
+    }]}])
+
+    metrics, jobs = ats_provider.fetch_board(
+        {"provider": "ashby", "company": "Acme", "board_token": "acme"},
+        provider_client=provider,
+        defer_content=True,
+    )
+
+    assert metrics["content_deferred"] is False
+    assert metrics["jobs_with_jd"] == 1
+    assert jobs[0]["jd_text"] == "Ashby JD"

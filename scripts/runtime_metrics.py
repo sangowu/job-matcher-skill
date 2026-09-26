@@ -177,9 +177,17 @@ _ATS_FIELDS = {
     "jobs_with_jd",
     "jobs_with_jd_emitted",
     "jd_text_truncated",
+    # The second pass, when the listing was read without its descriptions.
+    # Separate from `requests` -- which counts both -- because "how many
+    # descriptions did this round pay for" is the question deferring them was
+    # meant to answer, and a total cannot answer it.
+    "jd_requests",
+    "jd_fetch_failed",
+    "jd_fetch_skipped",
     "truncated",
     "rate_limited",
     "content_fallback",
+    "content_deferred",
     "http_status",
 }
 _RUN_START_FIELDS = {

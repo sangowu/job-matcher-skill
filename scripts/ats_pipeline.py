@@ -16,7 +16,13 @@ from urllib.parse import urlparse
 
 from _jobutil import load_config, normalize_company
 from _stdio import StdinUnavailable, read_stdin_text, use_utf8_stdout
-from ats_provider import AtsProvider, HttpAtsProvider, RequestBudget, fetch_board
+from ats_provider import (
+    AtsProvider,
+    HttpAtsProvider,
+    RequestBudget,
+    fetch_board,
+    fetch_job_content,
+)
 from runtime_metrics import record_metric, validate_run_id
 import market_plan
 import source_registry
@@ -476,6 +482,45 @@ def _bounded_number(
     return value
 
 
+def _fill_deferred_jd(
+    selected: list[tuple[dict[str, Any], dict[str, Any]]],
+    eligible: list[dict[str, Any]],
+    *,
+    provider_client: AtsProvider,
+    timeout_seconds: float,
+    request_budget: RequestBudget,
+    max_concurrency: int,
+) -> dict[str, dict[str, Any]]:
+    """Fetch the descriptions the kept postings are missing, per board.
+
+    Grouped by board and serial within one, because these are one host's
+    postings and the listing they replaced was a single request. Boards run
+    concurrently under the same cap and the same request budget as the
+    listings, so the second pass cannot outspend the first.
+    """
+    by_board: dict[str, list[dict[str, Any]]] = {}
+    for board, job in selected:
+        if job.get("jd_text"):
+            continue
+        by_board.setdefault(board["board_id"], []).append(job)
+    if not by_board:
+        return {}
+    boards_by_id = {board["board_id"]: board for board in eligible}
+
+    def run(item: tuple[str, list[dict[str, Any]]]) -> tuple[str, dict[str, Any]]:
+        board_id, jobs = item
+        return board_id, fetch_job_content(
+            boards_by_id[board_id],
+            jobs,
+            provider_client=provider_client,
+            timeout_seconds=timeout_seconds,
+            request_budget=request_budget,
+        )
+
+    with ThreadPoolExecutor(max_workers=max_concurrency) as executor:
+        return dict(executor.map(run, sorted(by_board.items())))
+
+
 def _safe_state_row(
     board: dict[str, Any],
     metrics: dict[str, Any],
@@ -499,9 +544,16 @@ def _safe_state_row(
         # Without this, a board with nothing in this market and a board with
         # nothing matching the role both report the same single zero.
         "jobs_out_of_market": out_of_market,
+        # Present on every row whether or not this board deferred anything, so
+        # a board that fetched no descriptions and a board whose second pass
+        # was never recorded do not read the same.
+        "jd_requests": 0,
+        "jd_fetch_failed": 0,
+        "jd_fetch_skipped": 0,
         "truncated": bool(metrics.get("truncated")),
         "rate_limited": bool(metrics.get("rate_limited")),
         "content_fallback": bool(metrics.get("content_fallback")),
+        "content_deferred": bool(metrics.get("content_deferred")),
         "failure_kind": str(metrics.get("failure_kind") or ""),
         "http_status": metrics.get("http_status"),
         "duration_ms": float(metrics.get("duration_ms", 0)),
@@ -555,6 +607,11 @@ def sync_registry(
     max_pages = int(_bounded_number(cfg, "ats_max_pages", 10, 1, 10))
     timeout_seconds = _bounded_number(cfg, "ats_timeout_seconds", 30, 1, 60)
     max_concurrency = int(_bounded_number(cfg, "ats_max_concurrency", 3, 1, 3))
+    # Read the listings without their job descriptions and fetch the
+    # descriptions afterwards, for the postings this round keeps. Off restores
+    # the single-request-per-board shape for a caller that wants every
+    # description regardless of what the round selects.
+    defer_jd = cfg.get("ats_defer_jd", True) is not False
     selectable = [
         board for board in boards
         if isinstance(board, dict)
@@ -592,6 +649,7 @@ def sync_registry(
             max_pages=max_pages,
             timeout_seconds=timeout_seconds,
             request_budget=budget,
+            defer_content=defer_jd,
         )
 
     started = time.monotonic()
@@ -640,24 +698,61 @@ def sync_registry(
         int(_bounded_number(cfg, "top_n", 15, 1, 100))
         + int(_bounded_number(cfg, "precise_buffer", 5, 0, 100)),
     )
+    # Selection first, descriptions second. The cap is what makes deferring
+    # them worth anything: the round keeps at most `candidate_limit` postings,
+    # so fetching each kept description is bounded by that number rather than
+    # by how many jobs the boards happen to list.
     seen_identities: set[str] = set()
-    emitted: list[dict[str, Any]] = []
-    emitted_by_board: dict[str, int] = {}
-    emitted_with_jd_by_board: dict[str, int] = {}
+    selected: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for board, jobs in zip(eligible, filtered_by_board):
         for job in jobs:
             identity = str((job.get("identity_keys") or [""])[0])
             if not identity or identity in seen_identities:
                 continue
-            if len(emitted) >= candidate_limit:
+            if len(selected) >= candidate_limit:
                 break
             seen_identities.add(identity)
-            emitted.append(_clean_candidate(job, board["board_id"]))
-            emitted_by_board[board["board_id"]] = emitted_by_board.get(board["board_id"], 0) + 1
-            if job.get("jd_text"):
-                emitted_with_jd_by_board[board["board_id"]] = (
-                    emitted_with_jd_by_board.get(board["board_id"], 0) + 1
-                )
+            selected.append((board, job))
+
+    jd_rows_by_board = _fill_deferred_jd(
+        selected,
+        eligible,
+        provider_client=client,
+        timeout_seconds=timeout_seconds,
+        request_budget=budget,
+        max_concurrency=max_concurrency,
+    ) if defer_jd else {}
+
+    emitted: list[dict[str, Any]] = []
+    emitted_by_board: dict[str, int] = {}
+    emitted_with_jd_by_board: dict[str, int] = {}
+    for board, job in selected:
+        board_id = board["board_id"]
+        emitted.append(_clean_candidate(job, board_id))
+        emitted_by_board[board_id] = emitted_by_board.get(board_id, 0) + 1
+        if job.get("jd_text"):
+            emitted_with_jd_by_board[board_id] = (
+                emitted_with_jd_by_board.get(board_id, 0) + 1
+            )
+
+    for row in state_rows:
+        jd_metrics = jd_rows_by_board.get(row["board_id"])
+        if jd_metrics is None:
+            continue
+        # The second pass is the same board's traffic, so it lands on the same
+        # row rather than in a channel total nobody can attribute.
+        row["requests"] += jd_metrics["requests"]
+        row["response_bytes"] += jd_metrics["response_bytes"]
+        row["jd_requests"] = jd_metrics["requests"]
+        row["jd_fetch_failed"] = jd_metrics["jobs_failed"]
+        row["jd_fetch_skipped"] = jd_metrics["jobs_skipped"]
+        row["jobs_with_jd"] += jd_metrics["jobs_filled"]
+        row["jd_text_truncated"] += jd_metrics["jd_text_truncated"]
+        if jd_metrics["rate_limited"]:
+            row["rate_limited"] = True
+        # Not `failure_kind`: that field says why this board failed, and a
+        # board whose listing answered has not failed because one of its
+        # descriptions did not. The count carries that.
 
     metrics_recorded = True
     for row in state_rows:
@@ -702,8 +797,14 @@ def sync_registry(
                 row["jobs_out_of_market"] for row in state_rows
             ),
             "jobs_emitted": len(emitted),
+            "jd_requests": sum(row["jd_requests"] for row in state_rows),
+            "jd_fetch_failed": sum(row["jd_fetch_failed"] for row in state_rows),
+            "jd_fetch_skipped": sum(row["jd_fetch_skipped"] for row in state_rows),
             "content_fallback_boards": sum(
                 row["content_fallback"] for row in state_rows
+            ),
+            "content_deferred_boards": sum(
+                row["content_deferred"] for row in state_rows
             ),
             "duration_ms": round((time.monotonic() - started) * 1000, 3),
         },

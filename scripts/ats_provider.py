@@ -33,6 +33,12 @@ ATS_JD_MAX_CHARS = 50_000
 # rule is about ATS boards rather than about anything this module can fetch.
 ATS_PROVIDERS = ("ashby", "greenhouse", "lever")
 PROVIDERS = ("amazon_jobs", *ATS_PROVIDERS)
+# Providers whose listing can be read without the job descriptions, so the
+# descriptions can be fetched per posting after the round has decided which
+# postings it wants. Greenhouse is the only one: `?content=true` is a flag,
+# while Ashby, Lever and `amazon.jobs` embed the description in the only
+# listing they serve and offer no way to ask for less.
+CONTENT_DEFERRABLE_PROVIDERS = frozenset({"greenhouse"})
 AMAZON_JOBS_HOST = "https://www.amazon.jobs"
 # ISO-3166 alpha-3, which is what the endpoint's country filter takes.
 _AMAZON_COUNTRY = re.compile(r"[A-Z]{3}\Z")
@@ -48,6 +54,9 @@ _MONTHS = {
     )
 }
 _BOARD_TOKEN = re.compile(r"[A-Za-z0-9_-]{1,100}\Z")
+# A posting id goes into a URL path, so it is checked before it gets there
+# rather than trusted because the listing it came from was ours.
+_BOARD_JOB_ID = re.compile(r"[0-9]{1,32}\Z")
 _SAFE_FAILURES = {
     "http_error",
     "network_error",
@@ -264,6 +273,10 @@ def greenhouse_url(token: str, *, include_content: bool = True) -> str:
     return f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs{suffix}"
 
 
+def greenhouse_job_url(token: str, job_id: str) -> str:
+    return f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs/{job_id}"
+
+
 def ashby_url(token: str) -> str:
     return f"https://api.ashbyhq.com/posting-api/job-board/{token}?includeCompensation=true"
 
@@ -478,8 +491,22 @@ def fetch_board(
     max_pages: int = 10,
     timeout_seconds: float = 30,
     request_budget: RequestBudget | None = None,
+    defer_content: bool = False,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Fetch and normalize one board; failures are classified and contained."""
+    """Fetch and normalize one board; failures are classified and contained.
+
+    `defer_content` reads the listing without job descriptions where the
+    provider allows it, leaving `jd_text` empty for `fetch_job_content` to
+    fill in for the postings the round actually keeps. A board is fetched
+    whole and filtered locally, so every description on it is paid for and
+    almost none of it is used: measured 2026-09-26, the structured channel
+    downloaded 12,561 descriptions and committed 54 candidates. One GitLab
+    board is 364,941 bytes with the descriptions and 11,330 without, and the
+    listing still carries the title, location, id and URL that the prefilter
+    and the identity key need. A provider that cannot serve a listing without
+    descriptions ignores the flag rather than failing, since the round would
+    otherwise lose those sources to save bytes on the others.
+    """
     started = time.perf_counter()
     client = provider_client or HttpAtsProvider()
     provider = str(board.get("provider", "")).lower() or "unknown"
@@ -500,6 +527,7 @@ def fetch_board(
         "truncated": False,
         "rate_limited": False,
         "content_fallback": False,
+        "content_deferred": False,
         "jobs_with_jd": 0,
         "jd_text_truncated": 0,
     }
@@ -524,13 +552,17 @@ def fetch_board(
         raw_jobs: list[Any] = []
         if provider == "greenhouse":
             metrics["pagination"] = "single_response"
-            try:
-                payload = fetch(greenhouse_url(token))
-            except AtsProviderError as error:
-                if error.kind != "response_too_large":
-                    raise
-                metrics["content_fallback"] = True
+            if defer_content:
+                metrics["content_deferred"] = True
                 payload = fetch(greenhouse_url(token, include_content=False))
+            else:
+                try:
+                    payload = fetch(greenhouse_url(token))
+                except AtsProviderError as error:
+                    if error.kind != "response_too_large":
+                        raise
+                    metrics["content_fallback"] = True
+                    payload = fetch(greenhouse_url(token, include_content=False))
             if not isinstance(payload, dict) or not isinstance(payload.get("jobs"), list):
                 raise AtsProviderError("invalid_payload")
             raw_jobs = payload["jobs"]
@@ -604,3 +636,98 @@ def fetch_board(
             metrics["rate_limited"] = error.http_status == 429
     metrics["duration_ms"] = round((time.perf_counter() - started) * 1000, 3)
     return metrics, normalized
+
+
+def fetch_job_content(
+    board: dict[str, Any],
+    jobs: list[dict[str, Any]],
+    *,
+    provider_client: AtsProvider | None = None,
+    timeout_seconds: float = 30,
+    request_budget: RequestBudget | None = None,
+) -> dict[str, Any]:
+    """Fill in the descriptions a deferred listing left empty, in place.
+
+    One request per posting, so this is only worth calling for postings the
+    round has already decided to keep -- it is the other half of
+    `defer_content`, and calling it for a whole board would spend more
+    requests than the single listing it replaced.
+
+    A posting whose description cannot be fetched keeps its empty `jd_text`
+    and is still returned: the evaluation worker's fallback ladder can read
+    the page itself, which is slower but not a loss, while dropping the
+    candidate would lose a job the round had already chosen over others. An
+    exhausted request budget stops the pass instead of failing it, for the
+    same reason.
+    """
+    started = time.perf_counter()
+    client = provider_client or HttpAtsProvider()
+    metrics: dict[str, Any] = {
+        "action": "jd_fetch",
+        "ok": False,
+        "requests": 0,
+        "response_bytes": 0,
+        "jobs_requested": len(jobs),
+        "jobs_filled": 0,
+        "jobs_failed": 0,
+        "jobs_skipped": 0,
+        "jd_text_truncated": 0,
+        "rate_limited": False,
+        "failure_kind": "",
+    }
+    try:
+        provider, _company, token = validate_board(board)
+    except AtsProviderError as error:
+        metrics["failure_kind"] = error.kind
+        metrics["jobs_skipped"] = len(jobs)
+        metrics["duration_ms"] = round((time.perf_counter() - started) * 1000, 3)
+        return metrics
+    if provider not in CONTENT_DEFERRABLE_PROVIDERS:
+        # Not an error: the caller asks for every kept posting and only some
+        # boards deferred anything. These already hold their descriptions.
+        metrics["ok"] = True
+        metrics["jobs_skipped"] = len(jobs)
+        metrics["duration_ms"] = round((time.perf_counter() - started) * 1000, 3)
+        return metrics
+
+    metrics["ok"] = True
+    for index, job in enumerate(jobs):
+        job_id = str(job.get("provider_job_id") or "").strip()
+        if not job_id or not _BOARD_JOB_ID.fullmatch(job_id):
+            metrics["jobs_skipped"] += 1
+            continue
+        try:
+            if request_budget is not None:
+                request_budget.reserve()
+            metrics["requests"] += 1
+            payload, size, _ = client.fetch_json(
+                greenhouse_job_url(token, job_id), timeout_seconds
+            )
+            metrics["response_bytes"] += size
+        except AtsProviderError as error:
+            metrics["response_bytes"] += error.response_bytes
+            if not metrics["failure_kind"]:
+                metrics["failure_kind"] = error.kind
+            if error.http_status == 429:
+                metrics["rate_limited"] = True
+            if error.kind == "request_budget_exhausted":
+                metrics["jobs_skipped"] += len(jobs) - index
+                break
+            metrics["jobs_failed"] += 1
+            continue
+        if not isinstance(payload, dict):
+            metrics["jobs_failed"] += 1
+            if not metrics["failure_kind"]:
+                metrics["failure_kind"] = "invalid_payload"
+            continue
+        jd_text, truncated = _normalize_jd_text(payload.get("content"), is_html=True)
+        if not jd_text:
+            metrics["jobs_failed"] += 1
+            continue
+        job["jd_text"] = jd_text
+        job["jd_text_truncated"] = truncated
+        job["description_present"] = True
+        metrics["jobs_filled"] += 1
+        metrics["jd_text_truncated"] += int(truncated)
+    metrics["duration_ms"] = round((time.perf_counter() - started) * 1000, 3)
+    return metrics

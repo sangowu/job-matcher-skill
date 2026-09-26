@@ -305,3 +305,80 @@ def test_every_company_careers_seed_names_how_it_was_verified():
             source["source_id"]
         )
         assert source["verified_at"] >= "2026-09-26", source["source_id"]
+
+
+# ── The pace a site asked for in writing ─────────────────────────────────────
+
+TAL_NET = """User-agent: *
+Disallow: /*/agent/
+Disallow: /*/ats/
+Crawl-delay: 10
+
+User-agent: ClaudeBot
+User-agent: GPTBot
+Disallow: /
+"""
+
+
+def test_a_site_that_names_its_own_pace_is_heard():
+    """`publicjobs.tal.net` asks for ten seconds between requests -- twice the
+    pacing floor this repo would otherwise use. A site that writes its pace down
+    has answered a question we were guessing at."""
+    assert check_robots.crawl_delay(TAL_NET) == 10.0
+
+
+def test_a_site_that_says_nothing_about_pace_says_nothing():
+    """`None`, not a default. Inventing a delay here would be indistinguishable
+    from one the site actually asked for."""
+    assert check_robots.crawl_delay("User-agent: *\nDisallow: /x\n") is None
+
+
+def test_a_delay_in_another_agents_group_is_not_ours():
+    body = "User-agent: *\nDisallow:\n\nUser-agent: SomeBot\nCrawl-delay: 30\n"
+
+    assert check_robots.crawl_delay(body) is None
+    assert check_robots.crawl_delay(body, "SomeBot") == 30.0
+
+
+def test_an_unnamed_agent_inherits_the_star_delay():
+    assert check_robots.crawl_delay(TAL_NET, "SomeBot") == 10.0
+
+
+def test_an_unreadable_delay_is_skipped_not_guessed():
+    body = "User-agent: *\nCrawl-delay: soon\nCrawl-delay: -5\n"
+
+    assert check_robots.crawl_delay(body) is None
+
+
+def test_the_url_check_reports_the_delay_alongside_the_verdict(monkeypatch):
+    _served(monkeypatch, 200, TAL_NET)
+
+    result = check_robots.check_url("https://publicjobs.tal.test/vx/candidate/jobboard")
+
+    assert result["allowed"] is True
+    assert result["crawl_delay_seconds"] == 10.0
+
+
+def test_a_named_ai_crawler_block_is_reported_under_that_name(monkeypatch):
+    """`publicjobs.tal.net` closes everything to ClaudeBot and GPTBot by name
+    while leaving `*` open. Reading the named group as ours would disable a
+    public-sector portal nobody closed to us; reading ours as theirs would be
+    the same mistake pointed the other way. The operator's stance is recorded
+    on the seed as a constraint so a person can weigh it."""
+    _served(monkeypatch, 200, TAL_NET)
+
+    assert check_robots.check_url("https://x.test/vx/jobboard")["allowed"] is True
+    assert check_robots.check_url(
+        "https://x.test/vx/jobboard", agent="ClaudeBot"
+    )["allowed"] is False
+
+
+def test_the_seed_records_both_facts_about_publicjobs():
+    """Measured 2026-09-26: the vacancies are on `publicjobs.tal.net`, and that
+    host asks for ten seconds."""
+    seeds = json.loads(check_robots.SEEDS_PATH.read_text(encoding="utf-8"))
+    source = next(s for s in seeds["sources"] if s["source_id"] == "publicjobs-ie")
+
+    assert source["listing_hosts"] == ["publicjobs.tal.net"]
+    assert source["min_interval_ms"] == 10000
+    assert "operator_blocks_named_ai_crawlers" in source["constraints"]

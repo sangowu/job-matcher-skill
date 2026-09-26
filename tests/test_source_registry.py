@@ -273,9 +273,9 @@ def test_ttl_expiry_routes_source_to_reverification(tmp_path):
 
     assert "irishjobs-ie" not in plan["source_ids"]
     assert "irishjobs-ie" in plan["due_for_verification"]
-    # Three, not thirteen: the ten company_careers seeds were actually
+    # Two: the ten company_careers seeds and publicjobs-ie were actually
     # checked on 2026-09-26, so their TTL no longer lapses by this date.
-    assert plan["excluded"]["expired"] == 3
+    assert plan["excluded"]["expired"] == 2
 
 
 def test_transient_failure_stays_retryable_and_three_definitive_failures_disable_plan(
@@ -780,3 +780,46 @@ def test_every_guarded_source_records_why_it_is_guarded():
             continue
         assert source["automation_allowed"] is False
         assert source.get("constraints"), f"{source['source_id']} states no reason"
+
+
+# ── A source whose listings live somewhere else ──────────────────────────────
+
+def _seed_with(**overrides):
+    payload = copy.deepcopy(source_registry.load_seeds())
+    source = next(
+        s for s in payload["sources"] if s["source_id"] == "publicjobs-ie"
+    )
+    source.update(overrides)
+    return payload
+
+
+def test_a_listing_host_must_be_a_bare_hostname():
+    """Looser than this and a seed could widen the browser's boundary to a whole
+    URL space by writing a path or a scheme into it."""
+    for bad in ["https://x.test", "x.test/jobs", "X.TEST", "x.test:8080", "localhost", ""]:
+        with pytest.raises(source_registry.SourceValidationError):
+            source_registry.validate_seed_payload(_seed_with(listing_hosts=[bad]))
+
+
+def test_a_listing_host_that_repeats_the_entry_host_is_refused():
+    """It would read as a widening while widening nothing, which is the kind of
+    line that survives a rewrite because it looks deliberate."""
+    with pytest.raises(source_registry.SourceValidationError, match="repeats the entry host"):
+        source_registry.validate_seed_payload(_seed_with(listing_hosts=["www.publicjobs.ie"]))
+
+
+def test_a_source_pace_must_be_a_positive_number_of_milliseconds():
+    for bad in [0, -1, "10000", 1.5, True]:
+        with pytest.raises(source_registry.SourceValidationError):
+            source_registry.validate_seed_payload(_seed_with(min_interval_ms=bad))
+
+
+def test_the_catalog_carries_where_publicjobs_keeps_its_vacancies():
+    """The live round on 2026-09-25 failed this source with `host_boundary`: its
+    front page is on publicjobs.ie and every vacancy is on publicjobs.tal.net,
+    so the boundary derived from the entry URL refused the only page with jobs
+    on it."""
+    seeds = source_registry.load_seeds()
+    source = next(s for s in seeds["sources"] if s["source_id"] == "publicjobs-ie")
+
+    assert source["listing_hosts"] == ["publicjobs.tal.net"]

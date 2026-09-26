@@ -96,6 +96,44 @@ def parse_groups(body: str) -> dict[str, list[tuple[str, str]]]:
     return found
 
 
+def crawl_delay(body: str, agent: str = "*") -> float | None:
+    """Seconds the site asks a client to wait between requests, if it says.
+
+    Not part of the original standard and not in RFC 9309, but widely published
+    and unambiguous when present: `publicjobs.tal.net` asks for ten seconds,
+    which is twice the pacing floor this repo would otherwise use. A site that
+    writes down its own pace has answered a question we would otherwise be
+    guessing at.
+    """
+    group_agents: list[str] = []
+    collecting = True
+    best: float | None = None
+    for raw in body.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line or ":" not in line:
+            continue
+        field, _, value = line.partition(":")
+        field = field.strip().lower()
+        if field == "user-agent":
+            if not collecting:
+                group_agents = []
+                collecting = True
+            group_agents.append(value.strip().lower())
+        elif field in {"allow", "disallow"}:
+            collecting = False
+        elif field == "crawl-delay" and agent.lower() in group_agents:
+            collecting = False
+            try:
+                seconds = float(value.strip())
+            except ValueError:
+                continue
+            if seconds > 0 and (best is None or seconds > best):
+                best = seconds
+    if best is None and agent != "*":
+        return crawl_delay(body, "*")
+    return best
+
+
 def evaluate(body: str, url: str, agent: str = "*") -> dict[str, object]:
     """Whether `url` is allowed, and which line decided it."""
     groups = parse_groups(body)
@@ -162,6 +200,7 @@ def check_url(url: str, *, agent: str = "*", timeout: float = 20.0) -> dict[str,
         result["error"] = fetched["error"]
     if fetched["http_status"] == 200:
         result.update(evaluate(str(fetched["body"]), url, agent))
+        result["crawl_delay_seconds"] = crawl_delay(str(fetched["body"]), agent)
     elif fetched["http_status"] == 404:
         result.update({"allowed": True, "rule": "no robots.txt published", "agent": agent})
     else:
@@ -210,6 +249,7 @@ def check_catalog(
                 continue
             if fetched["http_status"] == 200:
                 record[label] = evaluate(body, target, agent)
+                record["crawl_delay_seconds"] = crawl_delay(body, agent)
             elif fetched["http_status"] == 404:
                 record[label] = {"allowed": True, "rule": "no robots.txt published"}
             else:

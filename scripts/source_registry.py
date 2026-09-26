@@ -93,6 +93,8 @@ SEED_KEYS = {
     "automation_allowed",
     "requires_risk_ack",
     "constraints",
+    "listing_hosts",
+    "min_interval_ms",
 }
 TRANSIENT_OUTCOMES = {"timeout", "rate_limited", "network_error"}
 DEFINITIVE_OUTCOMES = {"not_found", "gone"}
@@ -122,6 +124,10 @@ FORBIDDEN_RUNTIME_KEYS = {
 _SOURCE_ID_PATTERN = re.compile(r"[a-z][a-z0-9_-]{2,99}")
 _BATCH_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
 _TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,100}")
+# A hostname, lowercase, no scheme, no port, no path. Anything looser and a
+# seed could widen the browser's boundary to a whole URL space by writing a
+# path into it.
+_HOSTNAME = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+")
 
 
 class SourceRegistryError(RuntimeError):
@@ -318,6 +324,33 @@ def validate_seed_payload(payload: dict[str, Any]) -> dict[str, Any]:
             )
         if "constraints" in source:
             _string_list(source["constraints"], f"{prefix}.constraints")
+        if "listing_hosts" in source:
+            # Where this source's job listings actually live, when that is not
+            # the host of its own front page. publicjobs.ie serves its front
+            # page itself and its vacancies from `publicjobs.tal.net`, so the
+            # browser's boundary -- derived from the entry URL's host -- refused
+            # the only page with jobs on it and the task failed `host_boundary`.
+            # Declared here so the widening is recorded in the catalog and
+            # visible in the plan, rather than decided by whoever is browsing.
+            hosts = _string_list(source["listing_hosts"], f"{prefix}.listing_hosts")
+            for host in hosts:
+                if not _HOSTNAME.fullmatch(host):
+                    raise SourceValidationError(
+                        f"{prefix}.listing_hosts contains an invalid host: {host}"
+                    )
+            if urlparse(source["entry_url"]).netloc in hosts:
+                raise SourceValidationError(
+                    f"{prefix}.listing_hosts repeats the entry host"
+                )
+        if "min_interval_ms" in source:
+            # A site that publishes `Crawl-delay` has named its own pace, and it
+            # can only be slower than the global floor here -- a source is never
+            # allowed to ask to be read faster than everything else.
+            value = source["min_interval_ms"]
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                raise SourceValidationError(
+                    f"{prefix}.min_interval_ms must be a positive integer"
+                )
         if "board_token" in source and not _TOKEN_PATTERN.fullmatch(
             str(source["board_token"])
         ):

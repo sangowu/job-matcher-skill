@@ -1145,3 +1145,70 @@ def test_the_pace_file_location_is_resolved_when_asked_not_when_imported(tmp_pat
     browser_control.SourcePace().mark("indeed-ie")
 
     assert redirected.exists()
+
+
+# ── A source that asked to be read more slowly ───────────────────────────────
+
+def test_a_source_that_asked_for_a_slower_pace_gets_it(monkeypatch):
+    """Read from the catalog rather than passed in, because a pace the executor
+    has to remember to apply is one that gets forgotten on the run where it
+    matters."""
+    import browser_control
+
+    assert browser_control.source_interval_ms("publicjobs-ie", 5000) == 10000
+
+
+def test_a_source_cannot_ask_to_be_read_faster_than_the_floor(monkeypatch):
+    import browser_control
+
+    monkeypatch.setattr(browser_control.source_registry, "load_seeds", lambda: {
+        "sources": [{"source_id": "eager-co", "min_interval_ms": 100}]
+    })
+
+    assert browser_control.source_interval_ms("eager-co", 5000) == 5000
+
+
+def test_a_source_that_asked_for_nothing_takes_the_floor():
+    import browser_control
+
+    assert browser_control.source_interval_ms("irishjobs-ie", 5000) == 5000
+    assert browser_control.source_interval_ms("not-in-the-catalog", 5000) == 5000
+    assert browser_control.source_interval_ms(None, 5000) == 5000
+
+
+def test_a_catalog_that_will_not_load_does_not_stop_an_action_being_recorded(monkeypatch):
+    """Observability must not be the thing that breaks the run. The global floor
+    still applies."""
+    import browser_control
+
+    def explode():
+        raise RuntimeError("catalog unreadable")
+
+    monkeypatch.setattr(browser_control.source_registry, "load_seeds", explode)
+
+    assert browser_control.source_interval_ms("publicjobs-ie", 5000) == 5000
+
+
+def test_the_slower_pace_is_enforced_and_not_merely_advertised(tmp_path, monkeypatch, capsys):
+    """Two actions five seconds apart satisfy the global floor and are still too
+    fast for a source that asked for ten."""
+    import browser_control
+
+    _isolated_live(tmp_path, monkeypatch)
+    sandbox = tmp_path / "sandbox"
+    now_ms = time.time() * 1000
+
+    def run(offset_ms):
+        monkeypatch.setattr(sys, "argv", [
+            "browser_control.py", "--provider", "browseros_neo",
+            "--metrics-run-id", RUN_ID, "--data-dir", str(sandbox),
+            "action", "--action", "navigate", "--status", "ok",
+            "--source-id", "publicjobs-ie",
+            "--occurred-at-ms", str(now_ms + offset_ms),
+        ])
+        browser_control.main()
+        return json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+
+    assert run(0)["ok"] is True
+    assert run(5000)["paced_too_fast"] is True, "five seconds is not the ten it asked for"
+    assert run(15100)["paced_too_fast"] is False

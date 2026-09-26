@@ -364,6 +364,7 @@ def test_browser_tasks_name_the_ats_hosts_that_are_a_handoff_not_a_violation():
 
     plan = discovery_plan.build_discovery_plan(_request(seeds), seeds=seeds, config=_config())
 
+    by_id = {source["source_id"]: source for source in seeds["sources"]}
     assert plan["tasks"]["browser"]
     for task in plan["tasks"]["browser"]:
         assert task["on_ats_handoff"] == "record_board_then_stop"
@@ -371,7 +372,13 @@ def test_browser_tasks_name_the_ats_hosts_that_are_a_handoff_not_a_violation():
         assert "jobs.lever.co" in task["ats_handoff_hosts"]
         assert "jobs.ashbyhq.com" in task["ats_handoff_hosts"]
         # The handoff list widens what a redirect means, not what may be browsed.
-        assert task["allowed_hosts"] == [task["allowed_hosts"][0]]
+        # What may be browsed is the entry host plus the hosts the catalog says
+        # this source's listings are served from, and nothing else.
+        source = by_id[task["source_id"]]
+        assert task["allowed_hosts"] == [
+            task["allowed_hosts"][0], *(source.get("listing_hosts") or [])
+        ]
+        assert not set(task["allowed_hosts"]) & set(task["ats_handoff_hosts"])
         assert not set(task["ats_handoff_hosts"]) & set(task["allowed_hosts"])
 
 
@@ -481,3 +488,34 @@ def test_a_company_endpoint_is_planned_as_a_structured_task_not_a_browser_one():
     assert structured["amazon-jobs-ie"]["provider"] == "amazon_jobs"
     # And the same employer is not also browsed, which would fetch it twice.
     assert "amazon-careers" not in browser
+
+
+def test_a_portal_may_be_browsed_where_its_vacancies_actually_are():
+    """publicjobs.ie serves its front page and publicjobs.tal.net serves its
+    vacancies. The task failed `host_boundary` on the only page that had jobs."""
+    seeds = source_registry.load_seeds()
+
+    plan = discovery_plan.build_discovery_plan(_request(seeds), seeds=seeds, config=_config())
+
+    task = next(
+        t for t in plan["tasks"]["browser"] if t["source_id"] == "publicjobs-ie"
+    )
+
+    assert task["allowed_hosts"] == ["www.publicjobs.ie", "publicjobs.tal.net"]
+    # The widening is the catalog's, not the browser's: a host nobody declared
+    # is still out of bounds.
+    assert "tal.net" not in task["allowed_hosts"]
+
+
+def test_a_browser_task_carries_the_pace_its_source_asked_for():
+    """`publicjobs.tal.net` publishes `Crawl-delay: 10`. Reading it at the
+    global five-second floor would be twice the rate it asked for in writing."""
+    seeds = source_registry.load_seeds()
+
+    plan = discovery_plan.build_discovery_plan(_request(seeds), seeds=seeds, config=_config())
+
+    by_source = {t["source_id"]: t for t in plan["tasks"]["browser"]}
+
+    assert by_source["publicjobs-ie"]["min_interval_ms"] == 10000
+    # A source that asked for nothing carries nothing, and takes the floor.
+    assert by_source["irishjobs-ie"]["min_interval_ms"] == 0

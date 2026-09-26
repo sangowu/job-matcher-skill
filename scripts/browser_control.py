@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import _filelock
+import source_registry
 from _jobutil import SKILL_ROOT
 from browser_provider import build_provider, load_browser_settings
 from runtime_metrics import record_metric, validate_run_id
@@ -725,6 +726,29 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def source_interval_ms(source_id: str | None, floor_ms: float) -> float:
+    """The slower of the global floor and what this source asked for.
+
+    A site that publishes `Crawl-delay` has named its own pace in writing --
+    `publicjobs.tal.net` asks for ten seconds, twice the floor here -- and the
+    catalog records it on the seed. Read here rather than passed in by the
+    caller, because a pace the executor has to remember to apply is a pace that
+    gets forgotten on the run where it matters. Only ever slower: a seed cannot
+    ask to be read faster than everything else.
+    """
+    if not source_id:
+        return floor_ms
+    try:
+        seeds = source_registry.load_seeds()
+    except Exception:  # noqa: BLE001 - a catalog that will not load must not
+        # stop an action being recorded; the global floor still applies.
+        return floor_ms
+    for source in seeds.get("sources", []):
+        if source.get("source_id") == source_id:
+            return max(floor_ms, float(source.get("min_interval_ms") or 0))
+    return floor_ms
+
+
 def _stores(data_dir: Path | None) -> dict[str, Path]:
     """Where this invocation's three writable stores live."""
     if data_dir is None:
@@ -768,9 +792,12 @@ def main() -> int:
             if args.requests is None
             else max(0, args.requests)
         )
+        interval_ms = source_interval_ms(
+            args.source_id, float(settings["browser_min_source_interval_ms"])
+        )
         wait = SourcePace(stores["pace"]).next_wait_ms(
             args.source_id,
-            float(settings["browser_min_source_interval_ms"]),
+            interval_ms,
             float(settings.get("browser_jitter_ms", 0)),
             requests=charged,
             max_per_minute=float(settings["browser_max_requests_per_minute"]),
@@ -783,6 +810,7 @@ def main() -> int:
                     "paced": True,
                     "requests": charged,
                     "requests_measured": args.requests is not None,
+                    "min_interval_ms": interval_ms,
                 },
                 sort_keys=True,
             )
@@ -831,7 +859,9 @@ def main() -> int:
             links_new=args.links_new,
             handoff_wait_ms=args.handoff_wait_ms,
             source_id=args.source_id,
-            min_interval_ms=float(settings["browser_min_source_interval_ms"]),
+            min_interval_ms=source_interval_ms(
+                args.source_id, float(settings["browser_min_source_interval_ms"])
+            ),
             requests=args.requests,
             assumed_requests=int(settings["browser_assumed_requests_per_action"]),
             max_requests_per_minute=float(settings["browser_max_requests_per_minute"]),

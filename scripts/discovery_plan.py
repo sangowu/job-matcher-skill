@@ -427,7 +427,16 @@ def build_discovery_plan(
                         "source_category": item["category"],
                         "market_id": market_id,
                         "entry_url": source["entry_url"],
-                        "allowed_hosts": [entry_host],
+                        # The entry host plus any host the catalog says
+                        # this source's listings are served from. A portal whose
+                        # vacancies live on a hosted system is not out of bounds
+                        # for reaching them -- it was never in bounds to begin
+                        # with, and the browser reported `host_boundary` on the
+                        # only page that had jobs.
+                        "allowed_hosts": [
+                            entry_host,
+                            *(source.get("listing_hosts") or []),
+                        ],
                         "allow_same_site_redirects": True,
                         # A careers portal that redirects to its own public ATS
                         # board has not gone out of bounds -- it has revealed
@@ -445,6 +454,11 @@ def build_discovery_plan(
                         },
                         "queries": task_queries,
                         "max_pages": browser_max_pages,
+                        # What this source asked for, when it asked for more
+                        # than the floor. `publicjobs.tal.net` publishes
+                        # `Crawl-delay: 10`; reading it at the global 5s would
+                        # be twice the rate it requested in writing.
+                        "min_interval_ms": int(source.get("min_interval_ms") or 0),
                         "constraints": list(source.get("constraints") or []),
                         "requires_risk_ack": bool(source.get("requires_risk_ack", False)),
                         "stop_on": ["login", "captcha", "rate_limit", "consent_judgment"],

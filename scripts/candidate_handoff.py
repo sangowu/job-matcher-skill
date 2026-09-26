@@ -101,6 +101,7 @@ def run_merge_subprocess(
     metrics_run_id: str | None,
     metrics_path: Path | None = None,
     table_path: Path | None = None,
+    eval_runs_dir: Path | None = None,
 ) -> dict[str, Any]:
     command = [
         sys.executable,
@@ -121,6 +122,11 @@ def run_merge_subprocess(
         command.extend(["--metrics-path", str(metrics_path)])
     if table_path is not None:
         command.extend(["--table-path", str(table_path)])
+    if eval_runs_dir is not None:
+        # The evaluation snapshot is the child's third store, and it was the
+        # one with no way through. A caller pointed elsewhere still had its
+        # eval runs written to the real data directory.
+        command.extend(["--eval-runs-dir", str(eval_runs_dir)])
     try:
         completed = subprocess.run(
             command,

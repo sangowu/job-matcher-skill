@@ -214,6 +214,7 @@ agent 会自动识别。然后在对话里：
 | `stop_threshold` | 12 | 净有效职位达标停止 |
 | `consecutive_empty_stop` | 2 | 连续 N 批 0 结果则停止 |
 | `ats_enabled` | false | 是否启用公开 ATS 增强管道；默认显式关闭 |
+| `ats_defer_jd` | true | 先读不含 JD 正文的职位列表，再只为本轮保留的候选各取一次正文；false 恢复每个 board 一次请求、正文随列表一起下载 |
 | `ats_max_concurrency` | 3 | 跨 ATS board 并发硬上限 |
 | `ats_boards_per_round` | 30 | 单轮同步 board 数硬上限（管道内上限 30）|
 | `ats_requests_per_round` | 100 | 单轮 ATS HTTP 请求硬上限 |

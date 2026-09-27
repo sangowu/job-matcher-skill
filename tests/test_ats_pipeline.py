@@ -502,3 +502,145 @@ def test_the_out_of_market_drop_is_counted_rather_than_silent(isolated_ats):
     assert row["jobs_out_of_market"] == 1
     assert result["summary"]["jobs_out_of_market"] == 1
     assert result["candidates"] == []
+
+
+def greenhouse_listing(*jobs):
+    """A deferred listing: what the board serves without `content=true`."""
+    return {
+        "jobs": [
+            {
+                "id": job_id,
+                "title": title,
+                "location": {"name": location},
+                "absolute_url": f"https://job-boards.greenhouse.io/acme/jobs/{job_id}",
+            }
+            for job_id, title, location in jobs
+        ]
+    }
+
+
+def greenhouse_detail(job_id, content):
+    return {
+        "id": job_id,
+        "title": "AI Engineer",
+        "location": {"name": "Dublin"},
+        "absolute_url": f"https://job-boards.greenhouse.io/acme/jobs/{job_id}",
+        "content": content,
+    }
+
+
+def test_deferred_listing_pays_for_descriptions_only_where_one_is_kept(isolated_ats):
+    """The listing is read without descriptions; kept postings fetch their own.
+
+    Measured 2026-09-26: the channel downloaded 12,561 descriptions and
+    committed 54 candidates, because a board is fetched whole and its
+    descriptions come with it. Here one of three postings survives the
+    prefilter, so exactly one description is fetched.
+    """
+    acme = board()
+    provider = FakeAtsProvider({
+        "boards/acme/jobs/123": [greenhouse_detail(123, "Kept JD")],
+        "boards/acme/jobs": [greenhouse_listing(
+            (123, "AI Engineer", "Dublin"),
+            (456, "Warehouse Operative", "Dublin"),
+            (789, "AI Engineer", "London"),
+        )],
+    })
+
+    result = ats_pipeline.sync_registry(
+        registry(acme), profile(), config=config(), provider_client=provider
+    )
+
+    assert [call.rsplit("/v1/", 1)[-1] for call in provider.calls] == [
+        "boards/acme/jobs",
+        "boards/acme/jobs/123",
+    ]
+    assert result["candidates"][0]["jd_text"] == "Kept JD"
+    row = result["boards"][0]
+    assert row["content_deferred"] is True
+    assert row["jd_requests"] == 1
+    assert row["jd_fetch_failed"] == 0
+    assert row["jobs_with_jd"] == 1
+    assert result["summary"]["jd_requests"] == 1
+    assert result["summary"]["content_deferred_boards"] == 1
+
+
+def test_deferred_descriptions_are_bounded_by_the_candidate_cap(isolated_ats):
+    """The cap is what makes deferring worth anything."""
+    acme = board()
+    provider = FakeAtsProvider({
+        "boards/acme/jobs/123": [greenhouse_detail(123, "First JD")],
+        "boards/acme/jobs": [greenhouse_listing(
+            (123, "AI Engineer", "Dublin"),
+            (456, "AI Engineer", "Dublin"),
+            (789, "AI Engineer", "Dublin"),
+        )],
+    })
+
+    result = ats_pipeline.sync_registry(
+        registry(acme), profile(),
+        config=config(top_n=1, precise_buffer=0), provider_client=provider,
+    )
+
+    assert len(result["candidates"]) == 1
+    assert result["summary"]["jd_requests"] == 1
+    assert sum("jobs/123" in call for call in provider.calls) == 1
+
+
+def test_a_description_that_cannot_be_fetched_keeps_its_candidate(isolated_ats):
+    """The worker's fallback ladder can read the page; dropping it cannot."""
+    acme = board()
+    provider = FakeAtsProvider({
+        "boards/acme/jobs/123": [AtsProviderError("http_error", 500)],
+        "boards/acme/jobs": [greenhouse_listing((123, "AI Engineer", "Dublin"))],
+    })
+
+    result = ats_pipeline.sync_registry(
+        registry(acme), profile(), config=config(), provider_client=provider
+    )
+
+    assert len(result["candidates"]) == 1
+    assert result["candidates"][0]["jd_text"] == ""
+    row = result["boards"][0]
+    assert row["ok"] is True
+    assert row["jd_fetch_failed"] == 1
+    assert row["jobs_with_jd"] == 0
+    assert result["summary"]["jobs_with_jd_emitted"] == 0
+
+
+def test_deferring_can_be_turned_off_for_one_request_per_board(isolated_ats):
+    acme = board()
+    provider = FakeAtsProvider({"boards/acme/jobs": [greenhouse_payload()]})
+
+    result = ats_pipeline.sync_registry(
+        registry(acme), profile(),
+        config=config(ats_defer_jd=False), provider_client=provider,
+    )
+
+    assert provider.calls == [
+        "https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true"
+    ]
+    assert result["candidates"][0]["jd_text"] == "JD content stays in memory"
+    assert result["boards"][0]["content_deferred"] is False
+    assert result["summary"]["jd_requests"] == 0
+
+
+def test_a_provider_that_cannot_defer_is_left_inline(isolated_ats):
+    """Ashby serves one listing with the descriptions in it and no way to ask
+    for less. Deferring must not cost it its descriptions."""
+    ashby = board("ashby", token="ashbyco")
+    provider = FakeAtsProvider({"job-board/ashbyco": [{"jobs": [{
+        "title": "AI Engineer",
+        "location": "Dublin",
+        "jobUrl": "https://jobs.ashbyhq.com/ashbyco/11111111-1111-4111-8111-111111111111",
+        "descriptionPlain": "Ashby JD",
+    }]}]})
+
+    result = ats_pipeline.sync_registry(
+        registry(ashby), profile(), config=config(), provider_client=provider
+    )
+
+    assert len(provider.calls) == 1
+    assert result["candidates"][0]["jd_text"] == "Ashby JD"
+    assert result["boards"][0]["content_deferred"] is False
+    assert result["summary"]["jd_requests"] == 0

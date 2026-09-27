@@ -829,3 +829,93 @@ def test_a_reported_market_is_checked_against_the_catalog(stores):
 def test_a_batch_carrying_candidates_needs_the_profile_to_prefilter_them(stores):
     with pytest.raises(discovery_batch.DiscoveryBatchError, match="requires --profile"):
         run_batch(stores, payload(), profile_path=None)
+
+
+# ── A refusal leaves a mark, and the mark never becomes a decision ───────────
+
+def _off_target_web_result():
+    """A posting the prefilter refuses on `role`, reported by the Web channel."""
+    return _web_result(
+        [_page(raw_results=2, prefiltered=2, new_candidates=1)],
+        candidates=[
+            envelope(
+                "agent_web_search",
+                source_id="irishjobs-ie",
+                source_type="local_job_board",
+                identity="keeper",
+            ),
+            envelope(
+                "agent_web_search",
+                source_id="irishjobs-ie",
+                source_type="local_job_board",
+                identity="marketing",
+                title="Marketing Manager",
+            ),
+        ],
+        candidates_raw=2,
+        candidates_prefiltered=2,
+    )
+
+
+def test_a_refused_posting_is_marked_so_a_second_round_is_not_read_as_new_ground(
+    stores, tmp_path
+):
+    """A refusal used to leave nothing but a count by reason, so a round that
+    rediscovered the same postings and refused them again was indistinguishable
+    from a round that refused new ones. The browser channel rereads a site's
+    listing every round, so that difference is the answer to "it spent minutes
+    for nothing"."""
+    first = run_batch(stores, _only_web(payload(), _off_target_web_result()))
+
+    assert first["ok"] is True
+    summary = first["task_summary"]
+    assert summary["candidates_dropped"] == {"role": 1}
+    assert summary["candidates_dropped_repeat"] == 0
+    assert summary["refusals_recorded"] is True
+
+    value = _only_web(payload(batch_id="batch-20260927-second-w1"), _off_target_web_result())
+    second = run_batch(stores, value)
+
+    assert second["task_summary"]["candidates_dropped"] == {"role": 1}
+    assert second["task_summary"]["candidates_dropped_repeat"] == 1
+
+
+def test_the_mark_never_decides_what_is_kept(stores, tmp_path, monkeypatch):
+    """The store is a marker, not a cache.
+
+    A posting refused on `role` is refused *by that profile*, not forever: the
+    round after a CV gains a generalized role has to reconsider it. A store
+    consulted as a cache would keep the old answer and silently undo the
+    generalization, so the prefilter runs on every candidate every round and
+    this store's answer changes only the count.
+    """
+    run_batch(stores, _only_web(payload(), _off_target_web_result()))
+    widened = tmp_path / "widened.json"
+    widened.write_text(
+        json.dumps({"preferred_roles": ["AI Engineer", "Marketing Manager"]}),
+        encoding="utf-8",
+    )
+
+    value = _only_web(payload(batch_id="batch-20260927-wider-w1"), _off_target_web_result())
+    result = run_batch(stores, value, profile_path=widened)
+
+    # Previously refused, now inside the profile: kept, not skipped. Three,
+    # because the browser task in the same batch contributes one.
+    assert result["task_summary"]["candidates_dropped"] == {}
+    assert result["task_summary"]["candidates_validated"] == 3
+
+
+def test_a_broken_mark_store_costs_the_count_and_not_the_round(stores, monkeypatch):
+    """A marker is a diagnostic. Losing it must not lose candidates."""
+    import rejected_log
+
+    def explode(*args, **kwargs):
+        raise rejected_log.RejectedLogError("disk on fire")
+
+    monkeypatch.setattr(rejected_log, "record", explode)
+
+    result = run_batch(stores, _only_web(payload(), _off_target_web_result()))
+
+    assert result["ok"] is True
+    assert result["task_summary"]["refusals_recorded"] is False
+    assert result["task_summary"]["candidates_validated"] == 2

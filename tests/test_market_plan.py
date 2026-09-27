@@ -1008,3 +1008,52 @@ def test_the_live_planners_do_not_read_the_shadow_rollout_switches():
         if "multi_region_rollout" in path.read_text(encoding="utf-8")
     }
     assert readers == {"shadow_gate.py"}
+
+
+def test_a_match_only_family_cannot_smuggle_in_searchable_fields(resources):
+    """A family with no titles is recognized in a posting and never searched
+    for; one carrying titles belongs in `role_families` instead."""
+    _, taxonomy = resources
+    payload = copy.deepcopy(taxonomy)
+    payload["match_only_families"] = [
+        {"role_family_id": "product", "match_terms": ["product manager"],
+         "titles": {"en": ["Product Manager"], "de": [], "zh-Hans": []}}
+    ]
+
+    with pytest.raises(market_plan.MarketPlanError, match="cannot have"):
+        market_plan.validate_role_taxonomy(payload)
+
+
+def test_a_match_only_family_without_terms_is_refused(resources):
+    _, taxonomy = resources
+    payload = copy.deepcopy(taxonomy)
+    payload["match_only_families"] = [{"role_family_id": "product"}]
+
+    with pytest.raises(market_plan.MarketPlanError, match="needs match_terms"):
+        market_plan.validate_role_taxonomy(payload)
+
+
+def test_a_family_id_cannot_be_claimed_twice_across_the_two_lists(resources):
+    _, taxonomy = resources
+    payload = copy.deepcopy(taxonomy)
+    payload["match_only_families"] = [
+        {"role_family_id": "backend", "match_terms": ["backend"]}
+    ]
+
+    with pytest.raises(market_plan.MarketPlanError, match="duplicate role_family_id"):
+        market_plan.validate_role_taxonomy(payload)
+
+
+def test_a_match_token_must_be_a_token(resources):
+    """A phrase given as a token would be matched by whole-word comparison and
+    never hit, which looks like a term that simply does not work."""
+    _, taxonomy = resources
+    payload = copy.deepcopy(taxonomy)
+    family = next(
+        item for item in payload["role_families"]
+        if item["role_family_id"] == "applied_ai"
+    )
+    family["match_tokens"] = ["machine learning"]
+
+    with pytest.raises(market_plan.MarketPlanError, match="single tokens"):
+        market_plan.validate_role_taxonomy(payload)

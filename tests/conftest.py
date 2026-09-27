@@ -119,6 +119,8 @@ _REDIRECTED_PATHS = (
     ("merge_jobs", "TABLE_PATH", "jobs_table.json"),
     ("merge_jobs", "EVAL_RUNS_DIR", "eval_runs"),
     ("merge_jobs", "EVAL_HISTORY_PATH", "eval_runs/history.jsonl"),
+    ("rejected_log", "STORE_PATH", "rejected.json"),
+    ("rejected_log", "LOCK_PATH", "rejected.lock"),
     ("render_html", "METRICS_PATH", "metrics.jsonl"),
     ("round_timer", "METRICS_PATH", "metrics.jsonl"),
 )

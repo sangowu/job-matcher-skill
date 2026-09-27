@@ -84,7 +84,7 @@ job-matcher/
 │   ├── browser_candidate_smoke.py # validate browser candidates in a temporary merge store
 │   ├── source_registry.py    # seed validation, health state, migration, and source plans
 │   ├── candidate_contract.py # strict Phase C CandidateEnvelope validation
-│   ├── candidate_handoff.py  # serialize dual discovery routes into the canonical writers
+│   ├── candidate_handoff.py  # [deprecated] old two-route entry, superseded by discovery_batch.py
 │   ├── multi_region_smoke.py # explicit count-only four-market public-source smoke
 │   ├── shadow_gate.py        # idempotent Phase E ledger and per-market gate
 │   ├── shadow_compare.py     # read-only incremental/overlap/JD/Top-N comparison
@@ -101,6 +101,7 @@ job-matcher/
 │   ├── browser_workflow.py   # listing pagination/pause state machine
 │   ├── ats_provider.py       # public Ashby/Greenhouse/Lever GET adapters and Fake
 │   ├── job_prefilter.py      # deterministic role/location/seniority prefilter, one rule for all channels
+│   ├── rejected_log.py       # marks identities the prefilter refused (counts repeats; never skips the filter)
 │   ├── ats_pipeline.py       # ATS registry, sync, and normalization
 │   ├── ats_handoff.py        # in-memory ATS JD handoff to canonical merge
 │   ├── board_harvest.py      # recover ATS boards from job URLs and register verified ones
@@ -205,6 +206,22 @@ that the next wave was not dispatched are in
 [`docs/discovery-wave-live-smoke.md`](docs/discovery-wave-live-smoke.md). The
 full production trial is documented in
 [`docs/browseros-neo-production-trial-2026-09-22.md`](docs/browseros-neo-production-trial-2026-09-22.md).
+
+### What each script is for
+
+`scripts/` is 19,900 lines and not one path. Before changing one, see which
+group it is in:
+
+| Group | Lines | What it is |
+|-------|------:|------------|
+| **Critical path** | ~13,700 (69%) | What a matching round actually runs: CV parsing, market/discovery planning, source registry, prefilter, ATS fetching, merge/update, rendering, metrics |
+| **Gates and benchmarks** | ~4,300 (22%) | `benchmark_*` (public small-sample regression), `shadow_*` and `multi_region_smoke` (release gates), `browser_candidate_smoke` (first-contact verification). **A normal round runs none of these** -- they run when a parser changes or a version ships |
+| **Operations** | ~1,900 (9%) | local panel, browser setup, seed promotion, board harvesting, version check, metrics summary |
+
+Deprecated: `candidate_handoff.py` (the old two-route entry, superseded by
+`discovery_plan.py` + `discovery_batch.py`; its output carries
+`deprecated: true`) and `search_metrics.py` (only for Web Search diagnostics
+that do not go through a discovery batch).
 
 ## 🚀 Usage
 

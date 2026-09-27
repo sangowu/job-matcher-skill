@@ -216,3 +216,47 @@
 
 - **限速对所有浏览器来源生效。**同一 `source_id` 的两个动作间隔不得低于 `browser_min_source_interval_ms`(默认 5000,只能调高不能调低)。动作前先问 `python scripts/browser_control.py --provider P pace --source-id S --action A --requests N` 拿到应等毫秒数;上报时传 `--source-id S --requests N`。**批量上报时必须带 `--occurred-at-ms`**(动作发生的 epoch 毫秒)——间隔按动作发生时刻判定,不按上报时刻;不带它等于声称动作就发生在此刻,真实间隔 5 秒的一串动作会被误判为超速,而真实间隔 0.1 秒、拖延上报的一串会被误判为合规。**确实没量到时刻的动作传 `--timing unavailable`**,不要让它默认成此刻——默认成此刻等于声称它发生在那些其实更晚的动作之后,一条没量到的时刻会把整批的时间线弄乱(2026-09-25 实测产生过一条假的 `browser_paced_too_fast`)。这样的动作不参与限速判定,也不推进该来源的时间戳(判一个猜测已经不对,把猜测存下来更糟:之后每个动作都会拿它当基准),但仍然算作浏览器已产出,因为页面确实取到了,缺的只是秒表。它与 `--occurred-at-ms` 互斥——有时刻就报时刻,没有就说没有,不能既给数又不认。未计时动作免于限速,所以 `metrics.browsers.untimed` 会计数,跟 `search_pages_untimed` 同理:看不见的豁免没人会去审。间隔不足的动作仍会写入事件(保持可见),但记为 `failure_kind=browser_paced_too_fast` 且**不计入轮次完整性**——本进程拦不住 Agent 的浏览器调用,能做的是让超速有代价。`browser_jitter_ms`(默认 2000)在最小间隔**之上**叠加随机等待,只会让等待变长,强制下限保持确定。它的用途是分散请求、降低对被读取站点的瞬时负载,**不是用来伪装流量**:检测机制看的是 TLS 与浏览器指纹,不是两次页面加载的时间间隔。
 
+### [R4-07] 被拒候选的标记为什么不是缓存、也不省 token
+
+需求要的是「已过滤的 JD 要有标记，防止重复分析」。做之前先确认了一件事：**这个标记省不了 token**。
+被初筛拒掉的候选**根本没进 merge**——worker 上报它的时候，那份 token 已经花掉了；而 worker
+下一轮还会把同一条读回来，因为「上次读到第几页、哪些 id 看过」不在任务里。真要省那部分，得在
+任务层按来源记住分页位置，那是另一件事，不是负缓存能救的。结构化通道更不需要：board 整份拉下来
+本地筛，`ats_defer_jd` 只给留下来的候选取正文，被拒的一条请求都不花。
+
+所以它做成标记和可见性，不做成缓存：
+
+- **可见性**：`candidates_dropped` 只说本轮按原因丢了几条。同一轮丢 10 条新的，和把上轮那 10 条
+  重新丢一遍，报出来一模一样——而这正是「浏览器通道花了几分钟什么也没拿到」要回答的问题。
+  `candidates_dropped_repeat` 把两者分开。浏览器每轮重读同一个站的列表，所以这个数主要反映
+  browser / Web Search 两条通道在多大程度上重复劳动，也是调 `browser_first_wave` 或某来源
+  priority 的依据。
+- **不做成缓存是硬约束**：以 `role` 拒掉一条是「这份 profile 拒它」，不是永久判决。CV 通过
+  `generalizes_to` 拿到 `Backend Engineer` 之后，上一轮以 `role` 被拒的后端职位必须被重新考虑。
+  一个被当作缓存查的 store 会悄悄保留旧答案，把泛化那件事撤销掉——所以初筛对每条候选每轮照跑，
+  这个 store 的答案只改变计数。测试钉住了这一点。
+- 存的东西：url key + `role`/`location`/`seniority`/`market` 四个原因之一 + 时间戳 + 次数。
+  没有标题、公司、JD、CV、query。TTL 与 `jd_ttl_days` 一致（同一个"这条信息还算新吗"的尺度）。
+- 标记写失败只报 `refusals_recorded:false`，不影响候选：一个诊断不该有权让一批候选失败。
+
+### [R3-09] 为什么角色词表必须只有一份
+
+改之前有两份：`references/role_taxonomy.json`（`market_plan` 用来展开 query，4 个族）和
+`job_prefilter._ROLE_FAMILIES`（初筛用来认标题，7 个族）。**一份决定一轮去搜什么，另一份决定一轮
+留下什么**，而且族 id 都不一致（`data` 对 `data_engineering`）——任一边改动都不会让另一边知道。
+这与 WORKFLOW 里记着的「一轮有两个目标角色的答案」是同一类缺陷，只是低一层。
+
+合并后：
+
+- `match_terms` 是短语，按子串匹配；`match_tokens` 按整词匹配，所以不能写成短语——`ai` 作为子串
+  藏在 `maintenance` 和 `training` 里，而 `AI Platform Engineer` 需要按整词认出那个 `ai`。校验会
+  拒掉写成短语的 token。
+- `match_only_families` 只认标题、不生成 query：这个技能不搜产品经理，但一条标着产品经理的职位
+  必须以正确的原因被拒，而不是碰巧被拒。这样既统一了词表，又不会让 `resolve_role_family` 把
+  `AI Platform Engineer` 解析成 platform 去搜错的词。
+- 词表读不出来时**抛错而不是回退到空**：空词表会让初筛只剩 token 重合，等于悄悄放宽；一个静默
+  放宽的过滤器比一轮直接停下更糟。
+- 顺带补上需求 4 的例子：`backend` 的 `match_terms` 现在包含 `python engineer` / `python developer`
+  这类以技术栈命名的标题。此前泛化生成了 `Backend Engineer` 的查询，搜回来的
+  `Senior Python Engineer, Platform` 却因为"不属于任何族"被初筛以 `role` 丢掉——搜索付了钱，
+  过滤器把结果扔了。短语匹配保证 `Python Trainer` 仍然被拒。

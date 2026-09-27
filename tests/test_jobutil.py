@@ -233,3 +233,86 @@ def test_an_embedded_board_url_yields_a_guess_and_its_proof(url, expected):
 )
 def test_a_url_with_nothing_to_guess_from_yields_no_hint(url):
     assert extract_board_hint(url) is None
+
+
+# ── One role vocabulary, not two ─────────────────────────────────────────────
+
+def test_the_prefilter_reads_the_catalog_and_carries_no_table_of_its_own():
+    """One vocabulary decided what a round searched for and a different one
+    decided what it kept, with family ids that did not even agree (`data`
+    against `data_engineering`), so neither could be changed without the other
+    silently disagreeing."""
+    import json
+
+    import job_prefilter
+
+    source = (
+        Path(job_prefilter.__file__).read_text(encoding="utf-8")
+    )
+    assert "_ROLE_FAMILIES = {" not in source
+    assert "_ROLE_FAMILY_TOKENS = {" not in source
+
+    catalog = json.loads(
+        job_prefilter.ROLE_TAXONOMY_PATH.read_text(encoding="utf-8")
+    )
+    by_term, by_token = job_prefilter._vocabulary()
+    declared = {
+        family["role_family_id"]
+        for family in [
+            *catalog["role_families"],
+            *catalog.get("match_only_families", []),
+        ]
+        if family.get("match_terms")
+    }
+    assert set(by_term) == declared
+    assert set(by_token) <= declared
+
+
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ("AI Engineer", {"applied_ai"}),
+        # `platform` is devops/SRE wording; "platform engineer" was never one of
+        # its terms, and the qualifier token is what makes this an AI role.
+        ("AI Platform Engineer", {"applied_ai"}),
+        ("Site Reliability Engineer", {"platform"}),
+        ("Backend Engineer", {"backend"}),
+        ("Data Engineer", {"data_engineering"}),
+        ("Full Stack Developer", {"fullstack"}),
+        ("Product Manager", {"product"}),
+        ("Software Engineer", set()),
+        ("Maintenance Technician", set()),
+    ],
+)
+def test_family_recognition_is_unchanged_by_the_move(title, expected):
+    """Pinned against the table that used to be hardcoded, including the two
+    cases it was written for: a qualifier token counts ("AI Platform Engineer"),
+    and "ai" as a substring of "maintenance" does not."""
+    import job_prefilter
+
+    assert job_prefilter._role_families(title) == expected
+
+
+def test_a_stack_named_title_is_the_backend_family():
+    """Requirement 4's own example: an AI CV generalized to a Python role. The
+    generalization produced the query and the filter then refused the posting,
+    because "Python Engineer" carried no family at all."""
+    import job_prefilter
+
+    profile = {"roles": ["AI Engineer", "Backend Engineer"]}
+    for title in ("Senior Python Engineer, Platform", "Python Developer"):
+        assert job_prefilter.rejection_reason({"title": title}, profile) is None
+    # A phrase, not a token: the language alone is not a role.
+    assert job_prefilter.rejection_reason({"title": "Python Trainer"}, profile) == "role"
+
+
+def test_a_vocabulary_that_will_not_load_stops_the_round(tmp_path, monkeypatch):
+    """Failing open would widen the filter, and a filter that widens silently is
+    worse than a round that stops."""
+    import job_prefilter
+
+    broken = tmp_path / "role_taxonomy.json"
+    broken.write_text("{not json", encoding="utf-8")
+
+    with pytest.raises(job_prefilter.RoleVocabularyError):
+        job_prefilter._vocabulary(broken)

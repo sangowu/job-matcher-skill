@@ -13,8 +13,16 @@ callers are unchanged.
 """
 from __future__ import annotations
 
+import functools
+import json
 import re
 from typing import Any
+
+from pathlib import Path
+
+from _jobutil import SKILL_ROOT
+
+ROLE_TAXONOMY_PATH = SKILL_ROOT / "references" / "role_taxonomy.json"
 
 
 _REMOTE_TERMS = ("remote", "anywhere", "distributed", "远程")
@@ -26,29 +34,57 @@ _LEVEL_TERMS = {
     "senior": ("senior", "sr ", "资深", "高级"),
     "lead": ("lead", "principal", "staff", "architect", "manager", "主管", "负责人"),
 }
-_ROLE_FAMILIES = {
-    "applied_ai": (
-        "ai engineer", "ai developer", "artificial intelligence", "machine learning",
-        "ml engineer", "ai evaluation", "ai systems", "agent systems", "agentic ai",
-        "llm", "nlp", "data scientist", "算法工程师", "人工智能", "机器学习",
-    ),
-    "backend": ("backend", "back-end", "server-side", "后端"),
-    "frontend": ("frontend", "front-end", "前端"),
-    "fullstack": ("full stack", "full-stack", "全栈"),
-    "data": ("data engineer", "analytics engineer", "数据工程"),
-    "platform": ("devops", "site reliability", "sre", "cloud engineer", "平台工程"),
-    "product": ("product manager", "产品经理"),
-}
-# A family term above is a phrase, matched as a substring, so one word
-# between two of its words hides it: "AI Platform Engineer" carries neither
-# "ai engineer" nor "machine learning", and on 2026-09-27 the filter dropped
-# it, "AI Infrastructure Engineer" and "ML Platform Engineer" for a profile
-# whose every preferred role is an AI role. These are matched as whole tokens
-# instead, which is why they cannot live in the table above: "ai" as a
-# substring is inside "maintenance" and "training".
-_ROLE_FAMILY_TOKENS = {
-    "applied_ai": frozenset({"ai", "ml", "aiml", "llm", "genai", "nlp"}),
-}
+class RoleVocabularyError(RuntimeError):
+    """The role vocabulary could not be read."""
+
+
+@functools.lru_cache(maxsize=1)
+def _vocabulary(
+    path: Path | None = None,
+) -> tuple[dict[str, tuple[str, ...]], dict[str, frozenset[str]]]:
+    """The family match terms, from `references/role_taxonomy.json`.
+
+    This table used to live here, and `market_plan` had its own in the catalog:
+    one vocabulary decided what a round searched for and a different one decided
+    what it kept. The family ids did not even agree (`data` against
+    `data_engineering`), so neither side could be changed without the other
+    silently disagreeing -- the same shape of defect as a round having two
+    answers to what roles it is looking for, one layer down.
+
+    A term is a phrase matched as a substring. A `match_tokens` entry is matched
+    as a whole token instead, which is why it cannot be a term: "ai" as a
+    substring sits inside "maintenance" and "training". `match_only_families`
+    are recognized in a title but never searched for -- this skill does not look
+    for a product manager, but a posting titled one has to be refused for the
+    right reason rather than by accident.
+
+    A vocabulary that will not load raises: it decides what is kept, and a
+    silent empty one widens the filter instead of stopping the round.
+    """
+    catalog = path or ROLE_TAXONOMY_PATH
+    try:
+        payload = json.loads(catalog.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise RoleVocabularyError(f"cannot read {catalog}: {error}") from error
+    families: dict[str, tuple[str, ...]] = {}
+    tokens: dict[str, frozenset[str]] = {}
+    groups = [
+        *(payload.get("role_families") or []),
+        *(payload.get("match_only_families") or []),
+    ]
+    if not groups:
+        raise RoleVocabularyError(f"{catalog} defines no role families")
+    for family in groups:
+        family_id = family.get("role_family_id")
+        if not isinstance(family_id, str) or not family_id:
+            raise RoleVocabularyError(f"{catalog} has a family without an id")
+        terms = family.get("match_terms")
+        if terms:
+            families[family_id] = tuple(str(term) for term in terms)
+        named = family.get("match_tokens")
+        if named:
+            tokens[family_id] = frozenset(str(item) for item in named)
+    return families, tokens
 # Where such a token sits is the whole difference between a role and a
 # product. "AI Platform Engineer" qualifies the engineer; "Mobile Application
 # Developer - AI Neobank App" qualifies the app, and that one must stay out.
@@ -85,13 +121,14 @@ def _family_tokens_match(value: str, family_tokens: frozenset[str]) -> bool:
 
 
 def _role_families(value: str) -> set[str]:
+    by_term, by_token = _vocabulary()
     normalized = _normalized_text(value)
     families = {
-        family for family, terms in _ROLE_FAMILIES.items()
+        family for family, terms in by_term.items()
         if any(_normalized_text(term) in normalized for term in terms)
     }
     families.update(
-        family for family, tokens in _ROLE_FAMILY_TOKENS.items()
+        family for family, tokens in by_token.items()
         if _family_tokens_match(value, tokens)
     )
     return families

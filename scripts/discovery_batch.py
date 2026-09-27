@@ -26,6 +26,7 @@ from typing import Any, Callable
 
 import ats_pipeline
 import job_prefilter
+import rejected_log
 import market_plan
 from candidate_contract import CandidateContractError, validate_candidate_envelope
 from candidate_handoff import run_merge_subprocess
@@ -524,13 +525,14 @@ def _prefilter_reported_candidates(
     worker's reading stands, because silence is not a contradiction.
     """
     if not normalized:
-        return [], {}
+        return [], {}, []
     if profile is None:
         raise DiscoveryBatchError(
             "a batch carrying candidates requires --profile to prefilter them"
         )
     kept: list[dict[str, Any]] = []
     dropped: dict[str, int] = {}
+    refused: list[tuple[dict[str, Any], str]] = []
     planned = task.get("markets") if channel == "structured" else [task.get("market_id")]
     scope = {value for value in (planned or []) if value}
     for candidate in normalized:
@@ -546,7 +548,8 @@ def _prefilter_reported_candidates(
             kept.append(candidate)
         else:
             dropped[reason] = dropped.get(reason, 0) + 1
-    return kept, dropped
+            refused.append((candidate, reason))
+    return kept, dropped, refused
 
 
 STRUCTURED_FAILURE = "ats_fetch_failed"
@@ -691,6 +694,15 @@ def _validate_results(
     # _validate_search_pages so both the loop and its tests read one rule.
     by_task: dict[str, dict[str, Any]] = {}
     combined: list[dict[str, Any]] = []
+    refused_all: list[tuple[dict[str, Any], str]] = []
+    # Read once, before anything is recorded, so "already refused" means
+    # refused in an earlier round rather than earlier in this loop.
+    already_refused = _known_refusals()
+    def repeat_counter(candidates: Any) -> int:
+        return sum(
+            1 for candidate in candidates
+            if already_refused & set(rejected_log.keys_of(candidate))
+        )
     counts = {"succeeded": 0, "failed": 0, "skipped": 0}
     channel_counts = {
         channel: {"planned": 0, "succeeded": 0, "failed": 0, "skipped": 0}
@@ -769,10 +781,11 @@ def _validate_results(
             )
             for candidate in candidates
         ]
-        kept, dropped = _prefilter_reported_candidates(
+        kept, dropped, refused = _prefilter_reported_candidates(
             normalized, channel=channel, task=task, profile=profile, markets=markets
         )
         combined.extend(kept)
+        refused_all.extend(refused)
         counts[status] += 1
         channel_counts[channel][status] += 1
         by_task[task_id] = {
@@ -784,6 +797,7 @@ def _validate_results(
             # differently, which is worth seeing rather than smoothing over.
             "candidates_prefiltered": prefiltered,
             "candidates_dropped": dropped,
+            "candidates_dropped_repeat": repeat_counter(candidate for candidate, _ in refused),
             "candidates_unique": len(kept),
             "pages": pages,
         }
@@ -798,6 +812,13 @@ def _validate_results(
             value["candidates_prefiltered"] for value in by_task.values()
         ),
         "candidates_dropped": _sum_drops(by_task.values()),
+        # How much of this round's dropping was ground already covered. The
+        # browser channel rereads a site's listing every round, so this is the
+        # number behind "it spent minutes to refuse the same postings again".
+        "candidates_dropped_repeat": sum(
+            value["candidates_dropped_repeat"] for value in by_task.values()
+        ),
+        "refusals_recorded": _record_refusals(refused_all),
         "candidates_validated": len(combined),
         "channels": channel_counts,
         "search_pages": [
@@ -811,6 +832,32 @@ def _validate_results(
             for page in value["pages"]
         ),
     }
+
+
+def _known_refusals() -> set[str]:
+    """Identities the prefilter refused in an earlier round, or nothing.
+
+    A store that cannot be read costs the round a diagnostic, not the round.
+    """
+    try:
+        return {
+            key
+            for entry in rejected_log._read(rejected_log.STORE_PATH)["entries"]
+            for key in entry.get("keys", [])
+        }
+    except rejected_log.RejectedLogError:
+        return set()
+
+
+def _record_refusals(refused: list[tuple[dict[str, Any], str]]) -> bool:
+    """Mark this round's refusals. A marker is never allowed to fail a batch."""
+    if not refused:
+        return True
+    try:
+        rejected_log.record(refused)
+    except rejected_log.RejectedLogError:
+        return False
+    return True
 
 
 def _sum_drops(values: Any) -> dict[str, int]:

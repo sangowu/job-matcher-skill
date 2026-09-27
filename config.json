@@ -33,6 +33,7 @@
   "discovery_max_waves": 3,
   "browser_sources_per_market": 4,
   "browser_first_wave": 2,
+  "web_first_wave": 3,
   "browser_queries_per_source": 2,
   "web_queries_per_market_per_wave": 2,
   "web_source_hints_per_task": 6,

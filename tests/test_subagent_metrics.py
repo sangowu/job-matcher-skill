@@ -296,3 +296,29 @@ def test_the_shipped_catalog_and_config_resolve_together():
         profile = resolve_profile(role, config, available_models=offered, tiers=tiers)
         assert profile["model_source"] == "catalog"
         assert profile["unresolved_models"] == []
+
+
+def test_every_model_this_runtime_offers_is_in_the_catalog():
+    """A name the catalog lacks is reported as unresolved rather than placed by
+    its spelling, which is right and is also a gap when the runtime really does
+    offer it: `fable` was offered here and resolved to nothing."""
+    tiers = subagent_metrics.load_tiers()
+    offered = ["haiku", "sonnet", "opus", "fable"]
+
+    _, _, unresolved = subagent_metrics.select_model(offered, "light", tiers)
+
+    assert unresolved == []
+
+
+def test_a_deep_model_does_not_take_a_cheaper_role():
+    """The floor picks the cheapest model that reaches it, so adding a deep
+    model must not change what a light or standard role is given."""
+    tiers = subagent_metrics.load_tiers()
+
+    light, _, _ = subagent_metrics.select_model(["fable", "haiku"], "light", tiers)
+    standard, _, _ = subagent_metrics.select_model(
+        ["fable", "sonnet", "haiku"], "standard", tiers
+    )
+
+    assert light == "claude-haiku-4-5-20251001"
+    assert standard == "claude-sonnet-5"

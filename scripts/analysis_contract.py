@@ -61,6 +61,28 @@ class AnalysisContractError(ValueError):
     """Raised when an evaluation worker returns an unsafe result."""
 
 
+def normalize_verified(value: object) -> str | None:
+    """One vocabulary for link liveness, whichever one the worker used.
+
+    A boolean is still accepted -- it is what the earliest workers returned --
+    but it is stored as the enum it means. Keeping both shapes meant one table
+    carried `True`, `"alive"` and `"unverified"` at once, and the report, which
+    renders the value as a filter facet, offered `True` and `alive` as two
+    different things to filter by.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "alive" if value else "closed"
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in VERIFIED_VALUES:
+            return normalized
+    raise AnalysisContractError(
+        "verified must be alive, closed, unverified, unknown, boolean, or null"
+    )
+
+
 def validate_evaluation_result(payload: object) -> dict:
     """Return a normalized evaluation result or raise a contract error."""
     if not isinstance(payload, dict):
@@ -94,17 +116,7 @@ def validate_evaluation_result(payload: object) -> dict:
     if scored_from == "jd" and jd_profile is None:
         raise AnalysisContractError("jd_profile is required when scored_from is jd")
 
-    verified = payload.get("verified")
-    if isinstance(verified, str):
-        verified = verified.strip().lower()
-        if verified not in VERIFIED_VALUES:
-            raise AnalysisContractError(
-                "verified must be alive, closed, unverified, unknown, boolean, or null"
-            )
-    elif verified is not None and not isinstance(verified, bool):
-        raise AnalysisContractError(
-            "verified must be alive, closed, unverified, unknown, boolean, or null"
-        )
+    verified = normalize_verified(payload.get("verified"))
 
     return {
         "record_id": record_id,

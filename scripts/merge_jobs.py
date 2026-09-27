@@ -37,7 +37,11 @@ from pathlib import Path
 from typing import Any
 
 import _filelock
-from analysis_contract import AnalysisContractError, validate_evaluation_result
+from analysis_contract import (
+    AnalysisContractError,
+    normalize_verified,
+    validate_evaluation_result,
+)
 from candidate_contract import CandidateContractError, validate_candidate_envelope
 from _jobutil import (
     all_identity_keys,
@@ -61,6 +65,7 @@ _DISCOVERY_FORBIDDEN_FIELDS = {
     "jd_profile",
     "scored_from",
     "verified",
+    "verified_at",
     "cv_text",
 }
 
@@ -160,6 +165,34 @@ def _table_write_lock():
         }
     finally:
         _filelock.release(LOCK_PATH)
+
+
+def _ensure_verified_shape(job: dict) -> bool:
+    """Store link liveness as the enum, whatever shape the row arrived in.
+
+    Rows written before the vocabulary was single carry `True`; the report
+    renders the value as a filter facet, so `True` and `alive` showed up as two
+    different things to filter by. Normalized in place on the way past, like
+    the identity and provenance migrations: no record version is bumped,
+    because the value is unchanged -- only its spelling.
+    """
+    if not isinstance(job.get("verified"), bool):
+        return False
+    job["verified"] = normalize_verified(job["verified"])
+    return True
+
+
+def _is_fresh(verified_at: str | None, ttl_hours: float) -> bool:
+    """Whether a link check is recent enough to stand in for a new one."""
+    if not verified_at:
+        return False
+    try:
+        stamp = datetime.fromisoformat(verified_at)
+    except Exception:
+        return False
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return (_now() - stamp) <= timedelta(hours=max(0.0, ttl_hours))
 
 
 def _is_expired(fetched_at: str | None, ttl_days: int) -> bool:
@@ -328,6 +361,7 @@ def _brief(
     with_score: bool = False,
     mk: str = "",
     jd_handoff: dict | None = None,
+    verify_ttl_hours: float = 24.0,
 ) -> dict:
     """给下游 subagent 的精简视图。"""
     b = {
@@ -346,6 +380,17 @@ def _brief(
         "task_type": task_type,
         "base_record_version": int(job.get("record_version") or 1),
         "jd_input_hash": make_jd_input_hash(job),
+        "verified": job.get("verified"),
+        "verified_at": job.get("verified_at"),
+        # A link check costs a request and the answer keeps for a while, so
+        # whether this one still counts is decided here rather than left as a
+        # rule the caller has to remember. `alive` is the only state worth
+        # keeping: `closed` removes the row, and the three undecided states
+        # are what a re-check exists to resolve.
+        "needs_verification": not (
+            job.get("verified") == "alive"
+            and _is_fresh(job.get("verified_at"), verify_ttl_hours)
+        ),
     }
     if jd_handoff:
         b["jd_text_available"] = True
@@ -761,6 +806,7 @@ def _apply_jd_content_hash(job: dict, jd_text: str) -> bool:
     job["fetched_at"] = None
     job["match_scores"] = {}
     job["verified"] = None
+    job["verified_at"] = None
     job["scored_from"] = None
     return True
 
@@ -795,6 +841,7 @@ def cmd_merge(
     started = time.monotonic()
     cfg = load_config()
     ttl_days = int(cfg.get("jd_ttl_days", 30))
+    verify_ttl_hours = float(cfg.get("verify_ttl_hours", 24))
     mk = f"{cv_hash}:{cp_hash}"
 
     candidates = json.loads(read_stdin_text() or "[]")
@@ -865,11 +912,14 @@ def cmd_merge(
         used_record_ids: set[str] = set()
         identity_records_migrated = 0
         provenance_records_migrated = 0
+        verification_records_migrated = 0
         for job in jobs:
             if _ensure_job_identity(job, used_record_ids):
                 identity_records_migrated += 1
             if _ensure_job_provenance(job):
                 provenance_records_migrated += 1
+            if _ensure_verified_shape(job):
+                verification_records_migrated += 1
             job["record_version"] = int(job.get("record_version") or 1)
             job["status"] = "existing"
             for uk in job.get("url_keys", []):
@@ -944,15 +994,32 @@ def cmd_merge(
                 expired = _is_expired(hit.get("fetched_at"), ttl_days)
                 if jd and not expired:
                     if mk in (hit.get("match_scores") or {}):
-                        cached.append(_brief(hit, task_type="cached", with_score=True, mk=mk))
+                        cached.append(
+                            _brief(
+                                hit,
+                                task_type="cached",
+                                with_score=True,
+                                mk=mk,
+                                verify_ttl_hours=verify_ttl_hours,
+                            )
+                        )
                     else:
-                        task = _brief(hit, task_type="score_only", with_jd=True)
+                        task = _brief(
+                            hit,
+                            task_type="score_only",
+                            with_jd=True,
+                            verify_ttl_hours=verify_ttl_hours,
+                        )
                         (in_evaluation if _is_active(hit, active_eval_keys) else to_score_only).append(task)
                 else:
                     if expired and hit.get("jd_profile") is not None:
                         hit["jd_profile"] = None
                         hit["record_version"] += 1
-                    task = _brief(hit, jd_handoff=jd_handoffs.get(hit["record_id"]))
+                    task = _brief(
+                        hit,
+                        jd_handoff=jd_handoffs.get(hit["record_id"]),
+                        verify_ttl_hours=verify_ttl_hours,
+                    )
                     (in_evaluation if _is_active(hit, active_eval_keys) else to_analyze).append(task)
             else:
                 record_id = cand["record_id"]
@@ -975,7 +1042,7 @@ def cmd_merge(
                     "fetched_at": None, "jd_profile": None, "match_scores": {},
                     "status": "new", "record_version": 1,
                     "possibly_closed": is_closed_posting(cand.get("snippet", "")),
-                    "verified": None, "scored_from": None,
+                    "verified": None, "verified_at": None, "scored_from": None,
                 }
                 jd_text = str(cand.get("jd_text") or "")
                 if jd_text:
@@ -994,7 +1061,11 @@ def cmd_merge(
                 for identity_key in newjob["identity_keys"]:
                     by_identity[identity_key] = newjob
                 to_analyze.append(
-                    _brief(newjob, jd_handoff=jd_handoffs.get(record_id))
+                    _brief(
+                        newjob,
+                        jd_handoff=jd_handoffs.get(record_id),
+                        verify_ttl_hours=verify_ttl_hours,
+                    )
                 )
 
         archived = _archive_stale(table, ttl_days)
@@ -1018,6 +1089,11 @@ def cmd_merge(
             "abandoned_runs": abandoned_runs,
             "identity_records_migrated": identity_records_migrated,
             "provenance_records_migrated": provenance_records_migrated,
+            "verification_records_migrated": verification_records_migrated,
+            "verification_reused": sum(
+                1 for task in to_analyze + to_score_only
+                if not task["needs_verification"]
+            ),
             "strong_identity_records": sum(bool(job.get("identity_keys")) for job in jobs),
             "strong_identity_conflicts_prevented": identity_stats.get(
                 "strong_identity_conflicts_prevented", 0
@@ -1224,7 +1300,13 @@ def cmd_update(
                 job["jd_profile"] = result["jd_profile"]
                 job["fetched_at"] = _now().isoformat()
             job.setdefault("match_scores", {})[mk] = result["match_score"]
-            job["verified"] = result["verified"]
+            if result["verified"] is not None:
+                job["verified"] = result["verified"]
+                # Without a stamp there is no telling a check made this round
+                # from one made a month ago, so every round re-checked every
+                # Top-N row and the report showed a month-old `alive` as
+                # current. A worker that reports nothing leaves both alone.
+                job["verified_at"] = _now().isoformat()
             job["scored_from"] = result["scored_from"]
             job["record_version"] = current_version + 1
 

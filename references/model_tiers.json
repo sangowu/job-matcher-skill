@@ -42,6 +42,13 @@
       "id": "claude-opus-5-5",
       "tier": "deep",
       "aliases": []
+    },
+    {
+      "id": "claude-fable-5-1",
+      "tier": "deep",
+      "aliases": [
+        "fable"
+      ]
     }
   ]
 }

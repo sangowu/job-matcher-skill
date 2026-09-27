@@ -57,6 +57,7 @@
   "ats_registry_ttl_days": 30,
   "ats_fetch_interval_minutes": 60,
   "jd_ttl_days": 30,
+  "verify_ttl_hours": 24,
   "seniority_mode": "balanced",
   "enable_headless_fallback": true,
   "headless_budget": 3,

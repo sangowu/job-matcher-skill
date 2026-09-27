@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlsplit
 
 from _jobutil import is_closed_posting
 from _stdio import StdinUnavailable, read_stdin_text
@@ -29,6 +31,13 @@ _LISTING_TAIL = re.compile(r"/(jobs|careers|search|positions|opportunities)/?$",
 # 回答**这次请求**，与职位的死活无关。
 GONE_CODES = frozenset({404, 410})
 _BODY_LIMIT = 8000
+# Hosts run in parallel, URLs of one host run in order. A Top-N check is
+# twenty-odd URLs across nearly as many hosts, and one 10-second timeout used
+# to be added to the next: measured serially at 12s typically and 200s worst
+# case for twenty URLs. Parallel across hosts costs the same requests -- no
+# host is asked anything faster than it was before, which is what the browser
+# channel's pacing rule protects and what this must not undo.
+MAX_HOST_WORKERS = 8
 
 
 def check(url: str) -> dict:
@@ -66,6 +75,34 @@ def check(url: str) -> dict:
     return {"url": url, "alive": True, "reason": "ok", "final_url": final}
 
 
+def _host_of(url: str) -> str:
+    try:
+        return (urlsplit(url).hostname or "").casefold()
+    except ValueError:
+        return ""
+
+
+def check_all(urls: list[str], *, max_workers: int = MAX_HOST_WORKERS) -> list[dict]:
+    """Check every URL, one host at a time and several hosts at once.
+
+    Results come back in the order asked for, whatever order they finished in:
+    the caller pairs them with its own list positionally.
+    """
+    by_host: dict[str, list[int]] = {}
+    for index, url in enumerate(urls):
+        by_host.setdefault(_host_of(url), []).append(index)
+    results: list[dict | None] = [None] * len(urls)
+
+    def run(indexes: list[int]) -> None:
+        for index in indexes:
+            results[index] = check(urls[index])
+
+    if by_host:
+        with ThreadPoolExecutor(max_workers=max(1, min(max_workers, len(by_host)))) as pool:
+            list(pool.map(run, by_host.values()))
+    return [row for row in results if row is not None]
+
+
 def main() -> None:
     try:
         urls = json.loads(read_stdin_text() or "[]")
@@ -76,8 +113,8 @@ def main() -> None:
         print(json.dumps({"ok": False, "error": "输入必须是 URL 数组"}))
         sys.exit(1)
 
-    results = [check(u) for u in urls if isinstance(u, str) and u.strip()]
-    print(json.dumps({"ok": True, "results": results}))
+    wanted = [u for u in urls if isinstance(u, str) and u.strip()]
+    print(json.dumps({"ok": True, "results": check_all(wanted)}))
 
 
 if __name__ == "__main__":

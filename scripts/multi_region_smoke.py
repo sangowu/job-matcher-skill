@@ -25,13 +25,14 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Protocol
 
+from _jobutil import supported_markets
 from _stdio import use_utf8_stdout
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PLAN = REPO_ROOT / "references" / "multi_region_smoke_plan.json"
 DEFAULT_SEEDS = REPO_ROOT / "references" / "source_seeds.json"
-SUPPORTED_MARKETS = ("ie", "uk", "cn", "de")
+SUPPORTED_MARKETS = supported_markets()
 ALLOWED_MODES = {"public_get", "policy_skip"}
 JOB_LINK_MARKERS = (
     "job",

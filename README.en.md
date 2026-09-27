@@ -241,8 +241,8 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `browser_queries_per_source` | 2 | localized query cap per browser source and run |
 | `web_queries_per_market_per_wave` | 2 | per-market Web Search query cap in each wave |
 | `web_source_hints_per_task` | 6 | public source-hint cap per Web Search task |
-| `multi_region_enabled` | false | master multi-region source flag; all effective market modes are off while false |
-| `multi_region_rollout` | all four off | independent off / shadow / opt_in / default mode per market; default requires the Phase E gate |
+| `multi_region_enabled` | false | **Phase E shadow gate only**; `shadow_gate.py` is the one reader and the live discovery path ignores it, so it is not a multi-market master switch |
+| `multi_region_rollout` | all four off | independent off / shadow / opt_in / default mode per market; default requires the Phase E gate. Shadow gate only, as above |
 | `stop_threshold` | 12 | stop once enough net-valid jobs found |
 | `consecutive_empty_stop` | 2 | stop after N consecutive empty batches |
 | `ats_enabled` | false | enable the public ATS enhancement pipeline; explicitly off by default |

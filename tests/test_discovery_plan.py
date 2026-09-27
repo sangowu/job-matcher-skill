@@ -777,3 +777,96 @@ def test_an_empty_role_plan_is_refused_rather_than_read_as_absent():
 
     with pytest.raises(discovery_plan.DiscoveryPlanError, match="non-empty"):
         discovery_plan.build_discovery_plan(request, seeds=seeds, config=_config())
+
+
+def test_a_market_says_which_channels_it_has_rather_than_falling_silent():
+    """China skips the ATS channel, and correctly -- none of its fourteen
+    sources is an `ats_board`. But that was a side effect of the data: the plan
+    reported only that no structured task existed, with no market attached, so
+    "this market has no structured channel" and "the wave budget did not reach
+    it" arrived as the same silence."""
+    seeds = source_registry.load_seeds()
+    markets, taxonomy = market_plan.load_resources()
+    plan = market_plan.build_market_plan(
+        {
+            "cv_profile": {"target_roles": ["AI Engineer"], "skills": ["Python"]},
+            "user_intent": {"locations": ["Dublin", "Shanghai"]},
+        },
+        markets=markets,
+        taxonomy=taxonomy,
+    )
+    sources = [
+        {
+            "source_id": source["source_id"],
+            "markets": [
+                market for market in source["markets"]
+                if market in plan["target_markets"]
+            ],
+            "priority": source["priority"],
+        }
+        for source in seeds["sources"]
+        if set(source["markets"]) & set(plan["target_markets"])
+        and source["enabled"]
+        and source["verified"]
+    ]
+    request = {
+        "market_plan": plan,
+        "source_plan": {
+            "schema_version": 1,
+            "market_ids": plan["target_markets"],
+            "sources": sources,
+            "source_ids": [source["source_id"] for source in sources],
+        },
+        "route_plan": {
+            "ok": True,
+            "mode": "coverage",
+            "routes": ["browser", "model_search"],
+            "browser_provider": "browseros_neo",
+        },
+    }
+
+    built = discovery_plan.build_discovery_plan(
+        request, seeds=seeds, config={**_config(), "ats_enabled": True}
+    )
+
+    assert set(built["per_market"]) == set(plan["target_markets"])
+    assert built["per_market"]["ie"]["structured"] == "planned"
+    # The mapping the requirement asks for, derived from the catalog rather than
+    # kept by hand: no eligible Chinese source offers a structured endpoint.
+    assert built["per_market"]["cn"]["structured"] == "unavailable_in_market"
+    assert built["per_market"]["cn"]["browser"] == "planned"
+
+
+def test_a_channel_its_caller_switched_off_is_not_reported_as_missing():
+    """`route_off` is the caller's own decision and `unavailable_in_market` is
+    the catalog's; reading one as the other would have a market look unserved
+    because this round chose not to serve it."""
+    seeds = source_registry.load_seeds()
+    request = _request(seeds, routes=["model_search"])
+
+    built = discovery_plan.build_discovery_plan(
+        request, seeds=seeds, config={**_config(), "ats_enabled": False}
+    )
+
+    assert built["per_market"]["ie"] == {
+        "structured": "route_off",
+        "browser": "route_off",
+        "web_search": "planned",
+    }
+
+
+def test_a_market_with_no_planned_channel_at_all_is_warned_about():
+    seeds = source_registry.load_seeds()
+    request = _request(seeds, routes=["model_search"])
+    request["market_plan"]["search_plan"] = [
+        {**request["market_plan"]["search_plan"][0], "market_id": "ie"}
+    ]
+
+    built = discovery_plan.build_discovery_plan(
+        request,
+        seeds=seeds,
+        config={**_config(), "ats_enabled": False, "web_first_wave": 3, "discovery_max_waves": 2},
+    )
+
+    assert built["per_market"]["ie"]["web_search"] == "deferred"
+    assert "no discovery channel is planned for market ie" in built["warnings"]

@@ -22,7 +22,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from _jobutil import load_config, normalize_company
+from _jobutil import load_config, normalize_company, supported_markets
 from runtime_metrics import DEFAULT_THRESHOLDS, build_summaries
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -32,7 +32,7 @@ TEMPLATE_PATH = SKILL_ROOT / "assets" / "template.html"
 REPORTS_DIR = DATA_DIR / "reports"
 METRICS_PATH = DATA_DIR / "metrics.jsonl"
 EVAL_RUNS_DIR = DATA_DIR / "eval_runs"
-SUPPORTED_MARKETS = {"ie", "uk", "cn", "de"}
+SUPPORTED_MARKETS = set(supported_markets())
 # Routes that read a page through the person's own signed-in browser. What
 # they return depends on who is signed in, so a row found only this way is not
 # a row a different account would necessarily see. Not a fault and not a
@@ -41,6 +41,12 @@ SUPPORTED_MARKETS = {"ie", "uk", "cn", "de"}
 SESSION_DEPENDENT_ROUTES = {"browseros_neo", "user_browser"}
 INTERNAL_LANGUAGES = {"en", "de", "zh-Hans"}
 COVERAGE_STATUSES = {"executed", "partial", "failed", "skipped", "not_collected", "unknown"}
+# The DiscoveryPlan's per-market channel verdicts, passed through so a market
+# that returned nothing says which of its channels applied at all. Without
+# it, "China has no ATS channel" and "this market posted nothing" are the
+# same empty card.
+CHANNELS = ("structured", "browser", "web_search")
+CHANNEL_STATES = {"planned", "route_off", "unavailable_in_market", "deferred"}
 
 
 def _unavailable_summary(days: int, thresholds: dict) -> dict:
@@ -163,6 +169,7 @@ def _coverage_from_routes(target_markets: list[str], rows: object) -> list[dict]
                 "candidates_incremental": sum(
                     _count(row.get("candidates_incremental")) for row in market_rows
                 ),
+                "channels": {},
             }
         )
     return coverage
@@ -190,9 +197,21 @@ def _normalize_coverage(target_markets: list[str], meta: dict) -> list[dict]:
                 "sources_failed": _count(row.get("sources_failed")),
                 "sources_skipped": _count(row.get("sources_skipped")),
                 "candidates_incremental": _count(row.get("candidates_incremental")),
+                "channels": _channels(row.get("channels")),
             }
         )
     return output
+
+
+def _channels(value: object) -> dict:
+    """Keep only the channel verdicts this report knows how to explain."""
+    if not isinstance(value, dict):
+        return {}
+    return {
+        channel: value[channel]
+        for channel in CHANNELS
+        if value.get(channel) in CHANNEL_STATES
+    }
 
 
 def normalize_report_meta(meta: object, *, now: datetime | None = None) -> dict:

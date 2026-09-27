@@ -333,6 +333,84 @@ def _source_hints(
     ]
 
 
+def _channel_availability(
+    tasks: dict[str, list[dict[str, Any]]],
+    markets: list[str],
+    routes: list[str],
+    eligible: dict[str, dict[str, Any]],
+    catalog_by_id: dict[str, dict[str, Any]],
+    risk_accepted: set[str],
+    *,
+    ats_enabled: bool,
+) -> dict[str, dict[str, str]]:
+    """Per market, why each channel is or is not in this plan.
+
+    China skips the ATS channel today, and correctly -- none of its fourteen
+    sources is an `ats_board`. But that was a side effect of the data: the plan
+    said only that no structured task existed, with no market attached, so
+    "this market has no structured channel" and "the wave budget did not reach
+    it" arrived as the same silence, and a market that returned nothing looked
+    like a market where nothing was posted. Stated per market instead, from the
+    same catalog the tasks are built from.
+
+    `planned` means this market has a task in that channel this round.
+    `route_off` is the caller's own switch. `unavailable_in_market` means no
+    eligible source in this market offers the channel at all -- the mapping
+    requirement, answered from the catalog rather than from a hand-kept list.
+    `deferred` means sources exist and none reached a dispatched wave.
+    """
+    planned = {
+        channel: {
+            market
+            for task in tasks[channel]
+            for market in (task.get("markets") or [task.get("market_id")])
+            if market
+        }
+        for channel in tasks
+    }
+    offered: dict[str, set[str]] = {"browser": set(), "web_search": set(), "structured": set()}
+    for source_id, health in eligible.items():
+        source = catalog_by_id.get(source_id)
+        if source is None:
+            continue
+        methods = set(source["access_methods"])
+        acknowledged = (
+            bool(source.get("requires_risk_ack", False)) and source_id in risk_accepted
+        )
+        automated = source["automation_allowed"] is True or acknowledged
+        for market in health["markets"]:
+            if market not in markets:
+                continue
+            if "web_search" in methods:
+                offered["web_search"].add(market)
+            if (
+                automated
+                and "public_read_only_page" in methods
+                and source["source_type"] != "ats_board"
+            ):
+                offered["browser"].add(market)
+            if source["automation_allowed"] is True and methods & STRUCTURED_METHODS:
+                offered["structured"].add(market)
+
+    route_of = {"browser": "browser", "web_search": "model_search"}
+    result: dict[str, dict[str, str]] = {}
+    for market in markets:
+        row: dict[str, str] = {}
+        for channel in ("structured", "browser", "web_search"):
+            if market in planned[channel]:
+                row[channel] = "planned"
+            elif channel == "structured" and not ats_enabled:
+                row[channel] = "route_off"
+            elif channel in route_of and route_of[channel] not in routes:
+                row[channel] = "route_off"
+            elif market not in offered[channel]:
+                row[channel] = "unavailable_in_market"
+            else:
+                row[channel] = "deferred"
+        result[market] = row
+    return result
+
+
 def build_discovery_plan(
     request: Any,
     *,
@@ -618,7 +696,19 @@ def build_discovery_plan(
     for values in exclusions.values():
         values[:] = sorted(set(values))
     channels = [name for name in ("structured", "browser", "web_search") if tasks[name]]
+    per_market = _channel_availability(
+        tasks,
+        markets,
+        routes,
+        eligible,
+        catalog_by_id,
+        risk_accepted,
+        ats_enabled=config.get("ats_enabled") is True,
+    )
     warnings = []
+    for market_id, row in per_market.items():
+        if all(state != "planned" for state in row.values()):
+            warnings.append(f"no discovery channel is planned for market {market_id}")
     if "browser" in routes and not tasks["browser"]:
         warnings.append("browser route selected but no eligible browser source task exists")
     if "model_search" in routes and not tasks["web_search"]:
@@ -633,6 +723,7 @@ def build_discovery_plan(
         "browser_provider": browser_provider,
         "cookie_consent_policy": cookie_policy,
         "channels": channels,
+        "per_market": per_market,
         "tasks": tasks,
         "waves": waves,
         "initial_wave_id": waves[0]["wave_id"] if waves else None,

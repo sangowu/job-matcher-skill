@@ -16,6 +16,7 @@ import re
 import unicodedata
 from pathlib import Path
 from typing import Any, Iterable
+from _jobutil import supported_markets
 from _stdio import StdinUnavailable, read_stdin_text
 
 
@@ -26,7 +27,7 @@ SOURCE_SEEDS_PATH = SKILL_ROOT / "references" / "source_seeds.json"
 CONFIG_PATH = SKILL_ROOT / "config.json"
 
 SCHEMA_VERSION = 1
-SUPPORTED_MARKETS = ("ie", "uk", "cn", "de")
+SUPPORTED_MARKETS = supported_markets()
 INTERNAL_LANGUAGES = ("en", "de", "zh-Hans")
 DISCOVERY_ROUTES = {"agent_web_search"}
 SOURCE_TYPES = {"open_web"}
@@ -135,6 +136,29 @@ def _validate_foreign_areas(value: Any, markets: list[Any]) -> None:
             "foreign administrative area name is a supported market alias: "
             + ", ".join(clashing)
         )
+    # Cities too, and this one is what stands in the way of a new market rather
+    # than a mislabelled one. This list is a closed reverse-catalog of the
+    # places no supported market covers -- 50 states, 13 provinces, DC -- and it
+    # reads "New York" as foreign because no market claimed it. Add a US market
+    # without pruning it and `normalize_location("New York")` still answers
+    # `location_type: foreign` with no market: the market exists, its city is
+    # listed, and every posting in it is dropped, silently. Named here so the
+    # contradiction is an error at load rather than an absence in the results.
+    towns = {
+        _normalize_text(alias)
+        for market in markets
+        if isinstance(market, dict)
+        for city in (market.get("cities") or [])
+        if isinstance(city, dict)
+        for alias in [city.get("name"), *(city.get("aliases") or [])]
+        if isinstance(alias, str)
+    }
+    local = sorted({name for name in names if _normalize_text(name) in towns})
+    if local:
+        raise MarketPlanError(
+            "foreign administrative area name is a supported market's own city: "
+            + ", ".join(local)
+        )
 
 
 def validate_markets(
@@ -234,8 +258,8 @@ def validate_markets(
             raise MarketPlanError(f"{market_id} requires one query template per search language")
 
     _require_unique(market_ids, "market_id")
-    if set(market_ids) != set(SUPPORTED_MARKETS):
-        raise MarketPlanError("markets.json must define ie, uk, cn, and de exactly once")
+    if not market_ids:
+        raise MarketPlanError("markets.json must define at least one market")
     _require_unique(city_ids, "city_id")
     _require_unique(template_ids, "template_id")
     return payload

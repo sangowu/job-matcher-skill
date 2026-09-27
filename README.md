@@ -213,8 +213,8 @@ agent 会自动识别。然后在对话里：
 | `browser_queries_per_source` | 2 | 单个浏览器来源本轮执行的地区化查询上限 |
 | `web_queries_per_market_per_wave` | 2 | 每市场、每波次执行的 Web Search 查询上限 |
 | `web_source_hints_per_task` | 6 | 每条 Web Search 任务携带的公开来源提示上限 |
-| `multi_region_enabled` | false | 多地区来源总开关；关闭时所有市场有效模式均为 off |
-| `multi_region_rollout` | 四市场均 off | 每市场独立设置 off / shadow / opt_in / default；default 必须通过 Phase E 门禁 |
+| `multi_region_enabled` | false | **只管 Phase E shadow 门禁**；只有 `shadow_gate.py` 读它，live 发现路径不读，因此它不是多市场总闸 |
+| `multi_region_rollout` | 四市场均 off | 每市场独立设置 off / shadow / opt_in / default；default 必须通过 Phase E 门禁。同样只作用于 shadow 门禁 |
 | `stop_threshold` | 12 | 净有效职位达标停止 |
 | `consecutive_empty_stop` | 2 | 连续 N 批 0 结果则停止 |
 | `ats_enabled` | false | 是否启用公开 ATS 增强管道；默认显式关闭 |

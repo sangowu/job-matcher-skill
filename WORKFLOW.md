@@ -109,8 +109,13 @@
 - 对明确使用多地区规划的请求，把 CVProfile + 本轮用户目标写成
   `{cv_profile,user_intent}`，调用 `python scripts/market_plan.py plan`。它只读并输出
   `search_plan`，不会搜索或写主表；未显式采用该入口时，旧单地区 Web Search 流程保持兼容。
-  `multi_region_enabled` 默认 `false`，是接入默认编排前的 opt-in 门；只有编排者明确采用下述
-  Phase C 双 route handoff 时才执行地区来源。
+  **`multi_region_enabled` 与 `multi_region_rollout` 只管 Phase E shadow 门禁，不管本流程。**
+  读它们的只有 `shadow_gate.py`；`market_plan.py plan` 只在 `compatibility` 里回显，
+  `discovery_plan.py` / `discovery_batch.py` 完全不读。所以 `multi_region_enabled: false`
+  时多市场计划照样产出并执行——实测 `false` + 四市场 rollout 全 `off` 的仓库默认配置下，
+  一份 ie/de/cn 的 market plan 与 discovery plan 正常生成。本流程里决定哪些市场跑的是
+  CVProfile/用户意图（第 3 步）与来源目录的资格（Phase B），不是这两个键。把它们当总闸读，
+  会以为关着的东西其实在跑。下述 Phase C 双 route handoff 是旧入口，与这两个键同属 shadow 面。
 - Phase B 来源维护是独立控制面：`python scripts/source_registry.py validate` 校验
   `references/source_seeds.json`；`init` 在持锁后原子合并种子到已忽略的
   `data/source_registry.json`。若旧 `data/ats_companies.json` 存在，只读导入一次并记录
@@ -118,6 +123,13 @@
   Worker 只能提交不含 URL/query/JD/CV/职位信息的 proposal/event batch，由主编排器调用
   `apply` 串行提交；重复 `batch_id` 幂等。`plan --markets ...` 只列出
   `enabled + verified + TTL 未过期` 的来源，candidate 不自动启用、全局来源跨市场只列一次。
+- **计划按市场说明每条通道为什么在或不在**：`per_market.<market>.{structured,browser,web_search}` 取
+  `planned` / `route_off`（调用方自己的开关）/ `unavailable_in_market`（该市场没有任何合格来源提供这条通道）
+  / `deferred`（有来源但没排进已派发的波次）。这就是"按地区自适应选管道"的映射，且由来源目录推导，
+  不是另维护一张表：cn 没有任何 `ats_board` 来源，于是它的 `structured` 是 `unavailable_in_market`。
+  某个市场三条通道都不是 `planned` 时计划会给出 `no discovery channel is planned for market <id>` 警告。
+  把这份 `per_market` 逐市场并入第 6 步 `market_coverage[].channels`，报告才能把"该市场无此通道"
+  和"这个市场本轮没有职位"分开显示。
 - 取得 market plan、`source_registry.py plan` 输出和 `discovery_mode.py plan` 输出后，把三者作为
   `{market_plan,source_plan,route_plan}` 交给 `python scripts/discovery_plan.py`。它只在内存中连接
   公开 `source_seeds.json` 的 URL/访问策略与 URL-free 健康计划，输出有界 browser/Web/structured

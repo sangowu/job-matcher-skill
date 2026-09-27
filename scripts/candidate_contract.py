@@ -9,13 +9,13 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from _jobutil import is_strong_identity_key
+from _jobutil import is_strong_identity_key, supported_markets
 from _stdio import StdinUnavailable, read_stdin_text
 
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_PATH = SKILL_ROOT / "references" / "candidate_envelope.schema.json"
-SUPPORTED_MARKETS = {"ie", "uk", "cn", "de"}
+SUPPORTED_MARKETS = set(supported_markets())
 INTERNAL_LANGUAGES = {"en", "de", "zh-Hans"}
 SOURCE_TYPES = {
     "ats_board",

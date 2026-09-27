@@ -57,7 +57,7 @@ job-matcher/
 │   ├── scoring_rubric.md     # 5-dim scoring + tier thresholds
 │   ├── search_playbook.md    # fan-out / per-market / adaptive batching
 │   ├── markets.json          # ie/uk/cn/de locations, languages, and query templates
-│   ├── role_taxonomy.json    # stable English/German/Chinese role families
+│   ├── role_taxonomy.json    # role families, synonyms, skill-gated edges
 │   ├── model_tiers.json      # model-to-tier map used to pick a subagent model by min_tier
 │   ├── source_seeds.json     # verified four-market public seeds (no credentials)
 │   ├── multi_region_smoke_plan.json # Phase D2 fixed sources and request limits

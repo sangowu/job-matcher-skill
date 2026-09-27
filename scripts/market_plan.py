@@ -30,6 +30,11 @@ SUPPORTED_MARKETS = ("ie", "uk", "cn", "de")
 INTERNAL_LANGUAGES = ("en", "de", "zh-Hans")
 DISCOVERY_ROUTES = {"agent_web_search"}
 SOURCE_TYPES = {"open_web"}
+# Titles one CV role is searched under, and how many of them a generalization
+# may claim. Three is the ceiling the whole expansion is held to, so a role
+# that generalizes twice keeps one own-family title, not none.
+MAX_ROLE_VARIANTS = 3
+MAX_GENERALIZED_FAMILIES = 2
 _LANGUAGE_ALIASES = {
     "en": "en",
     "english": "en",
@@ -260,7 +265,40 @@ def validate_role_taxonomy(payload: dict[str, Any]) -> dict[str, Any]:
                 phrases = _strings(values, f"{family_id}.{group_name}.{language}")
                 _require_unique(phrases, f"{family_id} {language} {group_name}")
     _require_unique(family_ids, "role_family_id")
+    _validate_generalizations(families, family_ids)
     return payload
+
+
+def _validate_generalizations(families: list[Any], family_ids: list[str]) -> None:
+    """Check the optional `generalizes_to` edges between role families.
+
+    An edge is what carries a CV from the role it names to an adjacent one it
+    can also be read for -- an AI engineer with a Python and FastAPI stack to
+    a backend engineer. The skills are the gate: without them every CV would
+    be generalized the same way, which is a wider search, not an adaptive one.
+    """
+    known = set(family_ids)
+    for family in families:
+        family_id = family["role_family_id"]
+        targets = family.get("generalizes_to")
+        if targets is None:
+            continue
+        if not isinstance(targets, list) or not targets:
+            raise MarketPlanError(f"{family_id}.generalizes_to must be a non-empty list")
+        seen: list[str] = []
+        for target in targets:
+            if not isinstance(target, dict):
+                raise MarketPlanError(f"{family_id}.generalizes_to entries must be objects")
+            target_id = str(target.get("role_family_id") or "")
+            if target_id not in known:
+                raise MarketPlanError(
+                    f"{family_id} generalizes to an unknown family: {target_id or '<empty>'}"
+                )
+            if target_id == family_id:
+                raise MarketPlanError(f"{family_id} cannot generalize to itself")
+            seen.append(target_id)
+            _strings(target.get("skills"), f"{family_id}.generalizes_to.{target_id}.skills")
+        _require_unique(seen, f"{family_id} generalizes_to target")
 
 
 def load_resources(
@@ -538,15 +576,70 @@ def resolve_role_family(role: Any, taxonomy: dict[str, Any]) -> str | None:
     return None
 
 
+def _family_by_id(family_id: str, taxonomy: dict[str, Any]) -> dict[str, Any]:
+    return next(
+        item for item in taxonomy["role_families"]
+        if item["role_family_id"] == family_id
+    )
+
+
 def _role_variants(role: str, language: str, taxonomy: dict[str, Any]) -> list[str]:
     family_id = resolve_role_family(role, taxonomy)
     if family_id is None:
         return [role]
-    family = next(
-        item for item in taxonomy["role_families"]
-        if item["role_family_id"] == family_id
-    )
+    family = _family_by_id(family_id, taxonomy)
     return _dedupe_strings([*family["titles"][language], *family["synonyms"][language]])
+
+
+def _generalized_families(
+    role: str, taxonomy: dict[str, Any], skills: set[str]
+) -> list[str]:
+    """The adjacent families this CV's skills actually support, best first.
+
+    Ordered by how many of the target's gate skills the CV carries, so a CV
+    with a whole backend stack and one stray SQL line generalizes to backend
+    first. Ties keep the catalog's own order, which is the author's ranking.
+    """
+    family_id = resolve_role_family(role, taxonomy)
+    if family_id is None or not skills:
+        return []
+    targets = _family_by_id(family_id, taxonomy).get("generalizes_to") or []
+    scored: list[tuple[int, int, str]] = []
+    for position, target in enumerate(targets):
+        hits = len({_normalize_text(skill) for skill in target["skills"]} & skills)
+        if hits:
+            scored.append((-hits, position, target["role_family_id"]))
+    scored.sort()
+    return [target_id for _, _, target_id in scored[:MAX_GENERALIZED_FAMILIES]]
+
+
+def _variants_for_role(
+    role: str, language: str, taxonomy: dict[str, Any], skills: set[str]
+) -> list[tuple[str, str | None]]:
+    """The titles this role is searched under, as `(title, role_family_id)`.
+
+    At most `MAX_ROLE_VARIANTS` of them, the role's own family first, because
+    the first one is what a truncated budget keeps. Each adjacent family the
+    CV's skills reached contributes its leading title and costs one slot from
+    the own-family variants, never the first: the answer to "what is this CV"
+    is not allowed to be crowded out by the answer to "what else could it be".
+    """
+    own_family_id = resolve_role_family(role, taxonomy)
+    own = [(title, own_family_id) for title in _role_variants(role, language, taxonomy)]
+    generalized = [
+        (_family_by_id(target_id, taxonomy)["titles"][language][0], target_id)
+        for target_id in _generalized_families(role, taxonomy, skills)
+    ]
+    own_slots = max(1, MAX_ROLE_VARIANTS - len(generalized))
+    merged: list[tuple[str, str | None]] = []
+    seen: set[str] = set()
+    for title, family_id in [*own[:own_slots], *generalized]:
+        key = _normalize_text(title)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append((title, family_id))
+    return merged[:MAX_ROLE_VARIANTS]
 
 
 def _market_map(markets: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -610,24 +703,29 @@ def _query_candidates(
     roles: list[str],
     locations: list[dict[str, Any]],
     taxonomy: dict[str, Any],
+    skills: set[str],
 ) -> list[dict[str, Any]]:
+    """Every query this market is worth running, the first variants first.
+
+    Variant-major, so slicing this list anywhere keeps each role's leading
+    title ahead of its second one. The Web Search budget slices it; the
+    browser channel reads the whole thing.
+    """
     templates = {item["language"]: item for item in market["query_templates"]}
     result: list[dict[str, Any]] = []
     seen_queries: set[str] = set()
-    max_variants = 3
-    for variant_index in range(max_variants):
+    for variant_index in range(MAX_ROLE_VARIANTS):
         for language in languages:
             template = templates[language]
             location = _location_for_market(
                 locations, market["market_id"], language, market
             )
             for role in roles:
-                variants = _role_variants(role, language, taxonomy)
+                variants = _variants_for_role(role, language, taxonomy, skills)
                 if variant_index >= len(variants):
                     continue
-                query = template["template"].format(
-                    role=variants[variant_index], location=location
-                )
+                title, family_id = variants[variant_index]
+                query = template["template"].format(role=title, location=location)
                 query_key = _normalize_text(query)
                 if query_key in seen_queries:
                     continue
@@ -635,8 +733,8 @@ def _query_candidates(
                 result.append({
                     "market_id": market["market_id"],
                     "language": language,
-                    "role": variants[variant_index],
-                    "role_family_id": resolve_role_family(role, taxonomy),
+                    "role": title,
+                    "role_family_id": family_id,
                     "location": location,
                     "query_string": query,
                     "query_template_id": template["template_id"],
@@ -678,6 +776,15 @@ def build_market_plan(
         roles_source = "cv_preferred"
     if not roles:
         roles_source = "none"
+
+    # The CV's own stack decides which adjacent roles it is generalized to, so
+    # two candidates who both write "AI Engineer" are not searched the same way.
+    skills = {_normalize_text(skill) for skill in _dedupe_strings(cv_profile.get("skills"))}
+    generalized_roles = _dedupe_strings([
+        _family_by_id(family_id, taxonomy)["titles"]["en"][0]
+        for role in roles
+        for family_id in _generalized_families(role, taxonomy, skills)
+    ])
 
     explicit_locations = "locations" in user_intent
     location_values = _dedupe_strings(user_intent.get("locations"))
@@ -734,7 +841,12 @@ def build_market_plan(
             warnings.append(f"explicit search languages do not match market {market_id}")
             needs_user_input = True
 
-    search_plan: list[dict[str, Any]] = []
+    # One budget used to cut this list, and every channel read what survived.
+    # `max_websearch_calls` is a Web Search budget: the browser channel spends
+    # none of it, yet a 3-market round left it exactly one title per role
+    # because the cut fell at six. The expansion is built in full here, and
+    # only the Web Search slice is capped.
+    expanded: list[dict[str, Any]] = []
     if not needs_user_input:
         queues = {
             market_id: _query_candidates(
@@ -743,21 +855,31 @@ def build_market_plan(
                 roles,
                 recognized,
                 taxonomy,
+                skills,
             )
             for market_id in target_markets
         }
         cursor = {market_id: 0 for market_id in target_markets}
-        while len(search_plan) < budget:
+        while True:
             added = False
             for market_id in target_markets:
                 index = cursor[market_id]
-                if index >= len(queues[market_id]) or len(search_plan) >= budget:
+                if index >= len(queues[market_id]):
                     continue
-                search_plan.append(queues[market_id][index])
+                expanded.append(queues[market_id][index])
                 cursor[market_id] += 1
                 added = True
             if not added:
                 break
+    search_plan = expanded[:budget]
+    # The browser channel needs the title, the language and the location; the
+    # query string and template belong to Web Search. Kept separate so the
+    # pool the browser reads does not cost the orchestrator a second copy of
+    # every row it already has.
+    role_plan = [
+        {key: row[key] for key in ("market_id", "language", "role", "location")}
+        for row in expanded
+    ]
 
     all_languages: list[str] = []
     for market_id in target_markets:
@@ -775,6 +897,7 @@ def build_market_plan(
         "target_markets": target_markets,
         "target_roles": roles,
         "roles_source": roles_source,
+        "generalized_roles": generalized_roles,
         "target_locations": target_locations,
         "location_details": details,
         "location_source": location_source,
@@ -783,6 +906,7 @@ def build_market_plan(
         "search_languages_by_market": languages_by_market,
         "regional_source_ids": regional_source_ids,
         "search_plan": search_plan,
+        "role_plan": role_plan,
         "max_websearch_calls": budget,
         "needs_user_input": needs_user_input,
         "warnings": warnings,
@@ -822,7 +946,14 @@ def build_effective_profile(
             + "; ".join(plan["warnings"])
         )
     cv_profile = request.get("cv_profile") or {}
-    return {**cv_profile, "roles": list(plan["target_roles"])}
+    # The generalizations belong here for the same reason the intent does: a
+    # round that searches for Backend Engineer and then filters on the CV's
+    # "AI Engineer" alone drops every generalized result on `role`, which is
+    # the searches paying for a widening the filter never heard about.
+    return {
+        **cv_profile,
+        "roles": _dedupe_strings([*plan["target_roles"], *plan["generalized_roles"]]),
+    }
 
 
 def _emit(payload: dict[str, Any]) -> None:

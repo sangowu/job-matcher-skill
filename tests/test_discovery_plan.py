@@ -630,3 +630,150 @@ def test_a_market_plan_without_target_roles_keeps_the_order_it_had():
 
     task = plan["tasks"]["browser"][0]
     assert [query["role"] for query in task["queries"]] == expected
+
+
+def _multi_market_plan():
+    markets, taxonomy = market_plan.load_resources()
+    return market_plan.build_market_plan(
+        {
+            "cv_profile": {
+                "target_roles": ["AI Engineer"],
+                "skills": ["Python", "FastAPI"],
+            },
+            "user_intent": {"locations": ["Dublin", "Berlin"]},
+        },
+        markets=markets,
+        taxonomy=taxonomy,
+    )
+
+
+def _multi_market_request(seeds):
+    plan = _multi_market_plan()
+    sources = [
+        {
+            "source_id": source["source_id"],
+            "markets": [
+                market for market in source["markets"]
+                if market in plan["target_markets"]
+            ],
+            "priority": source["priority"],
+        }
+        for source in seeds["sources"]
+        if set(source["markets"]) & set(plan["target_markets"])
+        and source["enabled"]
+        and source["verified"]
+    ]
+    return {
+        "market_plan": plan,
+        "source_plan": {
+            "schema_version": 1,
+            "market_ids": plan["target_markets"],
+            "sources": sources,
+            "source_ids": [source["source_id"] for source in sources],
+        },
+        "route_plan": {
+            "ok": True,
+            "mode": "coverage",
+            "routes": ["browser", "model_search"],
+            "browser_provider": "browseros_neo",
+        },
+    }
+
+
+def _browser_roles_by_market(plan):
+    roles = {}
+    for task in plan["tasks"]["browser"]:
+        roles.setdefault(task["market_id"], set()).update(
+            query["role"] for query in task["queries"]
+        )
+    return roles
+
+
+def test_the_browser_pool_is_not_capped_by_the_web_search_budget():
+    """The browser spends no Web Search calls, so the Web Search budget is not
+    its budget. Reading the capped `search_plan` left a multi-market round one
+    title per role on every site it opened."""
+    seeds = source_registry.load_seeds()
+    request = _multi_market_request(seeds)
+    capped = copy.deepcopy(request)
+    capped["market_plan"].pop("role_plan")
+
+    with_pool = discovery_plan.build_discovery_plan(
+        request, seeds=seeds, config=_config()
+    )
+    without_pool = discovery_plan.build_discovery_plan(
+        capped, seeds=seeds, config=_config()
+    )
+
+    # Same Web Search spend either way; only the browser's choice widens.
+    assert len(with_pool["tasks"]["web_search"]) == len(
+        without_pool["tasks"]["web_search"]
+    )
+    wide = _browser_roles_by_market(with_pool)
+    narrow = _browser_roles_by_market(without_pool)
+    assert set(wide) == set(narrow)
+    assert any(len(wide[market]) > len(narrow[market]) for market in wide)
+    for market_id, titles in wide.items():
+        assert narrow[market_id] <= titles, market_id
+
+
+def test_a_local_source_leads_with_its_own_language_not_the_cv_spelling():
+    """`target_roles` are spelled one way, and ranking a German site's pool by
+    that alone put "AI Engineer" ahead of "KI-Ingenieur" -- an exact match for
+    the CV, and the wrong query for the site."""
+    seeds = source_registry.load_seeds()
+    plan = discovery_plan.build_discovery_plan(
+        _multi_market_request(seeds), seeds=seeds, config=_config()
+    )
+    catalog = {source["source_id"]: source for source in seeds["sources"]}
+
+    for task in plan["tasks"]["browser"]:
+        leading = task["queries"][0]["search_language"]
+        assert leading == catalog[task["source_id"]]["search_languages"][0], (
+            task["task_id"]
+        )
+
+
+def test_a_market_plan_without_a_role_plan_keeps_the_search_plan_behaviour():
+    seeds = source_registry.load_seeds()
+    request = _request(seeds)
+    expected = [
+        {
+            "market_id": query["market_id"],
+            "language": query["language"],
+            "role": query["role"],
+            "location": query["location"],
+        }
+        for query in request["market_plan"]["search_plan"]
+    ]
+    request["market_plan"].pop("role_plan")
+
+    _, _, _, pool = discovery_plan._validate_market_plan(request["market_plan"])
+
+    assert pool == expected
+
+
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        ({"market_id": "uk", "language": "en", "role": "r", "location": "l"}, "invalid market"),
+        ({"market_id": "ie", "language": "fr", "role": "r", "location": "l"}, "invalid language"),
+        ({"market_id": "ie", "language": "en", "role": "", "location": "l"}, "incomplete"),
+    ],
+)
+def test_a_malformed_role_plan_row_is_refused(row, message):
+    seeds = source_registry.load_seeds()
+    request = _request(seeds)
+    request["market_plan"]["role_plan"] = [row]
+
+    with pytest.raises(discovery_plan.DiscoveryPlanError, match=message):
+        discovery_plan.build_discovery_plan(request, seeds=seeds, config=_config())
+
+
+def test_an_empty_role_plan_is_refused_rather_than_read_as_absent():
+    seeds = source_registry.load_seeds()
+    request = _request(seeds)
+    request["market_plan"]["role_plan"] = []
+
+    with pytest.raises(discovery_plan.DiscoveryPlanError, match="non-empty"):
+        discovery_plan.build_discovery_plan(request, seeds=seeds, config=_config())

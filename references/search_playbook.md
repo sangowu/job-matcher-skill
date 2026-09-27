@@ -10,7 +10,7 @@
 ### query 拆解与约束分流
 | query 信息 | 去向 |
 |-----------|------|
-| 目标职位改写 | → search_plan 的 role（覆盖 CV `preferred_roles`），**并且**经 `market_plan.py effective-profile` 写入 profile 的 `roles`——只改搜索不改初筛，搜回来的会被原样丢弃 |
+| 目标职位改写 | → search_plan 的 role（覆盖 CV `preferred_roles`），**并且**经 `market_plan.py effective-profile` 写入 profile 的 `roles`——只改搜索不改初筛，搜回来的会被原样丢弃。同一次 `effective-profile` 也把按 CV 技术栈命中的**泛化角色**并入 `roles` |
 | 行业/公司类型（出海、外企） | → 搜索词 + candidate_profile.preferences |
 | 薪资下限、雇佣类型 | → **仅** candidate_profile.hard_filters（不进搜索词） |
 | 负面要求（不要外包/996/实习） | → **仅** candidate_profile.deal_breakers |
@@ -27,6 +27,9 @@ locations : 用户本轮明确地点 > CV.target_locations > CV.preferred_locati
 用户本轮地点无法识别时同样追问；不得静默回退 CV 地点。
 
 ### search_plan 生成（旧单地区 ≤5；多地区全局硬上限 6，有序）
+- 展开由 `market_plan.py plan` 确定性完成，**不要自己再编一遍**：同族 titles/synonyms 加上
+  `generalizes_to` 里被 CV `skills` 命中的邻族首标题，每个角色每市场每语言最多 3 个。
+  完整展开在 `role_plan`（浏览器通道读它），`search_plan` 只是它前 `max_websearch_calls` 条。
 - `roles`：取 top-2，并对每个做 **LLM 适度同义扩展**（2-3 个变体，含目标语言写法）。
   - **变体去重**：只保留"方向不同"的变体（如 AI Engineer vs ML Engineer vs 算法工程师）；
     仅加了资历/技术栈修饰的变体（Senior / Junior / Python / Staff + 同一 role）**不算新 query**——

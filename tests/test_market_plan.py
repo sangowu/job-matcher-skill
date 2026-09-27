@@ -750,3 +750,179 @@ def test_the_effective_profile_leaves_locations_to_the_market_filter(resources):
     )
 
     assert "locations" not in effective
+
+
+def generalizing_request(skills, roles=("AI Engineer",), locations=("Dublin",)):
+    return {
+        "cv_profile": {
+            "preferred_roles": list(roles),
+            "preferred_locations": list(locations),
+            "skills": list(skills),
+            "search_language": "en",
+        },
+        "user_intent": {},
+    }
+
+
+def test_an_adjacent_role_family_is_offered_only_when_the_cv_stack_reaches_it(
+    resources,
+):
+    """The same two words on two CVs are not the same search.
+
+    `generalizes_to` names where an AI engineer can also be read, and the
+    target's skills are the gate: without them every CV would be widened the
+    same way, which is a bigger search rather than an adaptive one.
+    """
+    markets, taxonomy = resources
+
+    with_stack = market_plan.build_market_plan(
+        generalizing_request(["Python", "FastAPI", "PostgreSQL"]),
+        markets=markets,
+        taxonomy=taxonomy,
+    )
+    without_stack = market_plan.build_market_plan(
+        generalizing_request(["Figma", "Illustrator"]),
+        markets=markets,
+        taxonomy=taxonomy,
+    )
+
+    assert with_stack["generalized_roles"] == ["Backend Engineer"]
+    assert without_stack["generalized_roles"] == []
+    # The pre-expansion answer is still reported unchanged.
+    assert with_stack["target_roles"] == ["AI Engineer"]
+
+
+def test_a_generalization_costs_an_own_family_slot_but_never_the_first(resources):
+    """Three titles is the ceiling, and the CV's own reading leads them."""
+    markets, taxonomy = resources
+
+    plan = market_plan.build_market_plan(
+        generalizing_request(
+            ["Python", "FastAPI", "SQL", "Airflow", "Kafka"],
+        ),
+        markets=markets,
+        taxonomy=taxonomy,
+    )
+
+    roles = [row["role"] for row in plan["role_plan"]]
+    assert len(plan["generalized_roles"]) == 2
+    assert len(roles) == market_plan.MAX_ROLE_VARIANTS
+    assert roles[0] == "Applied AI Engineer"
+    assert set(roles[1:]) == set(plan["generalized_roles"])
+
+
+def test_an_unknown_role_is_searched_verbatim_and_never_generalized(resources):
+    markets, taxonomy = resources
+    request = generalizing_request(["Python", "FastAPI"], roles=("Quantum Wrangler",))
+
+    plan = market_plan.build_market_plan(request, markets=markets, taxonomy=taxonomy)
+
+    assert plan["generalized_roles"] == []
+    assert {row["role"] for row in plan["role_plan"]} == {"Quantum Wrangler"}
+
+
+def test_the_web_search_budget_no_longer_caps_the_expansion(resources):
+    """One budget used to cut the list every channel then read.
+
+    `max_websearch_calls` is a Web Search budget and the browser spends none
+    of it, yet a three-market round arrived at exactly one title per role
+    because the cut fell at six.
+    """
+    markets, taxonomy = resources
+    request = generalizing_request(
+        ["Python", "FastAPI"], locations=("Dublin", "Berlin", "Shanghai")
+    )
+
+    plan = market_plan.build_market_plan(request, markets=markets, taxonomy=taxonomy)
+
+    assert len(plan["search_plan"]) == plan["max_websearch_calls"] == 6
+    assert len(plan["role_plan"]) > len(plan["search_plan"])
+    for market_id in plan["target_markets"]:
+        titles = {
+            row["role"] for row in plan["role_plan"] if row["market_id"] == market_id
+        }
+        assert len(titles) > 1, market_id
+    # The Web Search slice is still the head of the same expansion, so the
+    # leading title of every role keeps its place in it.
+    assert plan["search_plan"][0]["role"] == plan["role_plan"][0]["role"]
+
+
+def test_the_role_plan_carries_only_what_the_browser_channel_needs(resources):
+    """The query string and template belong to Web Search, so they are not
+    copied into a second list the orchestrator has to carry."""
+    markets, taxonomy = resources
+
+    plan = market_plan.build_market_plan(
+        generalizing_request(["Python"]), markets=markets, taxonomy=taxonomy
+    )
+
+    assert plan["role_plan"]
+    for row in plan["role_plan"]:
+        assert set(row) == {"market_id", "language", "role", "location"}
+
+
+def test_a_new_family_is_searched_in_the_market_language(resources):
+    """`Full Stack Engineer` resolved to no family, so a Chinese market was
+    searched for the English spelling."""
+    markets, taxonomy = resources
+    request = generalizing_request(
+        ["Python", "React"], roles=("Full Stack Engineer",), locations=("Shanghai",)
+    )
+
+    plan = market_plan.build_market_plan(request, markets=markets, taxonomy=taxonomy)
+
+    chinese = {
+        row["role"] for row in plan["role_plan"] if row["language"] == "zh-Hans"
+    }
+    assert "全栈工程师" in chinese
+
+
+def test_the_effective_profile_carries_the_generalizations_into_the_prefilter(
+    resources,
+):
+    """A round that searches for Backend Engineer and then filters on the CV's
+    "AI Engineer" alone drops every generalized result on `role`."""
+    markets, taxonomy = resources
+    request = generalizing_request(["Python", "FastAPI", "PostgreSQL"])
+
+    effective = market_plan.build_effective_profile(
+        request, markets=markets, taxonomy=taxonomy
+    )
+
+    assert effective["roles"] == ["AI Engineer", "Backend Engineer"]
+    job = {"title": "Backend Engineer", "location": "Dublin"}
+    assert job_prefilter.rejection_reason(job, request["cv_profile"]) == "role"
+    assert job_prefilter.rejection_reason(job, effective) is None
+    off_target = {"title": "Marketing Manager", "location": "Dublin"}
+    assert job_prefilter.rejection_reason(off_target, effective) == "role"
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ({"role_family_id": "nope", "skills": ["Python"]}, "unknown family"),
+        ({"role_family_id": "applied_ai", "skills": ["Python"]}, "itself"),
+        ({"role_family_id": "backend", "skills": []}, "skills"),
+    ],
+)
+def test_a_broken_generalization_edge_is_refused(resources, mutation, message):
+    _, taxonomy = resources
+    payload = copy.deepcopy(taxonomy)
+    family = next(
+        item for item in payload["role_families"]
+        if item["role_family_id"] == "applied_ai"
+    )
+    family["generalizes_to"] = [mutation]
+
+    with pytest.raises(market_plan.MarketPlanError, match=message):
+        market_plan.validate_role_taxonomy(payload)
+
+
+def test_a_taxonomy_without_generalizations_still_validates(resources):
+    """The edges are optional, so a catalog from before them is not broken."""
+    _, taxonomy = resources
+    payload = copy.deepcopy(taxonomy)
+    for family in payload["role_families"]:
+        family.pop("generalizes_to", None)
+
+    assert market_plan.validate_role_taxonomy(payload) is payload

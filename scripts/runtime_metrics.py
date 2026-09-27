@@ -60,6 +60,8 @@ _MERGE_FIELDS = {
     "abandoned_runs",
     "identity_records_migrated",
     "provenance_records_migrated",
+    "verification_records_migrated",
+    "verification_reused",
     "strong_identity_records",
     "strong_identity_conflicts_prevented",
     "ambiguous_weak_matches_prevented",

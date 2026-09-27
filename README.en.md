@@ -256,6 +256,7 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `ats_registry_ttl_days` | 30 | backoff before an unavailable board is retried |
 | `ats_fetch_interval_minutes` | 60 | how soon a verified board may be asked for jobs again; 0 means every round |
 | `jd_ttl_days` | 30 | JD cache validity |
+| `verify_ttl_hours` | 24 | How long a link check stands; a fresh `alive` row is not re-checked |
 | `seniority_mode` | balanced | strict / balanced / stretch |
 | `enable_headless_fallback` | true | headless fallback switch |
 | `headless_budget` | 3 | headless calls per run |

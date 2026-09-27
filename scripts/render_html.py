@@ -92,6 +92,17 @@ def _embed_json(obj: object) -> str:
     return json.dumps(obj, ensure_ascii=False).replace("</", "<\\/")
 
 
+def _verification_label(value: object) -> str:
+    """The enum spelling, for a row a merge has not normalized yet.
+
+    A stored `True` was rendered with `str()`, so the report's verification
+    filter offered `True` and `alive` as two separate things to filter by.
+    """
+    if isinstance(value, bool):
+        return "alive" if value else "closed"
+    return str(value or "")
+
+
 def _safe_url(url: str) -> str:
     """只放行 http/https 链接，拦截 javascript: 等可执行 scheme。"""
     url = (url or "").strip()
@@ -334,7 +345,7 @@ def flatten(job: dict, mk: str, *, same_role: list[dict] | None = None) -> dict:
         [row["link_verification_status"] for row in provenance]
     )
     if not verification_statuses and job.get("verified"):
-        verification_statuses = [str(job["verified"])]
+        verification_statuses = [_verification_label(job["verified"])]
     return {
         "title": job.get("title", ""),
         "company": job.get("company", ""),
@@ -358,7 +369,8 @@ def flatten(job: dict, mk: str, *, same_role: list[dict] | None = None) -> dict:
         "market_ids": market_ids,
         "market_status": "known" if market_ids else "unknown",
         "possibly_closed": job.get("possibly_closed", False),
-        "verified": job.get("verified"),
+        "verified": _verification_label(job.get("verified")),
+        "verified_at": job.get("verified_at") or "",
         "scored_from": job.get("scored_from"),
         "score": ms.get("overall_score"),
         "recommendation": ms.get("recommendation"),

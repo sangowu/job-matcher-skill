@@ -12,6 +12,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 from analysis_contract import (  # noqa: E402
     AnalysisContractError,
     _validate_match_score,
+    normalize_verified,
     score_band,
 )
 from _jobutil import is_closed_posting  # noqa: E402
@@ -76,3 +77,26 @@ def test_closed_posting_patterns_cover_evergreen_listings(text):
 
 def test_normal_posting_is_not_flagged_closed():
     assert is_closed_posting("We are hiring an AI Engineer in Dublin.") is False
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (True, "alive"),
+        (False, "closed"),
+        ("ALIVE", "alive"),
+        (" unverified ", "unverified"),
+        (None, None),
+    ],
+)
+def test_one_liveness_vocabulary_whichever_shape_arrived(value, expected):
+    """A boolean is still accepted -- the earliest workers returned one -- but
+    it is stored as the enum it means, so the report's verification filter does
+    not offer `True` and `alive` as two different things."""
+    assert normalize_verified(value) == expected
+
+
+@pytest.mark.parametrize("value", ["gone", "", 3, [], {}])
+def test_an_unknown_liveness_word_is_refused(value):
+    with pytest.raises(AnalysisContractError):
+        normalize_verified(value)

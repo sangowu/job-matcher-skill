@@ -1138,3 +1138,128 @@ def test_the_description_is_the_only_thing_allowed_past_the_envelope(
         )
 
     assert "recruiter_email" in str(error.value)
+
+
+def test_a_link_check_is_stamped_and_reported_as_the_enum(
+    isolated_store, monkeypatch, capsys
+):
+    """A boolean and `"alive"` used to be stored as they arrived, so one table
+    carried `True`, `"alive"` and `"unverified"` at once, and the report offered
+    `True` and `alive` as two things to filter by."""
+    merged = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
+    task = load_run(merged["eval_run"]["path"])["tasks"][0]
+
+    invoke(
+        monkeypatch,
+        capsys,
+        merge_jobs.cmd_update,
+        [evaluation_result(task, verified=True)],
+        "cv",
+        "cp",
+        merged["eval_run"]["run_id"],
+    )
+
+    job = load_table(isolated_store)["jobs"][0]
+    assert job["verified"] == "alive"
+    assert job["verified_at"]
+
+
+def test_a_worker_that_reports_no_link_check_leaves_the_last_one_alone(
+    isolated_store, monkeypatch, capsys
+):
+    """`null` says nothing was learned, which is not the same as a check that
+    came back undecided -- overwriting the stamp would date a check nobody made."""
+    merged = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
+    task = load_run(merged["eval_run"]["path"])["tasks"][0]
+    invoke(
+        monkeypatch, capsys, merge_jobs.cmd_update,
+        [evaluation_result(task, verified="alive")],
+        "cv", "cp", merged["eval_run"]["run_id"],
+    )
+    first = load_table(isolated_store)["jobs"][0]
+
+    again = invoke(
+        monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp2"
+    )
+    next_task = load_run(again["eval_run"]["path"])["tasks"][0]
+    invoke(
+        monkeypatch, capsys, merge_jobs.cmd_update,
+        [evaluation_result(next_task, verified=None)],
+        "cv", "cp2", again["eval_run"]["run_id"],
+    )
+
+    job = load_table(isolated_store)["jobs"][0]
+    assert job["verified"] == "alive"
+    assert job["verified_at"] == first["verified_at"]
+
+
+def test_a_fresh_alive_check_is_not_asked_for_again(
+    isolated_store, monkeypatch, capsys
+):
+    """Every round re-checked every Top-N row because nothing recorded when the
+    last check happened -- twenty URLs and up to a ten-second timeout each."""
+    merged = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
+    task = load_run(merged["eval_run"]["path"])["tasks"][0]
+    assert task["needs_verification"] is True
+    invoke(
+        monkeypatch, capsys, merge_jobs.cmd_update, [evaluation_result(task)],
+        "cv", "cp", merged["eval_run"]["run_id"],
+    )
+
+    # A new candidate profile means the score has to be redone, so the row is
+    # dispatched again -- but the link check it already has still stands.
+    again = invoke(
+        monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp2"
+    )
+    reused = load_run(again["eval_run"]["path"])["tasks"][0]
+
+    assert reused["verified"] == "alive"
+    assert reused["needs_verification"] is False
+    metric = json.loads(
+        (isolated_store / "metrics.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+    )
+    assert metric["verification_reused"] == 1
+
+
+def test_a_stale_alive_check_is_asked_for_again(isolated_store, monkeypatch, capsys):
+    merged = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
+    task = load_run(merged["eval_run"]["path"])["tasks"][0]
+    invoke(
+        monkeypatch, capsys, merge_jobs.cmd_update, [evaluation_result(task)],
+        "cv", "cp", merged["eval_run"]["run_id"],
+    )
+    table = load_table(isolated_store)
+    table["jobs"][0]["verified_at"] = "2020-01-01T00:00:00+00:00"
+    (isolated_store / "jobs_table.json").write_text(
+        json.dumps(table), encoding="utf-8"
+    )
+
+    again = invoke(
+        monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp2"
+    )
+
+    assert load_run(again["eval_run"]["path"])["tasks"][0]["needs_verification"] is True
+
+
+def test_a_stored_boolean_is_normalized_on_the_way_past(
+    isolated_store, monkeypatch, capsys
+):
+    """Rows written before the vocabulary was single are fixed in place, without
+    a record version bump: the value is unchanged, only its spelling."""
+    merged = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
+    table = load_table(isolated_store)
+    table["jobs"][0]["verified"] = True
+    version = table["jobs"][0]["record_version"]
+    (isolated_store / "jobs_table.json").write_text(
+        json.dumps(table), encoding="utf-8"
+    )
+    assert merged["ok"] is True
+
+    output = invoke(
+        monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp"
+    )
+
+    job = load_table(isolated_store)["jobs"][0]
+    assert job["verified"] == "alive"
+    assert job["record_version"] == version
+    assert output["stats"]["verification_records_migrated"] == 1

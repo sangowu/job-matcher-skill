@@ -228,6 +228,7 @@ agent 会自动识别。然后在对话里：
 | `ats_registry_ttl_days` | 30 | unavailable board 的重试退避间隔 |
 | `ats_fetch_interval_minutes` | 60 | 已验证 board 再次取职位的最小间隔（分钟）；0 表示每轮都取 |
 | `jd_ttl_days` | 30 | JD 缓存有效期 |
+| `verify_ttl_hours` | 24 | 链接有效性核对的复用时长；`alive` 且未过期的行不再复验 |
 | `seniority_mode` | balanced | strict / balanced / stretch |
 | `enable_headless_fallback` | true | headless 兜底开关 |
 | `headless_budget` | 3 | 每次运行 headless 上限 |

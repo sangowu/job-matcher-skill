@@ -183,3 +183,61 @@ def test_the_cli_reports_every_url_and_never_crashes_on_one(tmp_path):
     assert len(payload["results"]) == 2
     # Neither a refusal nor a dropped connection is evidence that a job closed.
     assert all(row["alive"] is None for row in payload["results"])
+
+
+def test_results_come_back_in_the_order_they_were_asked_for(served):
+    """Hosts are checked in parallel, so completion order is not input order,
+    and the caller pairs the answers with its own list by position."""
+    served(_Response(200, text="Apply now"))
+    urls = [
+        "https://a.test/job/1",
+        "https://b.test/job/2",
+        "https://a.test/job/3",
+        "https://c.test/job/4",
+    ]
+
+    results = verify_jobs.check_all(urls)
+
+    assert [row["url"] for row in results] == urls
+
+
+def test_two_urls_of_one_host_are_never_checked_at_the_same_time(served, monkeypatch):
+    """Parallelism is across hosts only. Asking one site several things at once
+    is the thing the pacing rules exist to prevent, and a faster liveness check
+    is not a reason to undo them."""
+    import threading
+
+    live = {}
+    overlaps = []
+    lock = threading.Lock()
+
+    def fake_get(url, **kwargs):
+        host = verify_jobs._host_of(url)
+        with lock:
+            live[host] = live.get(host, 0) + 1
+            if live[host] > 1:
+                overlaps.append(host)
+        try:
+            return _Response(200, text="Apply now", url=url)
+        finally:
+            with lock:
+                live[host] -= 1
+
+    monkeypatch.setitem(sys.modules, "requests", _stub_requests(fake_get))
+    urls = [f"https://a.test/job/{index}" for index in range(6)]
+    urls += [f"https://b.test/job/{index}" for index in range(6)]
+
+    results = verify_jobs.check_all(urls)
+
+    assert len(results) == len(urls)
+    assert overlaps == []
+
+
+def test_a_url_with_no_host_is_still_answered(served):
+    """`check` degrades on its own, so a malformed entry must not be dropped
+    from the results -- the caller counts on one row per URL."""
+    served(_Response(200, text="Apply now"))
+
+    results = verify_jobs.check_all(["not-a-url", "https://a.test/job/1"])
+
+    assert [row["url"] for row in results] == ["not-a-url", "https://a.test/job/1"]

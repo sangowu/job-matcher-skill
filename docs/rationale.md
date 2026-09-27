@@ -286,3 +286,18 @@
 "United States" 印证的恰好就是限定词已经指出的那个市场，按旧读法它会让限定词让位、把职位交还给
 爱尔兰的城市别名。只有文本点名**另一个**市场才让位——这才是 `Berlin, DE` 判成德国而不是特拉华的
 那条规则。
+
+### [R5-06] 复验结论为什么需要独立的写入口
+
+P7 给行加了 `verified_at` 与 `needs_verification`，但 `verified` 的唯一写入路径仍然在**评估结果**里，
+而评估快照按设计只接受一次结果（重复提交报 `task already completed with a different result`）。
+于是在 worker 之外复验的一轮无处安放答案：2026-09-27 实跑查了 15 条链接、全部 `alive`，表里却仍是
+`verified: null`，报告把它们显示成未验证。
+
+存活是**行的属性**，不是某次评估的属性。`merge_jobs.py verify` 因此只做一件事：
+
+- 输入 `[{record_id, verified, reason?}]`，`verified` 接受契约里的词或布尔。
+- 只动 `verified` 与 `verified_at`，不动评分、不动 `jd_profile`；带别的键直接拒绝。
+- **不新建行**：认不出的 `record_id` 原样报在 `unknown_records` 里，而不是造一行。
+- `verified: null` 什么都不写——"什么都没查到"不等于"查了但没定论"，给没做过的检查盖时间戳更糟。
+- `closed` 也只是写下来，不删行：删哪些由读表的那一轮决定。

@@ -51,6 +51,7 @@
 | `candidate_contract.py` | `python scripts/candidate_contract.py`（stdin） | Phase C CandidateEnvelope 数组 | 严格校验、边界归一化后的候选数组；不接收 JD/评分字段 |
 | `candidate_handoff.py` | `… --cv-hash H --cp-hash H [--metrics-run-id R]`（stdin） | 同一 `batch_id` 的市场/来源计划、双 route 回报和来源更新 | merge-first 的幂等提交摘要；中断后按 manifest 续跑，不输出候选/JD 正文 |
 | `merge_jobs.py merge` | `… merge --cv-hash H --cp-hash H [--batch-id B]`（stdin） | 旧候选数组或严格 CandidateEnvelope 数组 | `{idempotent,to_analyze,to_score_only,in_evaluation,cached,eval_run,stats,metrics_recorded}` |
+| `merge_jobs.py verify` | `… verify --cv-hash H --cp-hash H [--metrics-run-id R]`（stdin） | `[{record_id, verified, reason?}]` | `{ok, verified_at, unknown_records, stats}`；只写存活状态与时间戳 |
 | `merge_jobs.py update` | `… update --cv-hash H --cp-hash H --run-id R`（stdin） | 带快照元数据的打分结果数组 | `{ok, updated, rebased, rejected, conflicts, released, duration_ms, metrics_recorded}` |
 | `summarize_metrics.py` | `… [--days N] [--format json\|markdown] [--fail-on-breach]` | `data/metrics.jsonl` + 活跃 eval runs | 健康状态、比率、p50/p95/p99、积压与阈值违规 |
 | `search_metrics.py` | `… --ok --run-id R --query-slot qN …` | Web Search 页级计数，不接收 query/URL | 写入一次 PII-safe `search` 事件；**经 discovery batch 提交的搜索改由 task result 的 `pages` 承载** |
@@ -135,6 +136,7 @@
 - 精排用 `evaluation` profile，需视觉远程浏览用 `browser` profile；两者都要记录实际模型/effort、耗时、成功、有效输出与回退。
 - **失效验证**（精排 Top-N）：`verify_jobs.py` 查死链，`possibly_closed` 走容错阶梯确认，失效则剔除并从次位递补。**只有 `alive: false` 才剔除，`alive: null` 是没查出来，一律保留**（404/410 才是没了；403/429/5xx 是服务器拒绝或伺候不了这个客户端，与职位死活无关，一律 `null`）。
 - **只查任务里 `needs_verification: true` 的行**：快照任务带 `verified` / `verified_at` / `needs_verification`，`alive` 且在 `verify_ttl_hours`（默认 24）内的行不再复验，这个判断由 `merge_jobs.py` 做、不靠你记住。回传 `verified` 只能是 `alive`/`closed`/`unverified`/`unknown` 或 `null`（布尔仍被接受，存盘统一成枚举）；`null` 表示这轮没查，脚本保留上次结论与时间戳。`verify_jobs.py` 按 host 分组：跨站并发（上限 8），**同站串行**。`[R5-05]`
+- **复验结论不经评估结果回写**：评估快照只接受一次结果，所以在 worker 之外复验时用 `merge_jobs.py verify`（输入 `[{record_id, verified, reason?}]`，只动存活状态与 `verified_at`；不动评分、不新建行、`null` 什么都不写、`closed` 也只写不删）。`[R5-06]`
 - 每个 worker 必须**原样回传**任务中的 `record_id`、`dedup_key`、`base_record_version`、`jd_input_hash`，再附加 `jd_profile`、`match_score`、`verified`、`scored_from`。`record_id` 是主键，`dedup_key` 只是兼容弱键。**不得回传或覆盖 title/company/url/source 等搜索字段。**
 - **结果形状以 `scripts/analysis_contract.py` 为准，写 worker 提示前先读它，不凭记忆编示例。** 顶层**只**允许上一条列的八个字段，多一个整条拒收。`match_score` 里五项**平铺**（不是嵌套对象）：`overall_score`、`title_score`、`skills_score`、`must_have_score`、`seniority_score`、`location_score`，权重 .25/.25/.25/.15/.10，`overall_score` 与加权和误差必须 ≤ 0.2；再加 `recommendation` ∈ `strong_apply`/`apply`/`stretch_apply`/`low_priority`/`skip`，**只能等于或低于分数对应档**（≥85/≥70/≥60/≥20，以下为 `skip`）。`scored_from` 只接受 `jd` 和 `snippet`；`to_score_only` 复用的 `jd_profile` 也来自 JD，仍写 `jd`，`jd_profile` 为空则拒收。`jd_profile` 被校验的键是 `must_have`、`good_to_have`、`required_skills`、`years_required`、`work_mode`（`remote`/`onsite`/`hybrid`）、`job_type`；多出的键不校验但会原样存进主表，别把实质内容放那里。`[R5-07]`
 - 写回：`merge_jobs.py update --run-id <eval_run.run_id> --metrics-run-id <pipeline-run-id>`（`merge` 同样传后者）。脚本校验契约、只合并评估字段；搜索期间仅来源等非评估输入变化时安全 rebase，JD 输入变化报 conflict 并拒绝旧结果。

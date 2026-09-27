@@ -1263,3 +1263,80 @@ def test_a_stored_boolean_is_normalized_on_the_way_past(
     assert job["verified"] == "alive"
     assert job["record_version"] == version
     assert output["stats"]["verification_records_migrated"] == 1
+
+
+# ── A link check has somewhere to be written that is not a score ─────────────
+
+def test_a_link_check_can_be_recorded_without_an_evaluation_result(
+    isolated_store, monkeypatch, capsys
+):
+    """`verified` used to be writable only inside an evaluation result, which a
+    snapshot accepts exactly once by design. A live round checked fifteen links,
+    found them all alive, and the table kept `verified: null`, so the report
+    called them unverified. Liveness is a property of the row."""
+    merged = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
+    task = load_run(merged["eval_run"]["path"])["tasks"][0]
+    invoke(
+        monkeypatch, capsys, merge_jobs.cmd_update,
+        [evaluation_result(task, verified=None)],
+        "cv", "cp", merged["eval_run"]["run_id"],
+    )
+    scored = load_table(isolated_store)["jobs"][0]
+    assert scored["verified"] is None
+
+    output = invoke(
+        monkeypatch, capsys, merge_jobs.cmd_verify,
+        [{"record_id": task["record_id"], "verified": True, "reason": "ok"}],
+    )
+
+    job = load_table(isolated_store)["jobs"][0]
+    assert output["stats"]["updated"] == 1
+    assert job["verified"] == "alive"
+    assert job["verified_at"]
+    # Only liveness moved.
+    assert job["match_scores"] == scored["match_scores"]
+    assert job["jd_profile"] == scored["jd_profile"]
+    assert job["record_version"] == scored["record_version"] + 1
+
+
+def test_an_undetermined_check_writes_nothing(isolated_store, monkeypatch, capsys):
+    """`null` is "nothing was learned", and dating a check nobody made is worse
+    than having no date."""
+    merged = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
+    record_id = load_run(merged["eval_run"]["path"])["tasks"][0]["record_id"]
+
+    output = invoke(
+        monkeypatch, capsys, merge_jobs.cmd_verify,
+        [{"record_id": record_id, "verified": None}],
+    )
+
+    job = load_table(isolated_store)["jobs"][0]
+    assert (output["stats"]["updated"], output["stats"]["unchanged"]) == (0, 1)
+    assert job.get("verified_at") is None
+
+
+def test_a_check_for_a_row_that_does_not_exist_is_reported_not_invented(
+    isolated_store, monkeypatch, capsys
+):
+    """Nothing here may create a row: a check is an observation about something
+    the table already carries."""
+    invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
+
+    output = invoke(
+        monkeypatch, capsys, merge_jobs.cmd_verify,
+        [{"record_id": "job_missing", "verified": "closed"}],
+    )
+
+    assert output["unknown_records"] == ["job_missing"]
+    assert len(load_table(isolated_store)["jobs"]) == 1
+
+
+def test_a_check_cannot_smuggle_a_score(isolated_store, monkeypatch, capsys):
+    merged = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
+    record_id = load_run(merged["eval_run"]["path"])["tasks"][0]["record_id"]
+
+    with pytest.raises(merge_jobs.InputDataError, match="record_id and verified"):
+        invoke(
+            monkeypatch, capsys, merge_jobs.cmd_verify,
+            [{"record_id": record_id, "verified": "alive", "match_score": {}}],
+        )

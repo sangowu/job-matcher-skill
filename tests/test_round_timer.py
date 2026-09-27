@@ -61,10 +61,43 @@ def test_finish_marks_missing_events_incomplete(timer_env, capsys):
     output = json.loads(capsys.readouterr().out)
 
     assert output["metrics_status"] == "incomplete"
-    assert output["missing_operations"] == "merge:search:subagent"
+    assert output["missing_operations"] == "merge:subagent"
     summary = build_summary(round_timer.METRICS_PATH, timer_env / "eval_runs")
     assert summary["metrics_status"] == "incomplete"
     assert summary["status"] == "unknown"
+
+
+def test_a_round_that_never_reached_web_search_is_still_complete(timer_env, capsys):
+    """`search` was expected of every round, from when it shared wave 1.
+
+    Since Web Search moved behind `web_first_wave`, a round that reaches its
+    candidate target earlier stops before dispatching one -- and was reported
+    `incomplete` with `missing_operations: search` for following the plan.
+    Observed on 2026-09-27 on a round that stopped at wave 2 on
+    `target_reached` with 27 sources succeeded and nothing failed.
+    """
+    round_id = _start(capsys)
+    for operation in ("merge", "update"):
+        record_metric(round_timer.METRICS_PATH, operation, True, run_id=round_id)
+
+    round_timer.cmd_finish(round_id, "overlapped", 2, 13, 13)
+    output = json.loads(capsys.readouterr().out)
+
+    assert output["metrics_status"] == "complete"
+    assert output["missing_operations"] == ""
+
+
+def test_a_round_that_dispatched_web_search_must_still_report_it(timer_env, capsys):
+    """Declaring it is the caller's job now, and the check still bites."""
+    round_id = _start(capsys)
+    for operation in ("merge", "update"):
+        record_metric(round_timer.METRICS_PATH, operation, True, run_id=round_id)
+
+    round_timer.cmd_finish(round_id, "overlapped", 3, 13, 13, ["search"])
+    output = json.loads(capsys.readouterr().out)
+
+    assert output["metrics_status"] == "incomplete"
+    assert output["missing_operations"] == "search"
 
 
 def test_unknown_round_and_bad_mode_fail_cleanly(timer_env, capsys):

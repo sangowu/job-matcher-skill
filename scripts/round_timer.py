@@ -102,7 +102,16 @@ def cmd_finish(
         evaluations=evaluations,
         jobs_reported=jobs,
     )
-    expected = {"search", "merge", *(expected_operations or [])}
+    # `search` used to be unconditional, from when Web Search shared wave 1
+    # with the structured channel and therefore always ran. Since it moved
+    # behind `web_first_wave`, a round that reaches its candidate target
+    # earlier stops before ever dispatching a Web Search task -- and was then
+    # reported `incomplete` with `missing_operations: search` for doing
+    # exactly what the plan asked. Measured on 2026-09-27: a round that
+    # stopped at wave 2 on `target_reached`. It is now declared like `ats` and
+    # `browser` are, by the caller that read the plan's waves and knows
+    # whether one carrying a web_search task was dispatched.
+    expected = {"merge", *(expected_operations or [])}
     if evaluations > 0:
         expected.add("update")
     completeness = assess_run_completeness(METRICS_PATH, round_id, expected)
@@ -185,8 +194,11 @@ def main() -> None:
         "--expect",
         action="append",
         default=[],
-        choices=("subagent", "ats", "browser"),
-        help="Additional operation that this run must have recorded; repeat as needed.",
+        choices=("search", "subagent", "ats", "browser"),
+        help=(
+            "Additional operation that this run must have recorded; repeat as needed. "
+            "Pass `search` when a dispatched wave carried a web_search task."
+        ),
     )
     abandon = sub_parser.add_parser("abandon")
     abandon.add_argument("--round-id", required=True)

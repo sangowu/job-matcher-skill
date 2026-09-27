@@ -235,8 +235,8 @@
 - 把 `report_path` 告诉用户。
 
 ### 7. 收尾
-- `python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|serial --batches N --evaluations N --jobs-reported N [--expect subagent] [--expect ats] [--expect browser]`
-  —— `overlapped` 表示本轮真的把「第 N 批评估」和「第 N+1 批搜索」并行发出过，否则填 `serial`。只为本轮实际使用的可选管道追加 `--expect`。默认检查 `run_start/search/merge/round`，有评估时自动检查 `update`；缺事件时返回 `metrics_status: incomplete`，健康状态只能是 `unknown`。
+- `python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|serial --batches N --evaluations N --jobs-reported N [--expect search] [--expect subagent] [--expect ats] [--expect browser]`
+  —— `overlapped` 表示本轮真的把「第 N 批评估」和「第 N+1 批搜索」并行发出过，否则填 `serial`。只为本轮实际使用的可选管道追加 `--expect`。**`search` 现在也要显式声明**：读本轮 DiscoveryPlan 的 waves，只要**实际派发过**的某个 wave 里有 web_search task 就加 `--expect search`；计划把 Web Search 放在第 `web_first_wave` 波，而一轮可能在那之前就 `target_reached` 停下，那时它没搜过也不该被判为缺事件——2026-09-27 实测一轮在 wave 2 停下、27 个来源全部成功，却因为写死的期望被报成 `incomplete / missing_operations: search`。默认检查 `run_start/merge/round`，有评估时自动检查 `update`；缺事件时返回 `metrics_status: incomplete`，健康状态只能是 `unknown`。
   如实填写：这是唯一能实测重叠编排收益的数据来源，填错会让对比失去意义。
 - 一轮如果被中断、永远不会走到 `finish`，用 `python scripts/round_timer.py abandon --round-id <R> --reason interrupted|superseded|rate_limited|operator_stopped|unknown` 将其收掉。**不要改用 `finish` 冒充**：`finish` 要求 `data/rounds/<R>.json` marker 存在，而被中断的一轮恰好是 marker 已丢的情形；它写的 `run_finish` 也等于声称这一轮上报过。`abandon` 只能用于已有 `run_start` 且尚未收掉的轮次，`reason` 是封闭集合（保持低基数，不接自由文本）。被收掉的轮次不再计作 `stale_unfinished`，也不计作`complete`，而是单独计入 `runs.abandoned` 并在健康报表里单行显示——一轮什么都没产出是读报告的人应该看到的事。
 - 简述结果（新增/复用/路径），指出风险（未验证/基于摘要评分的职位）。

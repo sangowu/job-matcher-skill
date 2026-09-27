@@ -39,6 +39,21 @@ _ROLE_FAMILIES = {
     "platform": ("devops", "site reliability", "sre", "cloud engineer", "平台工程"),
     "product": ("product manager", "产品经理"),
 }
+# A family term above is a phrase, matched as a substring, so one word
+# between two of its words hides it: "AI Platform Engineer" carries neither
+# "ai engineer" nor "machine learning", and on 2026-09-27 the filter dropped
+# it, "AI Infrastructure Engineer" and "ML Platform Engineer" for a profile
+# whose every preferred role is an AI role. These are matched as whole tokens
+# instead, which is why they cannot live in the table above: "ai" as a
+# substring is inside "maintenance" and "training".
+_ROLE_FAMILY_TOKENS = {
+    "applied_ai": frozenset({"ai", "ml", "aiml", "llm", "genai", "nlp"}),
+}
+# Where such a token sits is the whole difference between a role and a
+# product. "AI Platform Engineer" qualifies the engineer; "Mobile Application
+# Developer - AI Neobank App" qualifies the app, and that one must stay out.
+_TITLE_SEGMENT = re.compile(r"[,\-–—(){}\[\]|:;]+")
+
 _GENERIC_TITLE_TOKENS = {
     "ai", "artificial", "intelligence", "engineer", "engineering", "developer",
     "specialist", "manager", "lead", "senior", "junior", "staff", "principal",
@@ -49,12 +64,37 @@ def _normalized_text(value: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w+#.]+", " ", value or "").lower()).strip()
 
 
+def _title_segments(value: str) -> list[str]:
+    parts = (_normalized_text(part) for part in _TITLE_SEGMENT.split(value or ""))
+    return [part for part in parts if part]
+
+
+def _family_tokens_match(value: str, family_tokens: frozenset[str]) -> bool:
+    segments = _title_segments(value)
+    if not segments:
+        return False
+    # The first segment is the role phrase itself.
+    if set(segments[0].split()) & family_tokens:
+        return True
+    # A later segment that is nothing but the qualifier names no product, so
+    # "Software Engineer, AI" is still an AI role.
+    return any(
+        (tokens := set(segment.split())) and tokens <= family_tokens
+        for segment in segments[1:]
+    )
+
+
 def _role_families(value: str) -> set[str]:
     normalized = _normalized_text(value)
-    return {
+    families = {
         family for family, terms in _ROLE_FAMILIES.items()
         if any(_normalized_text(term) in normalized for term in terms)
     }
+    families.update(
+        family for family, tokens in _ROLE_FAMILY_TOKENS.items()
+        if _family_tokens_match(value, tokens)
+    )
+    return families
 
 
 def _title_matches(title: str, roles: list[str]) -> bool:

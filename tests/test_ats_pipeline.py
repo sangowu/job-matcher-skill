@@ -356,6 +356,47 @@ def test_prefilter_does_not_treat_ai_product_suffix_as_role_match():
     ]
 
 
+def test_a_qualifier_between_ai_and_the_role_noun_still_matches():
+    """A family term is a phrase, so one word inside it used to hide the role.
+
+    Every term in the `applied_ai` family is contiguous -- "ai engineer",
+    "machine learning" -- and matched as a substring, so "AI Platform
+    Engineer" carried none of them. The token "ai" could not rescue it
+    either: it is generic by design, because that is what keeps
+    "Mobile Application Developer - AI Neobank App" out. Measured against
+    this skill's own CV profile on 2026-09-27, whose three preferred roles
+    are all AI roles.
+    """
+    target_profile = {
+        "preferred_roles": ["AI Engineer", "Applied AI Engineer", "Python Backend Engineer"],
+        "preferred_locations": ["Dublin"],
+        "blocked_levels": ["lead"],
+    }
+    jobs = [
+        {"title": "AI Platform Engineer", "location": "Dublin"},
+        {"title": "AI Infrastructure Engineer", "location": "Dublin"},
+        {"title": "AI Native SW Engineer", "location": "Dublin"},
+        {"title": "ML Platform Engineer", "location": "Dublin"},
+        {"title": "Software Engineer, AI", "location": "Dublin"},
+        # The qualifier names a product, not the role: still out.
+        {"title": "Mobile Application Developer - AI Neobank App", "location": "Dublin"},
+        {"title": "Engineer - AI Products", "location": "Dublin"},
+        # A token that only looks like one: "ai" is inside both of these.
+        {"title": "Maintenance Engineer", "location": "Dublin"},
+        {"title": "Training Specialist", "location": "Dublin"},
+    ]
+
+    filtered = ats_pipeline.prefilter_jobs(jobs, target_profile)
+
+    assert [job["title"] for job in filtered] == [
+        "AI Platform Engineer",
+        "AI Infrastructure Engineer",
+        "AI Native SW Engineer",
+        "ML Platform Engineer",
+        "Software Engineer, AI",
+    ]
+
+
 def test_global_request_budget_allows_partial_success(isolated_ats):
     store = registry(board("greenhouse"), board("ashby", token="ashbyco"))
     provider = FakeAtsProvider({

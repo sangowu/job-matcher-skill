@@ -95,7 +95,8 @@ job-matcher/
 │   ├── browser_setup.py      # one-shot localhost setup page
 │   ├── browser_workflow.py   # listing pagination/pause state machine
 │   ├── ats_provider.py       # public Ashby/Greenhouse/Lever GET adapters and Fake
-│   ├── ats_pipeline.py       # ATS registry, prefilter, sync, and normalization
+│   ├── job_prefilter.py      # deterministic role/location/seniority prefilter, one rule for all channels
+│   ├── ats_pipeline.py       # ATS registry, sync, and normalization
 │   ├── ats_handoff.py        # in-memory ATS JD handoff to canonical merge
 │   ├── board_harvest.py      # recover ATS boards from job URLs and register verified ones
 │   ├── seed_promotion.py    # promote verified harvested sources into the tracked seed catalog

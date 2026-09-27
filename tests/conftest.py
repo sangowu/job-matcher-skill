@@ -157,9 +157,19 @@ def stores(tmp_path):
         json.dumps({"stop_threshold": 12, "consecutive_empty_stop": 2}),
         encoding="utf-8",
     )
+    # A batch carrying candidates prefilters them, and the rule needs the CV
+    # profile to read. Roles wide enough that a test writing a plausible
+    # posting does not have to think about the prefilter, and no locations --
+    # which is the profile this skill is actually written for.
+    profile = tmp_path / "cv-profile.json"
+    profile.write_text(
+        json.dumps({"preferred_roles": ["AI Engineer", "Software Engineer"]}),
+        encoding="utf-8",
+    )
     return {
         "registry": registry,
         "legacy": data_dir / "ats_companies.json",
         "manifests": data_dir / "discovery_batches",
         "config": config,
+        "profile": profile,
     }

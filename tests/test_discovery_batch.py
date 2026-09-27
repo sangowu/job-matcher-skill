@@ -20,11 +20,13 @@ def envelope(
     source_id: str,
     source_type: str,
     identity: str,
+    title: str = "AI Engineer",
+    location: str = "Dublin",
 ) -> dict:
     return {
-        "title": "AI Engineer",
+        "title": title,
         "company": "Example",
-        "location": "Dublin",
+        "location": location,
         "location_normalized": {
             "market_id": "ie",
             "city_id": "dublin",
@@ -213,7 +215,7 @@ def run_batch(stores, value, **kwargs):
         legacy_path=stores["legacy"],
         manifests_dir=stores["manifests"],
         config_path=stores["config"],
-        **kwargs,
+        **{"profile_path": stores["profile"], **kwargs},
     )
 
 
@@ -728,3 +730,102 @@ def test_dropping_duration_ms_entirely_is_not_the_same_as_declaring_it_absent(st
 
     with pytest.raises(discovery_batch.DiscoveryBatchError, match="fields are invalid"):
         run_batch(stores, value)
+
+
+def _merge():
+    return {
+        "ok": True,
+        "idempotent": False,
+        "stats": {"new": 1, "newly_added": 1},
+        "eval_run": {"run_id": "eval-1", "path": "local", "task_count": 1},
+        "metrics_recorded": True,
+    }
+
+
+def _browser_result(candidates):
+    return {
+        "task_id": "browser:ie:irishjobs-ie",
+        "status": "succeeded",
+        "candidates_raw": len(candidates),
+        "candidates_prefiltered": len(candidates),
+        "candidates": candidates,
+    }
+
+
+def _browser_only(value, result):
+    value["task_results"] = [result, value["task_results"][1]]
+    return value
+
+
+def _reported_browser(**kwargs):
+    return envelope(
+        "browseros_neo",
+        source_id="irishjobs-ie",
+        source_type="local_job_board",
+        **kwargs,
+    )
+
+
+def test_a_reported_candidate_is_held_to_the_same_prefilter_as_a_board(stores):
+    """Two of the three channels ran whatever rule their worker had in mind.
+
+    `candidates_prefiltered` was a number, and the only check on it was that
+    the funnel did not widen, so a lax worker and a strict one were
+    indistinguishable here.
+    """
+    committed = []
+    value = _browser_only(
+        payload(),
+        _browser_result([
+            _reported_browser(identity="1"),
+            _reported_browser(identity="2", title="Warehouse Operative"),
+            _reported_browser(identity="3", location="Remote - Ireland"),
+        ]),
+    )
+
+    result = run_batch(
+        stores,
+        value,
+        merge_runner=lambda candidates, *a, **k: committed.extend(candidates) or _merge(),
+        source_applier=lambda *a, **k: {"applied": True},
+    )
+
+    assert [item["identity_keys"][0] for item in committed] == [
+        "greenhouse:1",
+        "greenhouse:456",
+    ]
+    assert result["task_summary"]["candidates_dropped"] == {"location": 1, "role": 1}
+
+
+def test_a_reported_market_is_checked_against_the_catalog(stores):
+    """`location_normalized.market_id` comes from the worker, and
+    "Dublin, OH" is the claim the catalog exists to refuse."""
+    committed = []
+    value = _browser_only(
+        payload(),
+        _browser_result([
+            _reported_browser(identity="1", location="Dublin, Ireland"),
+            _reported_browser(identity="2", location="Dublin, OH"),
+            # The catalog cannot place this one, so it says nothing and the
+            # worker's reading stands.
+            _reported_browser(identity="3", location="Blanchardstown"),
+        ]),
+    )
+
+    run_batch(
+        stores,
+        value,
+        merge_runner=lambda candidates, *a, **k: committed.extend(candidates) or _merge(),
+        source_applier=lambda *a, **k: {"applied": True},
+    )
+
+    assert [item["identity_keys"][0] for item in committed] == [
+        "greenhouse:1",
+        "greenhouse:3",
+        "greenhouse:456",
+    ]
+
+
+def test_a_batch_carrying_candidates_needs_the_profile_to_prefilter_them(stores):
+    with pytest.raises(discovery_batch.DiscoveryBatchError, match="requires --profile"):
+        run_batch(stores, payload(), profile_path=None)

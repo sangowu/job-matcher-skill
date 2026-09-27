@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import _bootstrap  # noqa: F401 - puts the skill's scripts/ on the path
 from _jobutil import all_identity_keys, all_url_keys, skill_version
 from ats_provider import AtsProvider, HttpAtsProvider
 

@@ -22,7 +22,7 @@ This is a controlled discovery-to-merge measurement, not a ranking-quality exper
 The run command was:
 
 ```text
-python scripts/benchmark_ats_e2e.py \
+python tools/benchmark_ats_e2e.py \
   --web-candidates data/ats_phase3_web_candidates.json \
   --profile data/cv/7826385b8369d611.json \
   --output docs/performance/ats-phase3-controlled-e2e.json \

@@ -113,8 +113,13 @@ def test_a_stream_that_cannot_be_reconfigured_is_left_alone(monkeypatch):
 
 
 def _scripts_printing_unescaped_json() -> list[Path]:
+    # Both directories: a tool prints JSON to a terminal exactly like a script
+    # does, and moving one out of scripts/ must not move it out of this guard.
     found = []
-    for path in sorted(SCRIPTS_DIR.glob("*.py")):
+    candidates = sorted(SCRIPTS_DIR.glob("*.py")) + sorted(
+        (SCRIPTS_DIR.parent / "tools").glob("*.py")
+    )
+    for path in candidates:
         for line in path.read_text(encoding="utf-8").splitlines():
             if "print(json.dumps(" in line and "ensure_ascii=False" in line:
                 found.append(path)
@@ -293,9 +298,15 @@ def test_a_detached_stdin_is_reported_rather_than_crashing(monkeypatch):
 
 
 def _scripts_reading_stdin() -> list[Path]:
+    # Both directories, for the same reason as the JSON scan: a tool reading
+    # stdin can hang on a missing EOF exactly like a script can, and that is the
+    # defect this guard was added for.
     found = []
-    for path in sorted(SCRIPTS_DIR.glob("*.py")):
-        if path.name == "_stdio.py":
+    candidates = sorted(SCRIPTS_DIR.glob("*.py")) + sorted(
+        (SCRIPTS_DIR.parent / "tools").glob("*.py")
+    )
+    for path in candidates:
+        if path.name in {"_stdio.py", "_bootstrap.py"}:
             continue
         text = path.read_text(encoding="utf-8")
         if "read_stdin_text" in text or RAW_STDIN_READ.search(text):
@@ -325,8 +336,11 @@ def test_no_script_reads_stdin_unbounded(script):
 def _scripts_that_consume_stdin() -> list[Path]:
     """Direct readers, plus the ones that borrow another script's reader."""
     found = []
-    for path in sorted(SCRIPTS_DIR.glob("*.py")):
-        if path.name == "_stdio.py":
+    candidates = sorted(SCRIPTS_DIR.glob("*.py")) + sorted(
+        (SCRIPTS_DIR.parent / "tools").glob("*.py")
+    )
+    for path in candidates:
+        if path.name in {"_stdio.py", "_bootstrap.py"}:
             continue
         text = path.read_text(encoding="utf-8")
         if "read_stdin_text" in text or "_read_stdin_list()" in text:

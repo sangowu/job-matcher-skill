@@ -9,6 +9,9 @@ import pytest
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL_ROOT / "scripts"))
+# The tools live outside scripts/ because a round never runs them; they
+# still import the production modules, which is what they measure.
+sys.path.insert(0, str(SKILL_ROOT / "tools"))
 
 import browser_candidate_smoke  # noqa: E402
 from candidate_contract import CandidateContractError  # noqa: E402

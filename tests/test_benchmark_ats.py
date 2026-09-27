@@ -8,6 +8,9 @@ from urllib.parse import parse_qs, urlparse
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
+# The tools live outside scripts/ because a round never runs them; they
+# still import the production modules, which is what they measure.
+sys.path.insert(0, str(SCRIPTS_DIR.parent / "tools"))
 
 import benchmark_ats  # noqa: E402
 

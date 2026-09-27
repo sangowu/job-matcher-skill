@@ -6,6 +6,9 @@ from pathlib import Path
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
+# The tools live outside scripts/ because a round never runs them; they
+# still import the production modules, which is what they measure.
+sys.path.insert(0, str(SCRIPTS_DIR.parent / "tools"))
 
 from benchmark_pipeline import compare_metrics, summarize  # noqa: E402
 

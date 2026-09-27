@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import shadow_gate
+import _bootstrap  # noqa: F401 - puts the skill's scripts/ on the path
 from _jobutil import is_strong_identity_key
 from _stdio import StdinUnavailable, read_stdin_text
 

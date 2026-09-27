@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+import _bootstrap  # noqa: F401 - puts the skill's scripts/ on the path
 from _jobutil import canonicalize_url, make_dedup_key, skill_version
 from _stdio import use_utf8_stdout
 from ats_provider import (

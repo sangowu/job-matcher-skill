@@ -123,8 +123,8 @@ Greenhouse 的 `content=true` 整板响应可能超过 25 MB。实现会记录�
 - `scripts/ats_pipeline.py discover`：从 Web 候选识别 allowlist 官方 board，并更新 `candidate -> verified -> unavailable` 标识库。
 - `scripts/ats_pipeline.py sync --profile <path>`：同步已到期 board，跨 board 有界并发，按 CV 做确定性初筛并输出 merge-ready 候选。
 - `scripts/ats_pipeline.py run --profile <path>`：从 stdin 接收一批 Web 候选，串联 discover + sync。
-- `scripts/benchmark_ats.py`：复用生产适配器的公开脱敏回归；`scripts/benchmark_pipeline.py` 另含完全离线的三 Provider Fake 基准。
-- `scripts/benchmark_ats_e2e.py`：固定 Web 对照组与受限公开 ATS 的 PII-safe discovery-to-merge A/B；不保存职位标题、公司、URL、CV/profile 字段、board token 或异常全文。
-- `scripts/benchmark_ats_compression.py`：相同三供应商列表、预算与解析器的交错 identity/gzip A/B；用内容指纹做等价门禁，但报告不保存指纹或职位内容。实测证据见 `docs/performance/ats-http-compression-ab.*`。
+- `tools/benchmark_ats.py`：复用生产适配器的公开脱敏回归；`tools/benchmark_pipeline.py` 另含完全离线的三 Provider Fake 基准。
+- `tools/benchmark_ats_e2e.py`：固定 Web 对照组与受限公开 ATS 的 PII-safe discovery-to-merge A/B；不保存职位标题、公司、URL、CV/profile 字段、board token 或异常全文。
+- `tools/benchmark_ats_compression.py`：相同三供应商列表、预算与解析器的交错 identity/gzip A/B；用内容指纹做等价门禁，但报告不保存指纹或职位内容。实测证据见 `docs/performance/ats-http-compression-ab.*`。
 
 标识库和同步状态由编排者每轮最多调用一次，文件写入不是给多个独立编排者同时竞争的分布式协调机制；职位主表仍只允许 `merge_jobs.py` 串行写入。

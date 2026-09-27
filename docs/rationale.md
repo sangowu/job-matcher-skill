@@ -142,7 +142,7 @@
 ### [R6-03] Phase D2 smoke 的边界
 
 - **Phase D2 仅显式 smoke**：需要来源诊断时才运行
-  `python scripts/multi_region_smoke.py --live --output <count-only.json>`。计划固定在
+  `python tools/multi_region_smoke.py --live --output <count-only.json>`。计划固定在
   `references/multi_region_smoke_plan.json`；每来源最多两次同站 HTTPS GET，单响应 512 KiB、
   8 秒超时、最多两次重定向。登录/验证码立即停止，`automation_allowed=false` 的 China 来源
   必须零请求并记录 `skipped_policy`。产物只能保留状态、失败类别和计数，不得保留公司、标题、

@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 
+import _bootstrap  # noqa: F401 - puts the skill's scripts/ on the path
 import _filelock
 from _jobutil import supported_markets
 from _stdio import StdinUnavailable, read_stdin_text

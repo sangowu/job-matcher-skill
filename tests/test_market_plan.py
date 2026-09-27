@@ -1037,20 +1037,22 @@ def test_the_live_planners_do_not_read_the_shadow_rollout_switches():
     `shadow_gate.py` consumes it, so a plan targeting three markets runs while
     the repository default says `false` with every market `off`. Pinned so the
     next reader does not assume the switch is holding something back."""
-    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    root = Path(__file__).resolve().parents[1]
     live = ("discovery_plan.py", "discovery_batch.py", "candidate_handoff.py")
 
     for name in live:
-        text = (scripts / name).read_text(encoding="utf-8")
+        text = (root / "scripts" / name).read_text(encoding="utf-8")
         assert "multi_region_enabled" not in text, name
         assert "multi_region_rollout" not in text, name
 
     readers = {
-        path.name
-        for path in scripts.glob("*.py")
+        f"{path.parent.name}/{path.name}"
+        for directory in ("scripts", "tools")
+        for path in (root / directory).glob("*.py")
         if "multi_region_rollout" in path.read_text(encoding="utf-8")
     }
-    assert readers == {"shadow_gate.py"}
+    # The one reader is a release gate, which is why it lives in tools/.
+    assert readers == {"tools/shadow_gate.py"}
 
 
 def test_a_match_only_family_cannot_smuggle_in_searchable_fields(resources):

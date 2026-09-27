@@ -25,6 +25,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Protocol
 
+import _bootstrap  # noqa: F401 - puts the skill's scripts/ on the path
 from _jobutil import supported_markets
 from _stdio import use_utf8_stdout
 

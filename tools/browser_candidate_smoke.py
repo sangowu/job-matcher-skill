@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterator
 
+import _bootstrap  # noqa: F401 - puts the skill's scripts/ on the path
 import merge_jobs
 from candidate_contract import CandidateContractError, validate_candidate_envelope
 from _stdio import StdinUnavailable, read_stdin_text

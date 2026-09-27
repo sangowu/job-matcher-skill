@@ -47,9 +47,14 @@ interactive HTML report
 
 ```
 job-matcher/
-├── SKILL.md              # trigger description + orchestration entry
-├── WORKFLOW.md           # agent-neutral full workflow
+├── SKILL.md              # trigger description + this runtime's capability map
+├── WORKFLOW.md           # agent-neutral workflow: what to do, read every round
 ├── config.json           # tunable knobs
+├── docs/rationale.md      # why each numbered rule is shaped that way (read when changing one)
+├── docs/ats-protocol.md   # ATS / structured channel protocol (executed by scripts)
+├── docs/remote-browser-protocol.md  # Kernel remote browser (off by default)
+├── docs/phase-c-legacy.md # the superseded two-route entry point
+├── docs/shadow-and-smoke.md  # Phase D2 smoke and the Phase E shadow gate
 ├── docs/monitoring.md     # runtime metrics, thresholds, and health summary
 ├── docs/roadmap.md        # version expectations: known gaps and what would close them
 ├── references/           # instructions read on demand

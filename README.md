@@ -47,9 +47,14 @@ CV + query
 
 ```
 job-matcher/
-├── SKILL.md              # 触发描述 + 编排入口
-├── WORKFLOW.md           # agent-中立完整流程
+├── SKILL.md              # 触发描述 + 本运行时的能力映射
+├── WORKFLOW.md           # agent-中立完整流程（只写做什么，每轮都读）
 ├── config.json           # 配置旋钮
+├── docs/rationale.md      # 每条编号规则的理由与实测（只在改规则/排查时读）
+├── docs/ats-protocol.md   # ATS/结构化通道协议（由脚本执行）
+├── docs/remote-browser-protocol.md  # Kernel 远程浏览器（默认关闭）
+├── docs/phase-c-legacy.md # 已被取代的双 route 入口
+├── docs/shadow-and-smoke.md  # Phase D2 smoke 与 Phase E shadow 门
 ├── docs/monitoring.md     # 运行指标、阈值与健康汇总
 ├── docs/roadmap.md        # 版本更新期望：已知缺口与下一版验收标准
 ├── references/           # subagent 按需读取的指令

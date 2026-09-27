@@ -6,6 +6,7 @@ review; these tests turn that into a CI failure.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -194,3 +195,57 @@ def test_every_supported_market_is_accounted_for_in_the_gate_table():
 
     for market_id in _rollout():
         assert f"| {market_id} |" in gap_table, f"{market_id} is missing from the gap table"
+
+
+def _rule_ids(text: str) -> list[str]:
+    return re.findall(r"`\[([A-Z]\d?-\d\d)\]`", text)
+
+
+def test_every_rule_id_in_the_workflow_has_its_reasoning_recorded():
+    """The split between rule and reason is only honest if it is checked.
+
+    WORKFLOW.md is loaded on every round and `docs/rationale.md` is not, so the
+    measurements and post-mortems live in the second file. Nothing stops a rule
+    from being tightened in one and explained in the other -- except this.
+    """
+    rationale_path = SKILL_ROOT / "docs" / "rationale.md"
+    rationale = rationale_path.read_text(encoding="utf-8")
+    # Every rule file, not only WORKFLOW.md: the channel protocols and the
+    # opt-in diagnostics moved to their own docs and cite ids from there.
+    citing = [SKILL_ROOT / "WORKFLOW.md", *sorted((SKILL_ROOT / "docs").glob("*.md"))]
+    used: list[str] = []
+    for path in citing:
+        if path == rationale_path:
+            continue
+        used.extend(_rule_ids(path.read_text(encoding="utf-8")))
+
+    assert used, "no rule file carries a rule id"
+    duplicates = sorted({rule for rule in used if used.count(rule) > 1})
+    assert not duplicates, f"a rule id is cited twice: {', '.join(duplicates)}"
+
+    explained = re.findall(r"^### \[([A-Z]\d?-\d\d)\]", rationale, re.MULTILINE)
+    assert len(explained) == len(set(explained)), "docs/rationale.md explains an id twice"
+
+    unexplained = sorted(set(used) - set(explained))
+    assert not unexplained, f"a rule cites reasoning that does not exist: {', '.join(unexplained)}"
+    orphans = sorted(set(explained) - set(used))
+    assert not orphans, f"docs/rationale.md explains rules nothing cites: {', '.join(orphans)}"
+
+
+def test_the_per_round_instruction_budget_stays_where_it_was_put():
+    """`SKILL.md` + `WORKFLOW.md` are read on every round, whatever the round
+    finds, so their size is a fixed cost per run: about 18,000 tokens before the
+    reasoning moved out, about 10,300 after. The ceiling is here so the file
+    cannot drift back by accumulating explanations a reader only needs once.
+    Raising it is a decision, not an accident -- move the reasoning to
+    `docs/rationale.md` instead."""
+    budget = 30_000
+    total = sum(
+        len((SKILL_ROOT / name).read_text(encoding="utf-8"))
+        for name in ("SKILL.md", "WORKFLOW.md")
+    )
+
+    assert total <= budget, (
+        f"SKILL.md + WORKFLOW.md is {total} characters, over the {budget} ceiling; "
+        "move the reasoning into docs/rationale.md rather than raising this"
+    )

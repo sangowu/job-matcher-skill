@@ -6,6 +6,7 @@ review; these tests turn that into a CI failure.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -37,6 +38,30 @@ def _config_keys() -> list[str]:
 def _script_names() -> list[str]:
     return sorted(path.name for path in (SKILL_ROOT / "scripts").glob("*.py"))
 
+
+def test_no_tracked_file_carries_a_conflict_marker():
+    """An unresolved merge is a review problem, not a runtime one.
+
+    `git add -A` after a cherry-pick stages whatever is in the tree, markers
+    included, and nothing here read the changelog, so CHANGELOG.md shipped an
+    unresolved block to main on 2026-09-27 with both platforms green.
+    """
+    listed = subprocess.run(
+        ["git", "ls-files"],
+        cwd=SKILL_ROOT, capture_output=True, check=True,
+    ).stdout.decode("utf-8").splitlines()
+    # Built rather than written out, so this file cannot match itself.
+    markers = tuple(char * 7 for char in "<=>")
+    offenders = []
+    for name in filter(None, listed):
+        try:
+            text = (SKILL_ROOT / name).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for number, line in enumerate(text.splitlines(), start=1):
+            if line.startswith(markers):
+                offenders.append(f"{name}:{number}")
+    assert not offenders, f"unresolved conflict markers: {offenders}"
 
 @pytest.mark.parametrize("readme", READMES)
 def test_every_script_is_listed(readme):

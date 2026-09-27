@@ -45,6 +45,7 @@ from analysis_contract import (
 from candidate_contract import CandidateContractError, validate_candidate_envelope
 from _jobutil import (
     all_identity_keys,
+    supported_markets,
     all_url_keys,
     is_closed_posting,
     is_strong_identity_key,
@@ -280,11 +281,20 @@ def _provenance_key(source: dict) -> tuple[str, str, str, str]:
 
 
 def _market_ids_from_sources(sources: list[dict]) -> list[str]:
+    """The markets this row's provenance attributes it to.
+
+    Read from the catalog. This set was written out inline here, which the
+    single-source change missed because it is a literal and not a constant named
+    `SUPPORTED_MARKETS` -- so every US posting merged with `market_ids: []` and
+    `market_status: "unknown"`, and the report could neither filter it by market
+    nor attribute it to one, while its own provenance said `us`.
+    """
+    known = set(supported_markets())
     output: list[str] = []
     for source in sources:
         normalized = source.get("location_normalized")
         market_id = normalized.get("market_id") if isinstance(normalized, dict) else None
-        if market_id in {"ie", "uk", "cn", "de"} and market_id not in output:
+        if market_id in known and market_id not in output:
             output.append(market_id)
     return output
 
@@ -1381,6 +1391,83 @@ def cmd_update(
     print(json.dumps(output))
 
 
+def cmd_verify(metrics_run_id: str | None = None) -> None:
+    """Record link-liveness answers for rows that already exist.
+
+    Input is `[{record_id, verified, reason?}]`, where `verified` is one of the
+    contract's words or a boolean. Only liveness moves: no score, no
+    `jd_profile`, no record version bump for a value that did not change, and
+    nothing here can create a row. `closed` is not deleted either -- the round
+    that reads the table decides what to drop, and this only writes down what
+    was observed.
+    """
+    started = time.monotonic()
+    payload = json.loads(read_stdin_text() or "[]")
+    if not isinstance(payload, list):
+        raise InputDataError("input must be an array of link checks")
+    checks: dict[str, str | None] = {}
+    for index, row in enumerate(payload):
+        if not isinstance(row, dict) or set(row) - {"record_id", "verified", "reason"}:
+            raise InputDataError(f"checks[{index}] must hold record_id and verified")
+        record_id = str(row.get("record_id") or "").strip()
+        if not record_id:
+            raise InputDataError(f"checks[{index}] has no record_id")
+        checks[record_id] = normalize_verified(row.get("verified"))
+
+    with _table_write_lock() as lock_metrics:
+        table = _load(TABLE_PATH)
+        jobs = table.get("jobs")
+        if not isinstance(jobs, list):
+            raise DataStoreError(f"jobs must be a list in {TABLE_PATH}")
+        stamped = now = _now().isoformat()
+        updated = unchanged = 0
+        unknown: list[str] = []
+        seen: set[str] = set()
+        for job in jobs:
+            record_id = str(job.get("record_id") or "")
+            if record_id not in checks:
+                continue
+            seen.add(record_id)
+            verdict = checks[record_id]
+            if verdict is None:
+                # Nothing was learned, so nothing is written -- overwriting the
+                # stamp would date a check nobody made.
+                unchanged += 1
+                continue
+            if job.get("verified") == verdict and job.get("verified_at"):
+                unchanged += 1
+                continue
+            job["verified"] = verdict
+            job["verified_at"] = now
+            job["record_version"] = int(job.get("record_version") or 1) + 1
+            updated += 1
+        unknown = sorted(set(checks) - seen)
+        _save(TABLE_PATH, table)
+
+    stats = {
+        "checks_in": len(checks),
+        "updated": updated,
+        "unchanged": unchanged,
+        "unknown_records": len(unknown),
+        "duration_ms": round((time.monotonic() - started) * 1000, 2),
+        **lock_metrics,
+    }
+    metrics_recorded = record_metric(
+        METRICS_PATH, "verify", True, run_id=metrics_run_id, **stats
+    )
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "verified_at": stamped,
+                "unknown_records": unknown,
+                "stats": stats,
+                "metrics_recorded": metrics_recorded,
+            }
+        )
+    )
+
+
 def _failure_kind(error: Exception) -> str:
     if isinstance(error, DataStoreReadError):
         return "data_store_read"
@@ -1399,7 +1486,7 @@ def _failure_kind(error: Exception) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=["merge", "update"])
+    ap.add_argument("mode", choices=["merge", "update", "verify"])
     ap.add_argument("--cv-hash", required=True)
     ap.add_argument("--cp-hash", required=True)
     ap.add_argument("--run-id", help="Evaluation run id returned by merge; required for update.")
@@ -1454,6 +1541,13 @@ def main() -> None:
     try:
         if args.mode == "merge":
             cmd_merge(args.cv_hash, args.cp_hash, args.metrics_run_id, args.batch_id)
+        elif args.mode == "verify":
+            if args.batch_id or args.run_id:
+                raise InputDataError(
+                    "verify takes neither --batch-id nor --run-id: liveness belongs"
+                    " to the row, not to an evaluation run"
+                )
+            cmd_verify(args.metrics_run_id)
         else:
             if args.batch_id:
                 raise InputDataError("--batch-id is only valid for merge")

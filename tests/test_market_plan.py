@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -1222,3 +1223,68 @@ def test_an_ireland_scoped_round_still_drops_an_ohio_posting(resources):
     assert [job["location"] for job in kept] == ["Dublin, Ireland"]
     us_round = ats_pipeline.filter_to_markets(jobs, ["us"], resources=markets)
     assert [job["location"] for job in us_round] == ["Dublin, OH"]
+
+
+@pytest.mark.parametrize(
+    "location",
+    ["Toronto, ON, CA", "London, ON, Canada", "Vancouver, BC", "Calgary, AB, CA"],
+)
+def test_a_location_naming_two_areas_is_read_in_the_order_it_is_written(
+    resources, location
+):
+    """`Toronto, ON, CA` is Ontario and California at once.
+
+    Asking every market's catalog before the foreign one made catalog precedence
+    the tie-breaker, and a live round put a Toronto posting in the US market that
+    way: CA was read as California before ON could be read as Ontario. The text's
+    own order decides -- the first segment that resolves wins.
+    """
+    markets, _ = resources
+
+    normalized = market_plan.normalize_location(location, markets)
+
+    assert normalized["market_ids"] == []
+    assert normalized["location_type"] == "foreign"
+
+
+def test_a_state_name_inside_a_longer_segment_still_counts(resources):
+    markets, _ = resources
+
+    normalized = market_plan.normalize_location(
+        "Greater Boston, Massachusetts Area", markets
+    )
+
+    assert normalized["market_ids"] == ["us"]
+
+
+def test_no_module_writes_the_market_set_out_by_hand():
+    """The single-source change compared named constants, and a literal escaped it.
+
+    `merge_jobs._market_ids_from_sources` carried `{"ie", "uk", "cn", "de"}`
+    inline, so every US posting merged with `market_ids: []` and
+    `market_status: "unknown"` -- the report could neither filter it by market nor
+    attribute it to one, while the row's own provenance said `us`. A name is easy
+    to grep for; this is what catches the other shape.
+    """
+    root = Path(__file__).resolve().parents[1]
+    # A membership test against an inline set of market ids, which is the shape
+    # the defect had. A dict mapping a legacy region name to a subset is not
+    # this, and neither is a set of URL tokens that happens to contain "uk".
+    pattern = re.compile(r"in\s*[({\[]([^)}\]]*)[)}\]]")
+    known = set(market_plan.SUPPORTED_MARKETS)
+    literals = []
+    for directory in ("scripts", "tools"):
+        for path in (root / directory).glob("*.py"):
+            for line_number, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), 1
+            ):
+                if line.lstrip().startswith("#"):
+                    continue
+                for body in pattern.findall(line):
+                    quoted = re.findall(r'"([^"]*)"', body)
+                    if len(quoted) >= 2 and set(quoted) <= known:
+                        literals.append(f"{path.name}:{line_number}")
+    assert not literals, (
+        "a membership test writes the market set out by hand at: "
+        + ", ".join(literals)
+    )

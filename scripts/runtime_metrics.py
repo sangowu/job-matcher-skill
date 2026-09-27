@@ -84,6 +84,13 @@ _UPDATE_FIELDS = {
     "pending_tasks",
     "identity_records_migrated",
 }
+# A link check written on its own, outside an evaluation result: counts only.
+_VERIFY_FIELDS = {
+    "checks_in",
+    "updated",
+    "unchanged",
+    "unknown_records",
+}
 # One full user-facing round: first search through report. Kept separate from
 # per-script duration_ms so round wall clock never skews merge/update percentiles.
 _ROUND_FIELDS = {
@@ -235,7 +242,7 @@ LIFECYCLE_STATUSES = frozenset({"user_action_required", "rate_limited", "resumed
 # Likewise a panel state report: `record_state` exists to drive the local
 # browser panel, and publishing "I am waiting" is not doing the work.
 _STATE_ACTION = "state"
-_SCRIPT_OPERATIONS = ("merge", "update")
+_SCRIPT_OPERATIONS = ("merge", "update", "verify")
 OPERATIONS = (
     *_SCRIPT_OPERATIONS,
     "round",
@@ -443,7 +450,11 @@ def record_metric(
     elif operation == "run_abandoned":
         allowed = set(_RUN_ABANDONED_FIELDS)
     else:
-        allowed = _COMMON_FIELDS | (_MERGE_FIELDS if operation == "merge" else _UPDATE_FIELDS)
+        by_operation = {
+            "merge": _MERGE_FIELDS,
+            "verify": _VERIFY_FIELDS,
+        }
+        allowed = _COMMON_FIELDS | by_operation.get(operation, _UPDATE_FIELDS)
     allowed |= _RUN_FIELDS
     if not ok:
         allowed |= _FAILURE_FIELDS
@@ -624,6 +635,10 @@ def _build_summary_from_events(
     since = current - timedelta(days=days)
     merge_events = [event for event in events if event.get("operation") == "merge" and event.get("ok") is True]
     update_events = [event for event in events if event.get("operation") == "update" and event.get("ok") is True]
+    verify_events = [
+        event for event in events
+        if event.get("operation") == "verify" and event.get("ok") is True
+    ]
     failed_events = [event for event in events if event.get("ok") is False]
 
     search_events = [event for event in events if event.get("operation") == "search"]
@@ -843,6 +858,17 @@ def _build_summary_from_events(
         "malformed_events": malformed_events,
         "merge_runs": len(merge_events),
         "update_runs": len(update_events),
+        # A link check written on its own. Counted here because a metric nobody
+        # surfaces is one nobody audits.
+        "verify": {
+            "runs": len(verify_events),
+            "checks_in": int(sum(_number(event, "checks_in") for event in verify_events)),
+            "updated": int(sum(_number(event, "updated") for event in verify_events)),
+            "unchanged": int(sum(_number(event, "unchanged") for event in verify_events)),
+            "unknown_records": int(
+                sum(_number(event, "unknown_records") for event in verify_events)
+            ),
+        },
         "candidates_in": int(candidates_in),
         "newly_added": int(sum(_number(event, "newly_added") for event in merge_events)),
         "jd_handoffs": int(sum(_number(event, "jd_handoffs") for event in merge_events)),

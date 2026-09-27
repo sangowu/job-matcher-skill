@@ -35,11 +35,13 @@
 | `skills_score` | CV `skills` ∩ JD `required_skills` + `must_have` 技能 的覆盖度 | 25 |
 | `must_have_score` | CV 满足 JD `must_have` 的**比例**（部分满足给部分分） | 25 |
 | `seniority_score` | 职位资历 vs CV `eligible_levels`(满分) / `stretch_levels`(打折) / `blocked_levels`(很低) | 15 |
-| `location_score` | 职位地点 ∈ CV 地点 或 remote → 满分；否则低 | 10 |
+| `location_score` | 职位地点 ∈ CV 地点 → 满分；**只写 remote 不给满分**（标签读不出雇佣资格区域，见 WORKFLOW 的 `[R3-10]`）→ 中低分；其余地点 → 低分 | 10 |
 
 ```
 overall_score = 0.25*title + 0.25*skills + 0.25*must_have + 0.15*seniority + 0.10*location
 ```
+> **remote 为什么不是满分**：发现阶段默认跳过地点含 remote 词的职位，理由是 `Remote - US` 和 `Remote` 在标签层面无法区分，而决定性信息只在 JD 正文里。给 remote 满分等于在打分处奖励发现处拒绝的东西——一条通过初筛的 remote 职位（例如正文说明了区域）应按正文里的雇佣资格区域评分，不按标签。
+
 技能匹配用语义等价（Python≈Python3，K8s≈Kubernetes）。
 **overall_score 永远等于加权和**（校验容差 ±0.2），不允许单独改 overall——
 要压低总分就压低对应维度分（见下面的硬规则）。

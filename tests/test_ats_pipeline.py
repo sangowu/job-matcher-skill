@@ -708,3 +708,61 @@ def test_the_market_filter_refuses_a_namesake_city_abroad():
     kept = ats_pipeline.filter_to_markets(jobs, ["ie"], resources=resources)
 
     assert [job["location"] for job in kept] == ["Dublin, Ireland"]
+
+
+def test_one_board_cannot_take_the_whole_candidate_cap(isolated_ats):
+    """The cap used to be filled from the first boards in the list.
+
+    Measured on a live round (2026-09-27): a board with 1,799 postings took nine
+    of twenty slots, three boards of thirty-two filled all twenty, and the other
+    twenty-nine contributed nothing -- so the round's breadth was decided by
+    catalog order rather than by what the boards had. One posting per board per
+    pass instead.
+    """
+    big = board(token="big")
+    small = board(token="small")
+    provider = FakeAtsProvider({
+        "boards/big/jobs": [greenhouse_listing(
+            *((index, "AI Engineer", "Dublin") for index in range(100, 110))
+        )],
+        "boards/small/jobs": [greenhouse_listing(
+            (900, "AI Engineer", "Dublin"),
+            (901, "AI Engineer", "Dublin"),
+        )],
+    })
+
+    result = ats_pipeline.sync_registry(
+        registry(big, small), profile(),
+        config=config(top_n=4, precise_buffer=0, ats_defer_jd=False),
+        provider_client=provider,
+    )
+
+    by_board = {}
+    for candidate in result["candidates"]:
+        by_board.setdefault(candidate["source_id"], 0)
+        by_board[candidate["source_id"]] += 1
+    assert len(result["candidates"]) == 4
+    # Two each, not four and nothing.
+    assert sorted(by_board.values()) == [2, 2]
+
+
+def test_a_board_with_fewer_postings_than_its_share_does_not_hold_a_slot_back(
+    isolated_ats,
+):
+    """Round-robin must not leave the cap unfilled when one queue runs out."""
+    big = board(token="big")
+    small = board(token="small")
+    provider = FakeAtsProvider({
+        "boards/big/jobs": [greenhouse_listing(
+            *((index, "AI Engineer", "Dublin") for index in range(100, 110))
+        )],
+        "boards/small/jobs": [greenhouse_listing((900, "AI Engineer", "Dublin"))],
+    })
+
+    result = ats_pipeline.sync_registry(
+        registry(big, small), profile(),
+        config=config(top_n=5, precise_buffer=0, ats_defer_jd=False),
+        provider_client=provider,
+    )
+
+    assert len(result["candidates"]) == 5

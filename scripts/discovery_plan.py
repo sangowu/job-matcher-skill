@@ -280,7 +280,22 @@ def _order_diverse_sources(sources: list[dict[str, Any]]) -> list[dict[str, Any]
 def _build_waves(
     tasks: dict[str, list[dict[str, Any]]], max_waves: int
 ) -> list[dict[str, Any]]:
-    waves: list[dict[str, Any]] = []
+    """The waves that have work, numbered without gaps.
+
+    `browser_first_wave` and `web_first_wave` order the channels relative to one
+    another; they do not promise that a wave with that number exists. A round
+    with no browser route puts the structured channel in wave 1 and Web Search
+    in wave 3, and an empty wave 2 was simply dropped -- which left the plan with
+    indexes 1 and 3, and `discovery_batch` refuses a plan whose wave indexes are
+    not contiguous, because `next_wave_id` progression would otherwise be
+    guesswork. So a `model_only` round could plan but never commit.
+
+    Renumbering is what the configuration meant: Web Search still runs after the
+    structured channel, it is just no longer waiting behind a wave nothing is in.
+    Tasks are renumbered with their wave, so `wave_id` still names the wave the
+    task is in.
+    """
+    occupied: list[tuple[int, dict[str, list[str]], int]] = []
     for index in range(1, max_waves + 1):
         wave_id = f"wave:{index}"
         task_ids = {
@@ -293,15 +308,24 @@ def _build_waves(
         }
         task_count = sum(len(values) for values in task_ids.values())
         if task_count:
-            waves.append(
-                {
-                    "wave_id": wave_id,
-                    "index": index,
-                    "task_ids": task_ids,
-                    "task_count": task_count,
-                }
-            )
-    return waves
+            occupied.append((index, task_ids, task_count))
+
+    renumbered = {
+        f"wave:{original}": f"wave:{position}"
+        for position, (original, _, _) in enumerate(occupied, start=1)
+    }
+    for channel_tasks in tasks.values():
+        for task in channel_tasks:
+            task["wave_id"] = renumbered[task["wave_id"]]
+    return [
+        {
+            "wave_id": f"wave:{position}",
+            "index": position,
+            "task_ids": task_ids,
+            "task_count": task_count,
+        }
+        for position, (_, task_ids, task_count) in enumerate(occupied, start=1)
+    ]
 
 
 def _source_hints(

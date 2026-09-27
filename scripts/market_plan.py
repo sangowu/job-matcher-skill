@@ -481,23 +481,25 @@ def _foreign_qualifier(raw: str, normalized: str, markets: dict[str, Any]) -> st
     return _administrative_qualifier(raw, normalized, markets)[1]
 
 
-def _administrative_area_match(catalog, raw: str, normalized: str) -> str | None:
-    """The administrative area this location names inside one catalog."""
+def _administrative_area_match(catalog, segment: str) -> str | None:
+    """The area this one segment of a location names, inside one catalog.
+
+    A trailing ZIP ("Dublin, OH 43017") is dropped rather than read, and a name
+    is matched inside the segment so "Massachusetts Area" still counts.
+    """
     if not isinstance(catalog, dict):
         return None
+    text = _normalize_text(re.sub(r"\b\d[\w-]*\b", " ", segment))
+    if not text:
+        return None
     for name in catalog.get("names", ()):
-        if _alias_matches(str(name), normalized):
+        if _alias_matches(str(name), text):
             return _normalize_text(name)
-    codes = {str(code).casefold() for code in catalog.get("codes", ())}
-    if codes:
-        for segment in re.split(r"[;,/|()]", str(raw)):
-            # A bare two-letter code is only a place where a place belongs.
-            # "IN" is Indiana in ", IN" and the English word in "Hybrid work
-            # in Dublin", and only the segment tells them apart. A trailing
-            # ZIP ("Dublin, OH 43017") is dropped rather than read.
-            text = _normalize_text(re.sub(r"\b\d[\w-]*\b", " ", segment))
-            if text in codes:
-                return text
+    # A bare two-letter code is only a place where a place belongs. "IN" is
+    # Indiana in ", IN" and the English word in "Hybrid work in Dublin", and only
+    # the segment tells them apart.
+    if text in {str(code).casefold() for code in catalog.get("codes", ())}:
+        return text
     return None
 
 
@@ -506,25 +508,35 @@ def _administrative_qualifier(
 ) -> tuple[str | None, str | None]:
     """Whose administrative area this names: a market of ours, or nobody's.
 
-    The catalog used to answer only "foreign", which was right while no
-    market covered the Americas: "Dublin, OH" had to be refused and there was
-    no market to give it to. A US market makes those fifty names that
-    market's own -- Ohio stops being somewhere else and becomes a place a
-    round can be scoped to -- while the thirteen Canadian provinces stay
-    foreign, because no market covers them. An area cannot be both, so
-    `validate_markets` refuses a catalog that claims one twice.
+    The catalog used to answer only "foreign", which was right while no market
+    covered the Americas: "Dublin, OH" had to be refused and there was no market
+    to give it to. A US market makes those fifty names that market's own -- Ohio
+    stops being somewhere else and becomes a place a round can be scoped to --
+    while the thirteen Canadian provinces stay foreign, because no market covers
+    them. An area cannot be both, so `validate_markets` refuses a catalog that
+    claims one twice.
+
+    Read in the order the text writes them, because a location can name two:
+    "Toronto, ON, CA" is Ontario and California at once, and asking every market
+    before the foreign catalog made that a US posting -- catalog precedence
+    deciding what the text had already settled. The first segment that resolves
+    wins.
     """
-    for market in markets.get("markets", ()):
-        if not isinstance(market, dict):
-            continue
+    for segment in re.split(r"[;,/|()]", str(raw)):
+        for market in markets.get("markets", ()):
+            if not isinstance(market, dict):
+                continue
+            hit = _administrative_area_match(
+                market.get("administrative_areas"), segment
+            )
+            if hit:
+                return str(market.get("market_id")), hit
         hit = _administrative_area_match(
-            market.get("administrative_areas"), raw, normalized
+            markets.get("foreign_administrative_areas"), segment
         )
         if hit:
-            return str(market.get("market_id")), hit
-    return None, _administrative_area_match(
-        markets.get("foreign_administrative_areas"), raw, normalized
-    )
+            return None, hit
+    return None, None
 
 def _named_markets(normalized: str, markets: dict[str, Any]) -> set[str]:
     """Which markets the text names by country, not by city."""

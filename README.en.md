@@ -58,6 +58,7 @@ job-matcher/
 │   ├── search_playbook.md    # fan-out / per-market / adaptive batching
 │   ├── markets.json          # ie/uk/cn/de locations, languages, and query templates
 │   ├── role_taxonomy.json    # stable English/German/Chinese role families
+│   ├── model_tiers.json      # model-to-tier map used to pick a subagent model by min_tier
 │   ├── source_seeds.json     # verified four-market public seeds (no credentials)
 │   ├── multi_region_smoke_plan.json # Phase D2 fixed sources and request limits
 │   ├── shadow_run.schema.json # Phase E count-only shadow evidence contract
@@ -88,7 +89,7 @@ job-matcher/
 │   ├── search_metrics.py     # page-level Web Search counts and latency
 │   ├── summarize_metrics.py  # 7/30-day Markdown/JSON health report
 │   ├── round_timer.py        # full-round timing, compared per orchestration mode
-│   ├── subagent_metrics.py   # requested/effective subagent model and effort metrics
+│   ├── subagent_metrics.py   # pick a subagent model by tier; record requested/effective metrics
 │   ├── browser_provider.py   # Kernel/Fake providers and safe settings
 │   ├── browser_control.py    # remote visual-browser CLI; metric self-reporting for local browsers
 │   ├── browser_setup.py      # one-shot localhost setup page
@@ -224,7 +225,7 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `version_check_interval_hours` | 24 | GitHub version-check cache duration; no network call inside the TTL |
 | `version_check_timeout_seconds` | 3 | timeout in seconds for one read-only GitHub request |
 | `max_parallel_subagents` | 3 | per-batch parallelism cap |
-| `subagent_profiles` | see config | requested model, reasoning effort, and context isolation per role |
+| `subagent_profiles` | see config | per-role `min_tier` floor, reasoning effort, and context isolation; an optional `model` pins one instead |
 | `max_websearch_calls` | 6 | total web-search call cap |
 | `discovery_mode` | coverage | `coverage` runs browser + model search; legacy `auto` keeps one route; `model_only`, `browser_only`, and `combined` remain available |
 | `cookie_consent_policy` | necessary_only | automatically reject optional cookies only through one unambiguous semantic button; `ask_every_time` is also available |

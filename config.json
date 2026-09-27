@@ -7,22 +7,22 @@
   "max_parallel_subagents": 3,
   "subagent_profiles": {
     "cv_extract": {
-      "model": "gpt-5.6-terra",
+      "min_tier": "standard",
       "reasoning_effort": "medium",
       "fork_turns": "none"
     },
     "search": {
-      "model": "gpt-5.6-luna",
+      "min_tier": "light",
       "reasoning_effort": "low",
       "fork_turns": "none"
     },
     "evaluation": {
-      "model": "gpt-5.6-terra",
+      "min_tier": "standard",
       "reasoning_effort": "high",
       "fork_turns": "none"
     },
     "browser": {
-      "model": "gpt-5.6-terra",
+      "min_tier": "standard",
       "reasoning_effort": "high",
       "fork_turns": "none"
     }

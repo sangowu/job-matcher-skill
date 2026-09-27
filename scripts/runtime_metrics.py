@@ -282,7 +282,11 @@ _NULLABLE_FIELDS = {
 # run by the Agent has no clock around the call, so its latency is absent rather
 # than zero; everywhere else the caller times its own work and a null would only
 # mean it forgot. See `timing` in discovery_batch.py.
-_NULLABLE_BY_OPERATION = {"search": {"duration_ms"}}
+# `model_requested` is nullable because asking for nothing in particular is
+# a real request: a runtime whose models this catalog does not carry runs the
+# worker on whatever it is already using, and recording that as an absent
+# field would make it indistinguishable from a caller that forgot to say.
+_NULLABLE_BY_OPERATION = {"search": {"duration_ms"}, "subagent": {"model_requested"}}
 
 
 def utc_now() -> datetime:

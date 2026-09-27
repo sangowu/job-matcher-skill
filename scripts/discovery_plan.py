@@ -73,6 +73,36 @@ def _host(entry_url: str, label: str) -> str:
     return parsed.hostname.casefold()
 
 
+def _by_target_role(
+    queries: list[dict[str, Any]], target_roles: list[str], limit: int
+) -> list[dict[str, Any]]:
+    """Take `limit` queries, the profile's own roles first.
+
+    `market_plan.search_plan` is the expanded, interleaved query list: the
+    profile's roles and the taxonomy's synonyms for them, ordered for the Web
+    Search budget. A browser source gets only `browser_queries_per_source` of
+    them, and slicing that list raw meant the cut fell wherever the expansion
+    happened to put things. On 2026-09-27 the profile's FIRST preferred role,
+    "AI Engineer", landed third and was cut, while the synonym "Applied AI
+    Engineer" -- which irishjobs.ie matches as an exact phrase, one result --
+    was kept. The AI Engineer roles that site does carry were never searched.
+
+    An unrecognized role list leaves the order alone, so a market plan from
+    before `target_roles` existed behaves as it did.
+    """
+    if not target_roles:
+        return queries[:limit]
+    rank = {role.strip().casefold(): index for index, role in enumerate(target_roles)}
+    ordered = sorted(
+        enumerate(queries),
+        key=lambda pair: (
+            rank.get(str(pair[1].get("role", "")).strip().casefold(), len(rank)),
+            pair[0],
+        ),
+    )
+    return [query for _, query in ordered[:limit]]
+
+
 def _validate_market_plan(value: Any) -> tuple[dict[str, Any], list[str], list[dict[str, Any]]]:
     if not isinstance(value, dict):
         raise DiscoveryPlanError("market_plan must be an object")
@@ -259,6 +289,9 @@ def build_discovery_plan(
     if not isinstance(request, dict):
         raise DiscoveryPlanError("request must be an object")
     market_plan, markets, queries = _validate_market_plan(request.get("market_plan"))
+    target_roles = _string_list(
+        market_plan.get("target_roles") or [], "market_plan.target_roles"
+    )
     source_plan, eligible = _validate_source_plan(request.get("source_plan"), markets)
     # `source_registry.build_source_plan` has already dropped every risk-gated
     # source the person did not acknowledge, so anything named here cleared that
@@ -421,7 +454,9 @@ def build_discovery_plan(
                         "role": query["role"],
                         "location": query["location"],
                     }
-                    for query in item["queries"][:browser_query_limit]
+                    for query in _by_target_role(
+                        item["queries"], target_roles, browser_query_limit
+                    )
                 ]
                 tasks["browser"].append(
                     {

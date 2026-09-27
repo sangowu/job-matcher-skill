@@ -121,8 +121,12 @@ Multi-region Phase A/B/C remains an explicit entry point.
 `python scripts/market_plan.py validate` checks the versioned market and role
 resources; `python scripts/market_plan.py plan` accepts `{cv_profile,user_intent}`
 on stdin and produces market, language, location, and Web-query plans for
-Ireland, the UK, China, and Germany. It neither searches nor mutates the job
-table. `python scripts/source_registry.py validate` checks public seeds; `init`
+Ireland, the UK, China, and Germany, and reports `target_roles` and
+`roles_source`; `python scripts/market_plan.py effective-profile` takes the same
+input and returns the profile with the resolved roles written to its `roles`
+key, which is the profile the deterministic prefilter must be given -- without
+it a round searches by the user's intent and filters by the CV's. It neither
+searches nor mutates the job table. `python scripts/source_registry.py validate` checks public seeds; `init`
 atomically merges them into `data/source_registry.json` and read-only imports a
 legacy `data/ats_companies.json` when present; `plan --markets ie uk` returns
 only enabled, verified, unexpired sources and emits a global source once. None

@@ -591,3 +591,23 @@ def test_the_guard_watches_every_file_a_run_writes():
         "browser_round_budget.json",
         "ats_sync_state.json",
     }
+
+
+def test_a_link_check_written_on_its_own_is_surfaced(tmp_path):
+    """A metric nobody surfaces is one nobody audits: the new `verify` events
+    were reaching the store and missing from the health report."""
+    path = tmp_path / "metrics.jsonl"
+    runtime_metrics.record_metric(
+        path, "verify", True, run_id="round-20260927-000000-aaaaaa",
+        checks_in=15, updated=14, unchanged=1, unknown_records=0,
+    )
+
+    summary = runtime_metrics.build_summary(path, tmp_path / "eval_runs", days=1)
+
+    assert summary["metrics"]["verify"] == {
+        "runs": 1,
+        "checks_in": 15,
+        "updated": 14,
+        "unchanged": 1,
+        "unknown_records": 0,
+    }

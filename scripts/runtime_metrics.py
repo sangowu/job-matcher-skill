@@ -635,6 +635,10 @@ def _build_summary_from_events(
     since = current - timedelta(days=days)
     merge_events = [event for event in events if event.get("operation") == "merge" and event.get("ok") is True]
     update_events = [event for event in events if event.get("operation") == "update" and event.get("ok") is True]
+    verify_events = [
+        event for event in events
+        if event.get("operation") == "verify" and event.get("ok") is True
+    ]
     failed_events = [event for event in events if event.get("ok") is False]
 
     search_events = [event for event in events if event.get("operation") == "search"]
@@ -854,6 +858,17 @@ def _build_summary_from_events(
         "malformed_events": malformed_events,
         "merge_runs": len(merge_events),
         "update_runs": len(update_events),
+        # A link check written on its own. Counted here because a metric nobody
+        # surfaces is one nobody audits.
+        "verify": {
+            "runs": len(verify_events),
+            "checks_in": int(sum(_number(event, "checks_in") for event in verify_events)),
+            "updated": int(sum(_number(event, "updated") for event in verify_events)),
+            "unchanged": int(sum(_number(event, "unchanged") for event in verify_events)),
+            "unknown_records": int(
+                sum(_number(event, "unknown_records") for event in verify_events)
+            ),
+        },
         "candidates_in": int(candidates_in),
         "newly_added": int(sum(_number(event, "newly_added") for event in merge_events)),
         "jd_handoffs": int(sum(_number(event, "jd_handoffs") for event in merge_events)),

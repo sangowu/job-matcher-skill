@@ -1222,3 +1222,35 @@ def test_an_ireland_scoped_round_still_drops_an_ohio_posting(resources):
     assert [job["location"] for job in kept] == ["Dublin, Ireland"]
     us_round = ats_pipeline.filter_to_markets(jobs, ["us"], resources=markets)
     assert [job["location"] for job in us_round] == ["Dublin, OH"]
+
+
+@pytest.mark.parametrize(
+    "location",
+    ["Toronto, ON, CA", "London, ON, Canada", "Vancouver, BC", "Calgary, AB, CA"],
+)
+def test_a_location_naming_two_areas_is_read_in_the_order_it_is_written(
+    resources, location
+):
+    """`Toronto, ON, CA` is Ontario and California at once.
+
+    Asking every market's catalog before the foreign one made catalog precedence
+    the tie-breaker, and a live round put a Toronto posting in the US market that
+    way: CA was read as California before ON could be read as Ontario. The text's
+    own order decides -- the first segment that resolves wins.
+    """
+    markets, _ = resources
+
+    normalized = market_plan.normalize_location(location, markets)
+
+    assert normalized["market_ids"] == []
+    assert normalized["location_type"] == "foreign"
+
+
+def test_a_state_name_inside_a_longer_segment_still_counts(resources):
+    markets, _ = resources
+
+    normalized = market_plan.normalize_location(
+        "Greater Boston, Massachusetts Area", markets
+    )
+
+    assert normalized["market_ids"] == ["us"]

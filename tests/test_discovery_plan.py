@@ -94,7 +94,14 @@ def test_coverage_plan_is_deterministic_and_uses_diverse_browser_sources():
         for task in first["tasks"]["browser"]
         if task["wave_id"] == first_browser_wave
     ]
-    assert first_browser_wave == "wave:2"
+    # `ats_enabled` is false in this config, so nothing occupies the wave the
+    # structured channel would have had and the browser's own first wave is
+    # renumbered to one. What the configuration promises is that the browser
+    # opens after the cheap channels, not that it carries a particular number.
+    assert first_browser_wave == "wave:1"
+    assert first_browser_wave <= min(
+        task["wave_id"] for task in first["tasks"]["web_search"]
+    )
     # amazon-careers is no longer a browser source: its listings are fetched
     # as JSON through amazon-jobs-ie, so microsoft-careers takes the slot.
     assert browser_sources == ["irishjobs-ie", "publicjobs-ie", "microsoft-careers"]
@@ -111,11 +118,15 @@ def test_plan_builds_bounded_cross_channel_waves():
         _request(seeds), seeds=seeds, config=_config()
     )
 
-    # No structured channel in this config and both of the others open late,
-    # so wave 1 has nothing in it and is not emitted. The first wave is
-    # whichever one has tasks, not always the first index.
-    assert plan["initial_wave_id"] == "wave:2"
-    assert [wave["wave_id"] for wave in plan["waves"]] == ["wave:2", "wave:3"]
+    # No structured channel in this config and both of the others open late, so
+    # the waves that would have carried it are empty. They are not emitted, and
+    # what remains is renumbered from one: `discovery_batch` refuses a plan whose
+    # wave indexes have a hole in them, since `next_wave_id` progression would
+    # otherwise be guesswork, and a round with no browser route used to produce
+    # exactly that hole.
+    assert plan["initial_wave_id"] == "wave:1"
+    assert [wave["wave_id"] for wave in plan["waves"]] == ["wave:1", "wave:2"]
+    assert [wave["index"] for wave in plan["waves"]] == [1, 2]
     for wave in plan["waves"]:
         assert len(wave["task_ids"]["browser"]) <= 3
         assert len(wave["task_ids"]["web_search"]) <= 1
@@ -329,8 +340,15 @@ def test_browser_first_wave_is_configurable():
         _request(seeds), seeds=seeds, config={**_config(), "browser_first_wave": 3}
     )
 
+    # Relative order, not an absolute index: the browser opens no earlier than
+    # Web Search when configured late, and no later when configured early.
     assert min(task["wave_id"] for task in eager["tasks"]["browser"]) == "wave:1"
-    assert {task["wave_id"] for task in late["tasks"]["browser"]} == {"wave:3"}
+    assert min(task["wave_id"] for task in eager["tasks"]["browser"]) <= min(
+        task["wave_id"] for task in eager["tasks"]["web_search"]
+    )
+    assert min(task["wave_id"] for task in late["tasks"]["browser"]) >= min(
+        task["wave_id"] for task in late["tasks"]["web_search"]
+    )
     # A later start leaves fewer browser waves, so more sources fall outside it.
     assert (
         late["omitted_by_wave_budget"]["browser"]
@@ -556,7 +574,9 @@ def test_web_first_wave_is_configurable():
     )
 
     assert min(task["wave_id"] for task in eager["tasks"]["web_search"]) == "wave:1"
-    assert min(task["wave_id"] for task in late["tasks"]["web_search"]) == "wave:3"
+    assert min(task["wave_id"] for task in late["tasks"]["web_search"]) > min(
+        task["wave_id"] for task in late["tasks"]["browser"]
+    )
     assert eager["omitted_by_wave_budget"]["web_search"] == 0
     # Only one wave is left for them, so the queries past it are dropped and
     # counted rather than silently folded into the last wave.
@@ -870,3 +890,33 @@ def test_a_market_with_no_planned_channel_at_all_is_warned_about():
 
     assert built["per_market"]["ie"]["web_search"] == "deferred"
     assert "no discovery channel is planned for market ie" in built["warnings"]
+
+
+def test_a_round_with_no_browser_route_can_still_commit_its_waves():
+    """The defect a real `model_only` round hit: it could plan and never commit.
+
+    `web_first_wave` is 3 and the browser owns wave 2, so without a browser route
+    the plan carried waves 1 and 3 -- and `discovery_batch` refuses a plan whose
+    wave indexes are not contiguous, because `next_wave_id` progression would
+    otherwise be guesswork.
+    """
+    seeds = source_registry.load_seeds()
+    request = _request(seeds, routes=["model_search"])
+
+    plan = discovery_plan.build_discovery_plan(
+        request, seeds=seeds, config={**_config(), "ats_enabled": True, "web_first_wave": 3}
+    )
+
+    indexes = [wave["index"] for wave in plan["waves"]]
+    assert indexes == list(range(1, len(indexes) + 1))
+    assert plan["initial_wave_id"] == "wave:1"
+    # Every task names a wave the plan actually emitted.
+    emitted = {wave["wave_id"] for wave in plan["waves"]}
+    for channel_tasks in plan["tasks"].values():
+        for task in channel_tasks:
+            assert task["wave_id"] in emitted, task["task_id"]
+    # Web Search still runs after the structured channel, which is the point of
+    # the setting; it just no longer waits behind a wave nothing is in.
+    assert min(task["wave_id"] for task in plan["tasks"]["web_search"]) > min(
+        task["wave_id"] for task in plan["tasks"]["structured"]
+    )

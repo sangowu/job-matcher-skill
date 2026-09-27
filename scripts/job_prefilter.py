@@ -149,7 +149,14 @@ def _title_matches(title: str, roles: list[str]) -> bool:
         if title_families & _role_families(str(role)):
             return True
         role_tokens = set(normalized_role.split()) - _GENERIC_TITLE_TOKENS
-        if title_tokens & role_tokens:
+        # Two tokens, not one. This fallback exists for a title the family table
+        # has not learned yet, and a single shared domain noun is not evidence of
+        # one: "Data Entry Specialist" and "Data Engineer" share "data", and a
+        # real round kept nine data-entry clerk postings for an AI engineer that
+        # way -- with 1,799 postings on that board they also took nine of the
+        # twenty candidate slots. A stack-named title still matches, through the
+        # family terms rather than through here.
+        if len(title_tokens & role_tokens) >= 2:
             return True
     return False
 

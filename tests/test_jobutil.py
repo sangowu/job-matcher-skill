@@ -316,3 +316,41 @@ def test_a_vocabulary_that_will_not_load_stops_the_round(tmp_path, monkeypatch):
 
     with pytest.raises(job_prefilter.RoleVocabularyError):
         job_prefilter._vocabulary(broken)
+
+
+def test_one_shared_domain_noun_is_not_a_role_match():
+    """A live round kept nine "Data Entry Specialist" postings for an AI
+    engineer, on the single token "data" shared with the generalized role "Data
+    Engineer" -- and that board's 1,799 postings took nine of the twenty
+    candidate slots. The fallback is for a title the family table has not
+    learned; one noun is not evidence of a role."""
+    import job_prefilter
+
+    profile = {"roles": ["AI Engineer", "Data Engineer", "Backend Engineer"]}
+
+    for title in ("Data Entry Specialist", "Customer Data Advocate"):
+        assert job_prefilter.rejection_reason({"title": title}, profile) == "role"
+    # Still kept, and not through the token fallback: these match by family.
+    for title in (
+        "Data Scientist, Payments",
+        "Senior Analytics Engineer",
+        "Senior Machine Learning Engineer",
+        "Senior Python Engineer, Platform",
+        "Senior Data Engineer, Risk",
+    ):
+        assert job_prefilter.rejection_reason({"title": title}, profile) is None, title
+
+
+def test_two_shared_tokens_still_reach_a_title_the_families_do_not_know():
+    """The fallback still does its job: a title no family term covers, whose
+    words are the role's own, is kept."""
+    import job_prefilter
+
+    profile = {"roles": ["Quantum Workflow Wrangler"]}
+
+    assert job_prefilter.rejection_reason(
+        {"title": "Quantum Workflow Architect"}, profile
+    ) is None
+    assert job_prefilter.rejection_reason(
+        {"title": "Workflow Coordinator"}, profile
+    ) == "role"

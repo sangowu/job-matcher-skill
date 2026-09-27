@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 """Commit Phase C regional and Agent-search candidate batches in one workflow.
 
+**Superseded.** `discovery_plan.py` + `discovery_batch.py` are the current entry
+point: they plan bounded waves across three channels and commit through the same
+`merge_jobs.py`, where this script only ever knew two routes. It is kept because
+runs recorded against it are still readable and because nothing forces a caller
+to migrate mid-round; every result it prints carries `deprecated: true` so a
+caller can see which path it took. Do not add capability here -- a second write
+path for candidates is how a round ends up with two answers to the same
+question. Slated for removal once no local manifest under
+`data/candidate_runs/` is younger than one release.
+
 Workers remain read-only. They return homogeneous route batches to the main
 orchestrator, which invokes this script. The script validates CandidateEnvelope,
 serially commits all candidates through merge_jobs.py, then commits source
@@ -424,7 +434,7 @@ def run_handoff(
         if manifest.get("input_hash") != input_hash:
             raise CandidateHandoffError("batch_id was already used with different input")
         if manifest.get("phase") == "complete":
-            return {"ok": True, "idempotent": True, **manifest["result"]}
+            return {"ok": True, "deprecated": True, "idempotent": True, **manifest["result"]}
     else:
         manifest = {
             "schema_version": 1,
@@ -515,7 +525,7 @@ def run_handoff(
         result=result,
     )
     _atomic_save(manifest_path, manifest)
-    return {"ok": True, "idempotent": False, **result}
+    return {"ok": True, "deprecated": True, "idempotent": False, **result}
 
 
 def main() -> int:

@@ -71,6 +71,31 @@
             "Pandas"
           ]
         }
+      ],
+      "match_terms": [
+        "ai engineer",
+        "ai developer",
+        "artificial intelligence",
+        "machine learning",
+        "ml engineer",
+        "ai evaluation",
+        "ai systems",
+        "agent systems",
+        "agentic ai",
+        "llm",
+        "nlp",
+        "data scientist",
+        "算法工程师",
+        "人工智能",
+        "机器学习"
+      ],
+      "match_tokens": [
+        "ai",
+        "ml",
+        "aiml",
+        "llm",
+        "genai",
+        "nlp"
       ]
     },
     {
@@ -150,6 +175,25 @@
             "Kotlin"
           ]
         }
+      ],
+      "match_terms": [
+        "backend",
+        "back-end",
+        "server-side",
+        "后端",
+        "python engineer",
+        "python developer",
+        "python 工程师",
+        "python工程师",
+        "java engineer",
+        "java developer",
+        "java工程师",
+        "go engineer",
+        "golang engineer",
+        "go 工程师",
+        "node.js engineer",
+        "nodejs engineer",
+        "node.js developer"
       ]
     },
     {
@@ -206,6 +250,11 @@
             "scikit-learn"
           ]
         }
+      ],
+      "match_terms": [
+        "data engineer",
+        "analytics engineer",
+        "数据工程"
       ]
     },
     {
@@ -311,6 +360,11 @@
             "GraphQL"
           ]
         }
+      ],
+      "match_terms": [
+        "frontend",
+        "front-end",
+        "前端"
       ]
     },
     {
@@ -370,6 +424,30 @@
             "Next.js"
           ]
         }
+      ],
+      "match_terms": [
+        "full stack",
+        "full-stack",
+        "全栈"
+      ]
+    }
+  ],
+  "match_only_families": [
+    {
+      "role_family_id": "platform",
+      "match_terms": [
+        "devops",
+        "site reliability",
+        "sre",
+        "cloud engineer",
+        "平台工程"
+      ]
+    },
+    {
+      "role_family_id": "product",
+      "match_terms": [
+        "product manager",
+        "产品经理"
       ]
     }
   ]

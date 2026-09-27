@@ -84,7 +84,7 @@ job-matcher/
 │   ├── browser_candidate_smoke.py # 临时 store 验证浏览器候选与 merge，不污染正式数据
 │   ├── source_registry.py    # 来源种子校验、健康状态、迁移与确定性来源计划
 │   ├── candidate_contract.py # 严格校验 Phase C CandidateEnvelope
-│   ├── candidate_handoff.py  # 双发现管道串行交给 merge/registry 单写入器
+│   ├── candidate_handoff.py  # 【已弃用】旧双 route 入口，被 discovery_batch.py 取代
 │   ├── multi_region_smoke.py # 显式、计数型四市场公开来源 smoke
 │   ├── shadow_gate.py        # Phase E 幂等 shadow 台账与逐市场发布门
 │   ├── shadow_compare.py     # 只读计算增量、交集、JD 与潜在 Top-N
@@ -101,6 +101,7 @@ job-matcher/
 │   ├── browser_workflow.py   # 列表翻页/暂停状态机
 │   ├── ats_provider.py       # Ashby/Greenhouse/Lever 公开 GET 适配器与 Fake
 │   ├── job_prefilter.py      # 角色/地点/资历确定性初筛，三个通道共用一份规则
+│   ├── rejected_log.py       # 被初筛拒过的身份标记（只用于统计重复，从不用来跳过初筛）
 │   ├── ats_pipeline.py       # ATS 标识库、同步与候选归一化
 │   ├── ats_handoff.py        # ATS 正文内存直送统一 merge，避免主上下文暴露
 │   ├── board_harvest.py      # 从职位 URL 反推 ATS board，复验后写入来源注册表
@@ -177,6 +178,18 @@ route/source/market/language 一致性，再把该波次所有通道候选一次
 联合 smoke、consent 暂停、三波继续/停止决策以及临时单写入 merge 的证据见
 [`docs/discovery-wave-live-smoke.md`](docs/discovery-wave-live-smoke.md)；完整生产试运行见
 [`docs/browseros-neo-production-trial-2026-09-22.md`](docs/browseros-neo-production-trial-2026-09-22.md)。
+
+### 脚本分工
+
+`scripts/` 共 19,900 行，不是一条路径。改动前先看清一个脚本属于哪一类：
+
+| 类别 | 行数 | 是什么 |
+|------|-----:|--------|
+| **关键路径** | ~13,700 (69%) | 一轮匹配真正会跑的：CV 解析、market/discovery 规划、来源注册表、初筛、ATS 拉取、merge/update、渲染、指标 |
+| **门禁与基准** | ~4,300 (22%) | `benchmark_*`（公开小样本回归）、`shadow_*` 与 `multi_region_smoke`（发布门禁）、`browser_candidate_smoke`（首次接入验证）。**正常一轮不跑**，改解析器或提版本时才跑 |
+| **运维** | ~1,900 (9%) | 本机面板、浏览器配置、种子提升、board 采集、版本检查、指标汇总 |
+
+弃用中：`candidate_handoff.py`（旧双 route 入口，已被 `discovery_plan.py` + `discovery_batch.py` 取代，输出带 `deprecated: true`）、`search_metrics.py`（只剩不经 discovery batch 的独立诊断用途）。
 
 ## 🚀 使用
 

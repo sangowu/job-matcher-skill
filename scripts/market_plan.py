@@ -290,7 +290,49 @@ def validate_role_taxonomy(payload: dict[str, Any]) -> dict[str, Any]:
                 _require_unique(phrases, f"{family_id} {language} {group_name}")
     _require_unique(family_ids, "role_family_id")
     _validate_generalizations(families, family_ids)
+    _validate_match_vocabulary(payload, families, family_ids)
     return payload
+
+
+def _validate_match_vocabulary(
+    payload: dict[str, Any], families: list[Any], family_ids: list[str]
+) -> None:
+    """Check the terms `job_prefilter` recognizes titles by.
+
+    They live here because a round used to search by one vocabulary and filter
+    by another: this file decided what was searched for and a table inside
+    `job_prefilter` decided what was kept, with family ids that did not even
+    agree. `match_only_families` carry terms and no titles -- recognized in a
+    posting, never searched for.
+    """
+    match_only = payload.get("match_only_families")
+    if match_only is None:
+        match_only = []
+    if not isinstance(match_only, list):
+        raise MarketPlanError("match_only_families must be a list")
+    seen = list(family_ids)
+    for group in [*families, *match_only]:
+        if not isinstance(group, dict):
+            raise MarketPlanError("match_only_families entries must be objects")
+        family_id = str(group.get("role_family_id") or "")
+        if group in match_only:
+            if not re.fullmatch(r"[a-z][a-z0-9_]*", family_id):
+                raise MarketPlanError(f"invalid role_family_id: {family_id or '<empty>'}")
+            seen.append(family_id)
+            if not group.get("match_terms"):
+                raise MarketPlanError(f"{family_id} exists only to match, so it needs match_terms")
+            if set(group) - {"role_family_id", "match_terms", "match_tokens"}:
+                raise MarketPlanError(f"{family_id} carries fields a match-only family cannot have")
+        for key in ("match_terms", "match_tokens"):
+            if key not in group:
+                continue
+            values = _strings(group[key], f"{family_id}.{key}")
+            _require_unique(values, f"{family_id} {key}")
+            if key == "match_tokens" and any(" " in value for value in values):
+                raise MarketPlanError(
+                    f"{family_id}.match_tokens must be single tokens, not phrases"
+                )
+    _require_unique(seen, "role_family_id")
 
 
 def _validate_generalizations(families: list[Any], family_ids: list[str]) -> None:

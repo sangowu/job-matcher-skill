@@ -97,6 +97,7 @@
 - **角色泛化按 CV 技术栈自适应，每角色每市场每语言上限 3 个标题。**`role_taxonomy.json` 的 `generalizes_to` 每条边带 `skills` 门槛，只有 CV 命中才生效；命中的邻族贡献首个标题，占同族一个名额但**永不占第一个**；命中标题进 `generalized_roles`，`effective-profile` 并入 `roles`。`[R3-07]`
 - **角色词表只有一份**：搜索用的族/同义词和初筛认标题用的 `match_terms`/`match_tokens` 都在 `references/role_taxonomy.json`。只用于认标题、不用于生成 query 的族写在 `match_only_families`（如 `product`）。改词表就改这个文件，不要在 `job_prefilter.py` 里另建一张表。`[R3-09]`
 - **`search_plan` 是 Web Search 预算的切片（上限 `max_websearch_calls`），`role_plan` 是完整展开**（只含 `market_id`/`language`/`role`/`location`）。浏览器任务读 `role_plan`，Web Search 任务读 `search_plan`。浏览器取词**先按来源自己的 `search_languages` 分层、再按 profile 角色排序**。`[R3-08]`
+- **行政区决定地点归属哪个市场**：`markets.json` 每个市场可声明 `administrative_areas`（名称 + 两字母代码），`foreign_administrative_areas` 只剩没有任何市场覆盖的地方。`Dublin, OH` 因此归 us 而不是 ie 也不是「境外」；`London, ON` 仍是境外（没有加拿大市场）。印证按市场读：文本点名**另一个**市场才让行政区判定让位，`Berlin, DE` 因此是德国而不是特拉华。同一行政区不得被两个市场或市场与境外目录同时声明，目录加载即报错。`[R3-11]`
 - 地点优先级：`user_intent.locations` > `target_locations` > 旧 `preferred_locations` > `current_location`。**无法识别的明确地点返回 `needs_user_input=true`**，不得回退 CV 地点或猜国家。
 - **默认不搜索 remote 职位**：地点含 remote 词的职位在初筛即跳过，无论它同时写了哪个地方。`[R3-10]`
 - `report_language` 只控制报告与解释，`search_languages` 由目标市场决定。内部只用 `en`、`de`、`zh-Hans`；边界输入 `zh`/`zh-CN` 规范化为 `zh-Hans`。

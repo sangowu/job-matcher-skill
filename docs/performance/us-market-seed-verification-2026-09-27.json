@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "run_kind": "us_market_seed_verification",
+  "recorded_at": "2026-09-27",
+  "purpose": "Every us seed was checked before it was written, because a catalog asserting a verification nobody performed is what ten company_careers seeds already did once.",
+  "ats_boards": {
+    "method": "one public HTTPS GET per board through scripts/ats_provider.HttpAtsProvider (the production transport), content=false, one second apart",
+    "candidate_pool": "large US-listed companies, per the request to seed from the S&P 500; index membership is not machine-checkable here and is deliberately not asserted in the catalog",
+    "probed": 40,
+    "responded_with_us_postings": 20,
+    "seeded": 14,
+    "totals": {"jobs": 5149, "us_jobs": 2050},
+    "boards": [
+      {"board_token": "airbnb", "jobs": 159, "us_jobs": 83},
+      {"board_token": "block", "jobs": 214, "us_jobs": 159},
+      {"board_token": "carvana", "jobs": 1799, "us_jobs": 518},
+      {"board_token": "cloudflare", "jobs": 394, "us_jobs": 1},
+      {"board_token": "coinbase", "jobs": 210, "us_jobs": 148},
+      {"board_token": "datadog", "jobs": 449, "us_jobs": 216},
+      {"board_token": "elastic", "jobs": 384, "us_jobs": 106},
+      {"board_token": "gitlab", "jobs": 199, "us_jobs": 94},
+      {"board_token": "mongodb", "jobs": 396, "us_jobs": 112},
+      {"board_token": "pinterest", "jobs": 153, "us_jobs": 122},
+      {"board_token": "reddit", "jobs": 150, "us_jobs": 131},
+      {"board_token": "robinhood", "jobs": 159, "us_jobs": 150},
+      {"board_token": "toast", "jobs": 345, "us_jobs": 141},
+      {"board_token": "twilio", "jobs": 138, "us_jobs": 69}
+    ],
+    "refused_or_absent": [
+      "palantir", "crowdstrike", "snowflakecomputing", "doordash", "fortinet",
+      "synopsys", "akamai", "epam", "paycom", "gen", "gartner", "etsy",
+      "docusign", "confluent", "dynatrace", "unity", "zillow", "yelp", "chewy"
+    ],
+    "responded_with_no_postings": ["hubspot"],
+    "note": "A board that does not answer, or answers with no postings, is counted and not stored. Five of the fourteen were already in the catalog for ie/uk/de; the us market joined their markets list rather than creating a second seed for the same company."
+  },
+  "local_sources": {
+    "method": "scripts/check_robots.py against the URL actually visited, query included, four seconds apart",
+    "results": [
+      {"source_id": "builtin-us", "url": "https://builtin.com/jobs", "allowed": true, "rule": "no matching rule"},
+      {"source_id": "monster-us", "url": "https://www.monster.com/jobs/search?q=engineer", "allowed": true, "rule": "allow: /jobs/search?q="},
+      {"source_id": "themuse-us", "url": "https://www.themuse.com/search/keyword/engineer", "allowed": true, "rule": "no matching rule"},
+      {"source_id": "usajobs-us", "url": "https://www.usajobs.gov/Search/Results?k=engineer", "allowed": true, "rule": "no matching rule"},
+      {"source_id": "dice-us", "url": "https://www.dice.com/jobs?q=AI+Engineer", "allowed": false, "rule": "disallow: /jobs?q*"}
+    ],
+    "excluded": [
+      {"host": "www.simplyhired.com", "robots_http_status": 403, "allowed": null, "why": "robots.txt unreadable is not permission"}
+    ],
+    "note": "Dice refuses every search and allows the landing page, the same shape as Accenture: automation_allowed is false and public_read_only_page is gone, while web_search and manual_browser stay, because a person opening the page themselves is not what robots addresses."
+  },
+  "privacy": "Counts, hosts and board tokens only. No job titles, no URLs beyond the public entry points checked, no candidate data."
+}

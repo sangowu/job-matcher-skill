@@ -13,6 +13,7 @@ SCRIPTS_DIR = SKILL_ROOT / "scripts"
 FIXTURE_DIR = SKILL_ROOT / "tests" / "fixtures" / "multi_region"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
+import ats_pipeline  # noqa: E402
 import job_prefilter  # noqa: E402
 import market_plan  # noqa: E402
 import source_registry  # noqa: E402
@@ -43,7 +44,7 @@ def test_versioned_market_and_role_resources_validate(resources):
     markets, taxonomy = resources
 
     assert [item["market_id"] for item in markets["markets"]] == [
-        "ie", "uk", "cn", "de"
+        "ie", "uk", "cn", "de", "us"
     ]
     assert all(market["query_templates"] for market in markets["markets"])
     # The catalog grows, so pin the relationship rather than the head count:
@@ -403,7 +404,10 @@ def test_offline_four_market_fixture_matches_ground_truth():
     required_routes = set(ground_truth["required_routes"])
     prohibited_fields = set(ground_truth["prohibited_fields"])
 
-    assert set(candidates["markets"]) == set(market_plan.SUPPORTED_MARKETS)
+    # A fixed offline sample of the four markets it was recorded against, not a
+    # claim about the catalog, which grows.
+    assert set(candidates["markets"]) <= set(market_plan.SUPPORTED_MARKETS)
+    assert set(candidates["markets"]) == {"ie", "uk", "cn", "de"}
     for market_id, rows in candidates["markets"].items():
         truth = ground_truth["markets"][market_id]
         assert len(rows) == truth["candidate_observations"] == 10
@@ -542,21 +546,23 @@ def test_a_city_named_without_its_country_still_finds_its_market(
     "value",
     ["Cambridge, MA", "Cambridge, Massachusetts", "Birmingham, AL", "Oxford, Ohio"],
 )
-def test_a_city_whose_name_is_shared_with_the_united_states_is_left_out(
+def test_a_city_whose_name_is_shared_with_the_united_states_is_not_the_uk_one(
     resources, value
 ):
     """Cambridge, Birmingham and Oxford are deliberately absent from the UK list.
 
-    No market here models the United States, so nothing would compete with a
-    UK alias and `Cambridge, MA` would resolve as Cambridge, England -- a
-    confident wrong answer of exactly the kind this catalog exists to avoid.
-    They stay out until a market can contest them; the cost is that these
-    postings resolve at country level or not at all, which loses no job.
+    While no market modelled the United States, nothing competed with a UK
+    alias and `Cambridge, MA` would have resolved as Cambridge, England -- a
+    confident wrong answer of exactly the kind this catalog exists to avoid, so
+    they stayed out and these postings resolved to no market at all. Now the
+    state names a market, so the answer is the US rather than nothing; the UK
+    list still does not carry them, which is what keeps the English city from
+    winning.
     """
     location = market_plan.normalize_location(value, markets_of(resources))
 
-    assert location["market_ids"] == []
-    assert location["city_id"] is None
+    assert location["market_ids"] == ["us"]
+    assert "uk" not in location["market_ids"]
 
 
 def test_no_city_name_is_claimed_by_two_cities(resources):
@@ -586,19 +592,35 @@ def test_no_city_name_is_claimed_by_two_cities(resources):
         "Dublin, OH 43017",
         "Dublin, CA",
         "Berlin, CT",
-        "London, ON, Canada",
         "Hamburg, NY",
         "Cork, PA",
     ],
 )
-def test_a_city_qualified_by_a_foreign_state_is_not_that_city(resources, location):
-    """These every one resolved as an exact match before.
+def test_a_city_qualified_by_a_state_belongs_to_that_state_market(resources, location):
+    """These every one resolved as an exact Irish or German match before.
 
-    The catalog holds no US or Canadian market, so a qualifier naming one had
-    nothing to be read against and the city alias won alone -- and
-    `filter_to_markets`, the last thing between a board's world and a
-    market-scoped round, asks this function.
+    The invariant is the same as when this catalog had no American market --
+    "Dublin, OH" is not the Irish Dublin -- and the answer is no longer "no
+    market at all": the state names the market it does belong to, so a round
+    scoped to the US keeps it and a round scoped to Ireland drops it on
+    `market`. The city stays empty because six US cities are in the catalog and
+    Dublin, Ohio is not one of them.
     """
+    markets, _ = resources
+
+    normalized = market_plan.normalize_location(location, markets)
+
+    assert normalized["market_ids"] == ["us"]
+    assert normalized["city_id"] is None
+    assert normalized["location_type"] == "country"
+
+
+@pytest.mark.parametrize(
+    "location", ["London, ON, Canada", "Toronto, ON", "Vancouver, British Columbia"]
+)
+def test_an_area_no_market_covers_is_still_foreign(resources, location):
+    """The foreign catalog is what is left over. Thirteen Canadian provinces
+    remain in it because no market covers Canada."""
     markets, _ = resources
 
     normalized = market_plan.normalize_location(location, markets)
@@ -612,6 +634,20 @@ def test_a_city_qualified_by_a_foreign_state_is_not_that_city(resources, locatio
     assert market_plan.normalize_location("Blanchardstown", markets)[
         "location_type"
     ] == "unknown"
+
+
+def test_a_state_that_agrees_with_a_city_keeps_the_city(resources):
+    """Restricting to the market the qualifier names, rather than stopping at
+    it, is what keeps "Seattle, WA" a city instead of a bare country."""
+    markets, _ = resources
+
+    for location, city_id in (
+        ("Seattle, WA", "seattle"),
+        ("New York, NY", "new-york"),
+        ("San Francisco, CA", "san-francisco"),
+    ):
+        normalized = market_plan.normalize_location(location, markets)
+        assert (normalized["market_ids"], normalized["city_id"]) == (["us"], city_id)
 
 
 @pytest.mark.parametrize(
@@ -651,7 +687,7 @@ def test_a_posting_open_in_several_countries_keeps_the_ones_we_serve(resources):
         "United Kingdom; Dublin; United States; New York; Germany", markets
     )
 
-    assert set(normalized["market_ids"]) == {"ie", "uk", "de"}
+    assert set(normalized["market_ids"]) == {"ie", "uk", "de", "us"}
 
 
 def test_a_foreign_area_name_may_not_be_a_supported_market_alias(resources):
@@ -666,14 +702,20 @@ def test_a_foreign_area_name_may_not_be_a_supported_market_alias(resources):
 
 
 def test_the_foreign_catalog_is_optional(resources):
-    """Its absence leaves the behaviour it was added to change, not an error."""
+    """Its absence leaves the behaviour it was added to change, not an error.
+
+    Only what it alone claims falls back: an Ontario posting resolves by city
+    alias again, while Ohio still names the US, because that claim lives on the
+    market rather than in this list.
+    """
     markets, _ = resources
     payload = copy.deepcopy(markets)
     payload.pop("foreign_administrative_areas")
 
     market_plan.validate_markets(payload)
 
-    assert market_plan.normalize_location("Dublin, OH", payload)["market_ids"] == ["ie"]
+    assert market_plan.normalize_location("London, ON", payload)["market_ids"] == ["uk"]
+    assert market_plan.normalize_location("Dublin, OH", payload)["market_ids"] == ["us"]
 
 
 def test_the_plan_says_which_of_the_three_answered_for_roles(resources):
@@ -1057,3 +1099,126 @@ def test_a_match_token_must_be_a_token(resources):
 
     with pytest.raises(market_plan.MarketPlanError, match="single tokens"):
         market_plan.validate_role_taxonomy(payload)
+
+
+# ── The US market, and what its arrival does to the qualifier catalog ────────
+
+def test_the_us_market_meets_the_same_source_floor_as_every_other():
+    """Three verified local sources and ten company/ATS/global ones. The floor
+    is what stops a market from being declared before it can be searched."""
+    seeds = source_registry.load_seeds()["sources"]
+    local = [
+        source for source in seeds
+        if source["markets"] == ["us"]
+        and source["source_type"] in source_registry.LOCAL_SOURCE_TYPES
+        and source["enabled"] and source["verified"]
+    ]
+    globals_ = [
+        source for source in seeds
+        if "us" in source["markets"]
+        and source["source_type"] in source_registry.GLOBAL_SOURCE_TYPES
+        and source["enabled"] and source["verified"]
+    ]
+
+    assert len(local) >= 3
+    assert len(globals_) >= 10
+
+
+def test_a_board_serving_several_markets_is_one_seed_not_one_per_market():
+    """A board is fetched whole and its market membership follows where its jobs
+    are, so a market joins its list rather than spawning a second entry for the
+    same company."""
+    seeds = source_registry.load_seeds()["sources"]
+    by_token = {}
+    for source in seeds:
+        token = source.get("board_token")
+        if token and source["provider"] == "greenhouse":
+            by_token.setdefault(token, []).append(source["source_id"])
+
+    shared = {token: ids for token, ids in by_token.items() if len(ids) > 1}
+    assert not shared, f"one board token claimed by several seeds: {shared}"
+
+
+def test_every_state_the_us_market_claims_has_left_the_foreign_catalog(resources):
+    """The foreign catalog is what is left over -- places no market covers -- so
+    an area a market covers has to leave it, or two answers decide by iteration
+    order."""
+    markets, _ = resources
+    us = next(item for item in markets["markets"] if item["market_id"] == "us")
+    foreign = markets["foreign_administrative_areas"]
+
+    claimed = {name.casefold() for name in us["administrative_areas"]["names"]}
+    assert len(claimed) == 51  # fifty states and DC
+    assert not claimed & {name.casefold() for name in foreign["names"]}
+    assert not {code.casefold() for code in us["administrative_areas"]["codes"]} & {
+        code.casefold() for code in foreign["codes"]
+    }
+    # Canada still has no market, so its provinces stay.
+    assert "ontario" in {name.casefold() for name in foreign["names"]}
+
+
+def test_an_area_claimed_by_two_markets_is_refused(resources):
+    markets, _ = resources
+    payload = copy.deepcopy(markets)
+    ie = next(item for item in payload["markets"] if item["market_id"] == "ie")
+    ie["administrative_areas"] = {"names": ["Ohio"], "codes": ["OH"]}
+
+    with pytest.raises(market_plan.MarketPlanError, match="claimed by"):
+        market_plan.validate_markets(payload)
+
+
+def test_an_area_a_market_claims_may_not_also_be_foreign(resources):
+    markets, _ = resources
+    payload = copy.deepcopy(markets)
+    payload["foreign_administrative_areas"]["names"].append("Ohio")
+
+    with pytest.raises(market_plan.MarketPlanError, match="foreign catalog also"):
+        market_plan.validate_markets(payload)
+
+
+def test_an_administrative_code_must_be_two_capitals(resources):
+    markets, _ = resources
+    payload = copy.deepcopy(markets)
+    us = next(item for item in payload["markets"] if item["market_id"] == "us")
+    us["administrative_areas"]["codes"].append("Ohio")
+
+    with pytest.raises(market_plan.MarketPlanError, match="two capitals"):
+        market_plan.validate_markets(payload)
+
+
+def test_a_us_round_plans_the_market_end_to_end(resources):
+    """The point of the whole exercise: a CV pointed at a US city produces a
+    plan, and the plan produces tasks in all three channels."""
+    markets, taxonomy = resources
+    request = {
+        "cv_profile": {
+            "preferred_roles": ["AI Engineer"],
+            "skills": ["Python", "FastAPI"],
+            "preferred_locations": ["New York"],
+            "search_language": "en",
+        },
+        "user_intent": {},
+    }
+
+    plan = market_plan.build_market_plan(request, markets=markets, taxonomy=taxonomy)
+
+    assert plan["target_markets"] == ["us"]
+    assert plan["needs_user_input"] is False
+    assert any("New York" in row["query_string"] for row in plan["search_plan"])
+    assert plan["search_languages"] == ["en"]
+
+
+def test_an_ireland_scoped_round_still_drops_an_ohio_posting(resources):
+    """The reason the qualifier catalog exists. The answer changed from "no
+    market" to "another market"; either way it is not this round's."""
+    markets, _ = resources
+    jobs = [
+        {"title": "AI Engineer", "location": "Dublin, Ireland"},
+        {"title": "AI Engineer", "location": "Dublin, OH"},
+    ]
+
+    kept = ats_pipeline.filter_to_markets(jobs, ["ie"], resources=markets)
+
+    assert [job["location"] for job in kept] == ["Dublin, Ireland"]
+    us_round = ats_pipeline.filter_to_markets(jobs, ["us"], resources=markets)
+    assert [job["location"] for job in us_round] == ["Dublin, OH"]

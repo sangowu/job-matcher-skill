@@ -64,7 +64,7 @@ job-matcher/
 │   ├── markets.json          # ie/uk/cn/de locations, languages, and query templates
 │   ├── role_taxonomy.json    # role families, synonyms, skill-gated edges
 │   ├── model_tiers.json      # model-to-tier map used to pick a subagent model by min_tier
-│   ├── source_seeds.json     # verified four-market public seeds (no credentials)
+│   ├── source_seeds.json     # verified public seeds for ie/uk/cn/de/us (no credentials)
 │   ├── multi_region_smoke_plan.json # Phase D2 fixed sources and request limits
 │   ├── shadow_run.schema.json # Phase E count-only shadow evidence contract
 │   ├── shadow_compare.schema.json # ephemeral Phase E comparison input
@@ -85,7 +85,7 @@ job-matcher/
 │   ├── source_registry.py    # seed validation, health state, migration, and source plans
 │   ├── candidate_contract.py # strict Phase C CandidateEnvelope validation
 │   ├── candidate_handoff.py  # [deprecated] old two-route entry, superseded by discovery_batch.py
-│   ├── multi_region_smoke.py # explicit count-only four-market public-source smoke
+│   ├── multi_region_smoke.py # explicit count-only smoke, one source slot per market
 │   ├── shadow_gate.py        # idempotent Phase E ledger and per-market gate
 │   ├── shadow_compare.py     # read-only incremental/overlap/JD/Top-N comparison
 │   ├── analysis_contract.py  # validate JDProfile/MatchScore worker output

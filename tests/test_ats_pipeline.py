@@ -458,9 +458,14 @@ def test_the_envelope_keeps_its_remote_scope_field_and_never_fills_it():
         assert "remote_scope" in envelope["location_normalized"]
         assert envelope["location_normalized"]["remote_scope"] is None
     assert envelopes[0]["location_normalized"]["market_id"] == "ie"
-    # "Remote - US" used to resolve as worldwide; it now resolves as unknown.
-    assert envelopes[1]["location_normalized"]["market_id"] is None
-    assert envelopes[1]["location_normalized"]["confidence"] == "unknown"
+    # "Remote - US" used to resolve as worldwide, then as unknown while no market
+    # modelled the United States. It now resolves to that market at country
+    # level -- which is what the text says -- and `remote_scope` stays empty
+    # either way, because a label cannot say which jurisdictions may work it.
+    # Nothing here keeps such a posting out of a round; `job_prefilter` does,
+    # on `location`, whatever market it resolves to.
+    assert envelopes[1]["location_normalized"]["market_id"] == "us"
+    assert envelopes[1]["location_normalized"]["confidence"] == "country"
 
 
 def test_a_candidate_whose_source_type_is_unknown_is_an_error():

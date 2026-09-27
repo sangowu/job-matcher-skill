@@ -80,6 +80,7 @@ def _successful_responses() -> dict[str, multi_region_smoke.FetchResult]:
         "publicjobs-ie": ("AI Engineer Dublin", "/en/jobs/ai-engineer-dublin-101"),
         "reed-uk": ("Machine Learning Engineer London", "/jobs/ml-engineer-london-202"),
         "arbeitsagentur-de": ("KI-Ingenieur Berlin", "/jobsuche/jobdetail/ki-303"),
+        "builtin-us": ("AI Engineer New York", "/job/ai-engineer-new-york-404"),
     }
     responses: dict[str, multi_region_smoke.FetchResult] = {}
     for source_id, (label, detail_path) in cases.items():
@@ -114,13 +115,17 @@ def _successful_responses() -> dict[str, multi_region_smoke.FetchResult]:
     return responses
 
 
-def test_versioned_plan_is_bounded_and_resolves_four_markets() -> None:
+def test_versioned_plan_is_bounded_and_covers_every_supported_market() -> None:
+    """One source slot per supported market. A market added to the catalog and
+    not to this plan makes the tool refuse rather than quietly cover less."""
     plan = _load(PLAN_PATH)
     resolved = multi_region_smoke.validate_plan(plan, _load(SEEDS_PATH))
 
-    assert [item["market_id"] for item in resolved] == ["ie", "uk", "cn", "de"]
+    assert [item["market_id"] for item in resolved] == list(
+        multi_region_smoke.SUPPORTED_MARKETS
+    )
     assert plan["limits"] == {
-        "max_sources": 4,
+        "max_sources": 5,
         "max_requests_per_source": 2,
         "max_response_bytes": 524288,
         "timeout_seconds": 8,
@@ -164,23 +169,24 @@ def test_automation_disallowed_source_cannot_be_changed_to_public_get() -> None:
         multi_region_smoke.validate_plan(plan, _load(SEEDS_PATH))
 
 
-def test_fake_four_market_smoke_is_count_only_and_checks_china() -> None:
+def test_fake_smoke_is_count_only_and_checks_china() -> None:
     transport = FakeTransport(_successful_responses())
 
     report = multi_region_smoke.run_smoke(
         _load(PLAN_PATH), _load(SEEDS_PATH), transport, now=NOW
     )
 
+    planned = len(multi_region_smoke.SUPPORTED_MARKETS)
     assert report["summary"] == {
-        "markets_planned": 4,
-        "sources_observed": 4,
+        "markets_planned": planned,
+        "sources_observed": planned,
         "sources_blocked": 0,
         "sources_external_failure": 0,
         "sources_skipped_policy": 0,
-        "requests_made": 8,
+        "requests_made": planned * 2,
         "duration_ms": report["summary"]["duration_ms"],
     }
-    assert len(transport.calls) == 8
+    assert len(transport.calls) == planned * 2
     china = next(row for row in report["sources"] if row["market_id"] == "cn")
     assert china["status"] == "observed"
     assert china["requests_made"] == 2

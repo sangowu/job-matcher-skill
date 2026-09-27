@@ -260,6 +260,7 @@ def validate_markets(
     _require_unique(market_ids, "market_id")
     if not market_ids:
         raise MarketPlanError("markets.json must define at least one market")
+    _validate_administrative_areas(markets, payload.get("foreign_administrative_areas"))
     _require_unique(city_ids, "city_id")
     _require_unique(template_ids, "template_id")
     return payload
@@ -367,6 +368,54 @@ def _validate_generalizations(families: list[Any], family_ids: list[str]) -> Non
         _require_unique(seen, f"{family_id} generalizes_to target")
 
 
+def _validate_administrative_areas(markets: list[Any], foreign: Any) -> None:
+    """Check the areas a market claims as its own.
+
+    An area answers "which market does this belong to", so two answers is no
+    answer: a name claimed by two markets, or by a market and the foreign
+    catalog at once, would be decided by iteration order. The foreign catalog
+    is what is left over -- places no market covers -- so the moment a market
+    covers one, it has to leave that list.
+    """
+    owner: dict[str, str] = {}
+    foreign_names = set()
+    foreign_codes = set()
+    if isinstance(foreign, dict):
+        foreign_names = {_normalize_text(name) for name in foreign.get("names", ())}
+        foreign_codes = {str(code).casefold() for code in foreign.get("codes", ())}
+    for market in markets:
+        if not isinstance(market, dict):
+            continue
+        market_id = str(market.get("market_id") or "")
+        areas = market.get("administrative_areas")
+        if areas is None:
+            continue
+        if not isinstance(areas, dict) or set(areas) - {"names", "codes"}:
+            raise MarketPlanError(f"{market_id}.administrative_areas must hold names and codes")
+        names = _strings(areas.get("names"), f"{market_id}.administrative_areas.names")
+        codes = _strings(areas.get("codes"), f"{market_id}.administrative_areas.codes")
+        _require_unique(names, f"{market_id} administrative area name")
+        _require_unique(codes, f"{market_id} administrative area code")
+        for code in codes:
+            if not re.fullmatch(r"[A-Z]{2}", code):
+                raise MarketPlanError(
+                    f"{market_id} administrative area code must be two capitals: {code}"
+                )
+        for value, bucket in ((names, foreign_names), (codes, foreign_codes)):
+            for item in value:
+                key = _normalize_text(item) if bucket is foreign_names else item.casefold()
+                if key in bucket:
+                    raise MarketPlanError(
+                        f"{market_id} claims an administrative area the foreign catalog also"
+                        f" claims: {item}"
+                    )
+                if key in owner and owner[key] != market_id:
+                    raise MarketPlanError(
+                        f"administrative area claimed by {owner[key]} and {market_id}: {item}"
+                    )
+                owner[key] = market_id
+
+
 def load_resources(
     markets_path: Path = MARKETS_PATH,
     taxonomy_path: Path = ROLE_TAXONOMY_PATH,
@@ -429,7 +478,11 @@ def _foreign_qualifier(raw: str, normalized: str, markets: dict[str, Any]) -> st
     "United Kingdom; Dublin; United States; New York" is a genuinely
     multi-country posting whose Dublin is Irish. Corroboration wins.
     """
-    catalog = markets.get("foreign_administrative_areas")
+    return _administrative_qualifier(raw, normalized, markets)[1]
+
+
+def _administrative_area_match(catalog, raw: str, normalized: str) -> str | None:
+    """The administrative area this location names inside one catalog."""
     if not isinstance(catalog, dict):
         return None
     for name in catalog.get("names", ()):
@@ -448,12 +501,43 @@ def _foreign_qualifier(raw: str, normalized: str, markets: dict[str, Any]) -> st
     return None
 
 
-def _names_supported_market(normalized: str, markets: dict[str, Any]) -> bool:
-    return any(
-        _alias_matches(alias, normalized)
+def _administrative_qualifier(
+    raw: str, normalized: str, markets: dict
+) -> tuple[str | None, str | None]:
+    """Whose administrative area this names: a market of ours, or nobody's.
+
+    The catalog used to answer only "foreign", which was right while no
+    market covered the Americas: "Dublin, OH" had to be refused and there was
+    no market to give it to. A US market makes those fifty names that
+    market's own -- Ohio stops being somewhere else and becomes a place a
+    round can be scoped to -- while the thirteen Canadian provinces stay
+    foreign, because no market covers them. An area cannot be both, so
+    `validate_markets` refuses a catalog that claims one twice.
+    """
+    for market in markets.get("markets", ()):
+        if not isinstance(market, dict):
+            continue
+        hit = _administrative_area_match(
+            market.get("administrative_areas"), raw, normalized
+        )
+        if hit:
+            return str(market.get("market_id")), hit
+    return None, _administrative_area_match(
+        markets.get("foreign_administrative_areas"), raw, normalized
+    )
+
+def _named_markets(normalized: str, markets: dict[str, Any]) -> set[str]:
+    """Which markets the text names by country, not by city."""
+    return {
+        market["market_id"]
         for market in markets["markets"]
         for alias in market["country_aliases"]
-    )
+        if _alias_matches(alias, normalized)
+    }
+
+
+def _names_supported_market(normalized: str, markets: dict[str, Any]) -> bool:
+    return bool(_named_markets(normalized, markets))
 
 
 def _alias_matches(alias: str, normalized_value: str) -> bool:
@@ -483,9 +567,23 @@ def normalize_location(value: Any, markets: dict[str, Any]) -> dict[str, Any]:
         }
     normalized = _normalize_text(raw)
     mode = _work_mode(raw)
-    if _foreign_qualifier(raw, normalized, markets) and not _names_supported_market(
-        normalized, markets
-    ):
+    owner, qualifier = _administrative_qualifier(raw, normalized, markets)
+    named = _named_markets(normalized, markets)
+    restrict_to: str | None = None
+    if qualifier and owner is not None and not named - {owner}:
+        # The qualifier decides which market this belongs to. Restricting rather
+        # than short-circuiting keeps the city when the two agree: "New York, NY"
+        # is still the city, and "Dublin, OH" is the market without one, because
+        # the Irish city that matched is not in the market the qualifier names.
+        #
+        # Corroboration is read per market, not as a yes or no. "Dublin, Ohio,
+        # United States" names a market by country -- the very market the
+        # qualifier already named -- and reading that as "the text corroborates
+        # something, so stand down" handed the posting back to the Irish city
+        # alias. Only a *different* market in the text stands the qualifier
+        # down, which is what settles "Berlin, DE" as Germany over Delaware.
+        restrict_to = owner
+    if qualifier and restrict_to is None and not named:
         # `foreign`, not `unknown`: "this names a place outside every market
         # we serve" and "we have never heard of this place" are different
         # answers, and a caller weighing a location somebody else normalized
@@ -528,6 +626,30 @@ def normalize_location(value: Any, markets: dict[str, Any]) -> dict[str, Any]:
                 location_matches.append(
                     (len(alias_norm), 1, market, None, _position(alias_norm))
                 )
+
+    if restrict_to is not None:
+        location_matches = [
+            item for item in location_matches if item[2]["market_id"] == restrict_to
+        ]
+        if not location_matches:
+            market = next(
+                item for item in markets["markets"]
+                if item["market_id"] == restrict_to
+            )
+            return {
+                "input": raw,
+                "market_ids": [restrict_to],
+                "city_id": None,
+                "location_id": restrict_to,
+                # The market is known and the city is not: this catalog holds
+                # six US cities and the country has thousands.
+                "location_type": "country",
+                "remote_scope": None,
+                "work_mode": mode,
+                "confidence": "country",
+                "canonical_name": market["country"],
+                "names": market["country_names"],
+            }
 
     if location_matches:
         # Specificity first, then the longest alias inside that tier. Length

@@ -36,7 +36,42 @@
           "LLM工程师",
           "机器学习工程师"
         ]
-      }
+      },
+      "generalizes_to": [
+        {
+          "role_family_id": "backend",
+          "skills": [
+            "Python",
+            "Go",
+            "Java",
+            "FastAPI",
+            "Django",
+            "Flask",
+            "Node.js",
+            "PostgreSQL",
+            "Redis",
+            "Docker",
+            "Kubernetes",
+            "REST",
+            "gRPC",
+            "Microservices"
+          ]
+        },
+        {
+          "role_family_id": "data_engineering",
+          "skills": [
+            "SQL",
+            "Spark",
+            "Airflow",
+            "dbt",
+            "Kafka",
+            "ETL",
+            "Snowflake",
+            "BigQuery",
+            "Pandas"
+          ]
+        }
+      ]
     },
     {
       "role_family_id": "backend",
@@ -70,7 +105,52 @@
           "后端开发",
           "服务端开发"
         ]
-      }
+      },
+      "generalizes_to": [
+        {
+          "role_family_id": "applied_ai",
+          "skills": [
+            "Machine Learning",
+            "LLM",
+            "PyTorch",
+            "TensorFlow",
+            "NLP",
+            "RAG",
+            "LangChain",
+            "Hugging Face",
+            "OpenAI"
+          ]
+        },
+        {
+          "role_family_id": "data_engineering",
+          "skills": [
+            "SQL",
+            "Spark",
+            "Airflow",
+            "dbt",
+            "Kafka",
+            "ETL",
+            "Snowflake",
+            "BigQuery"
+          ]
+        },
+        {
+          "role_family_id": "software_engineering",
+          "skills": [
+            "Python",
+            "Go",
+            "Java",
+            "C#",
+            "C++",
+            "Rust",
+            "TypeScript",
+            "Ruby",
+            "PHP",
+            "Scala",
+            "Kotlin"
+          ]
+        }
+      ]
     },
     {
       "role_family_id": "data_engineering",
@@ -98,7 +178,35 @@
         "zh-Hans": [
           "数据平台工程师"
         ]
-      }
+      },
+      "generalizes_to": [
+        {
+          "role_family_id": "backend",
+          "skills": [
+            "Python",
+            "Go",
+            "Java",
+            "Scala",
+            "FastAPI",
+            "Docker",
+            "Kubernetes",
+            "PostgreSQL",
+            "REST"
+          ]
+        },
+        {
+          "role_family_id": "applied_ai",
+          "skills": [
+            "Machine Learning",
+            "PyTorch",
+            "TensorFlow",
+            "LLM",
+            "NLP",
+            "Pandas",
+            "scikit-learn"
+          ]
+        }
+      ]
     },
     {
       "role_family_id": "software_engineering",
@@ -126,7 +234,143 @@
         "zh-Hans": [
           "应用开发工程师"
         ]
-      }
+      },
+      "generalizes_to": [
+        {
+          "role_family_id": "backend",
+          "skills": [
+            "Python",
+            "Go",
+            "Java",
+            "Node.js",
+            "PostgreSQL",
+            "MySQL",
+            "Redis",
+            "Docker",
+            "Kubernetes",
+            "REST",
+            "gRPC"
+          ]
+        },
+        {
+          "role_family_id": "frontend",
+          "skills": [
+            "JavaScript",
+            "TypeScript",
+            "React",
+            "Vue",
+            "Angular",
+            "CSS",
+            "HTML",
+            "Next.js"
+          ]
+        }
+      ]
+    },
+    {
+      "role_family_id": "frontend",
+      "titles": {
+        "en": [
+          "Frontend Engineer",
+          "Frontend Developer"
+        ],
+        "de": [
+          "Frontend-Entwickler",
+          "Frontend Developer"
+        ],
+        "zh-Hans": [
+          "前端工程师",
+          "前端开发工程师"
+        ]
+      },
+      "synonyms": {
+        "en": [
+          "Web Developer",
+          "UI Engineer"
+        ],
+        "de": [
+          "Webentwickler",
+          "UI-Entwickler"
+        ],
+        "zh-Hans": [
+          "前端开发",
+          "Web 开发工程师"
+        ]
+      },
+      "generalizes_to": [
+        {
+          "role_family_id": "fullstack",
+          "skills": [
+            "Node.js",
+            "Python",
+            "Go",
+            "Java",
+            "PostgreSQL",
+            "MySQL",
+            "REST",
+            "GraphQL"
+          ]
+        }
+      ]
+    },
+    {
+      "role_family_id": "fullstack",
+      "titles": {
+        "en": [
+          "Full Stack Engineer",
+          "Full Stack Developer"
+        ],
+        "de": [
+          "Full-Stack-Entwickler",
+          "Fullstack Developer"
+        ],
+        "zh-Hans": [
+          "全栈工程师",
+          "全栈开发工程师"
+        ]
+      },
+      "synonyms": {
+        "en": [
+          "Fullstack Engineer"
+        ],
+        "de": [
+          "Full Stack Softwareentwickler"
+        ],
+        "zh-Hans": [
+          "全栈开发"
+        ]
+      },
+      "generalizes_to": [
+        {
+          "role_family_id": "backend",
+          "skills": [
+            "Python",
+            "Go",
+            "Java",
+            "Node.js",
+            "PostgreSQL",
+            "MySQL",
+            "Redis",
+            "Docker",
+            "Kubernetes",
+            "REST",
+            "gRPC"
+          ]
+        },
+        {
+          "role_family_id": "frontend",
+          "skills": [
+            "JavaScript",
+            "TypeScript",
+            "React",
+            "Vue",
+            "Angular",
+            "CSS",
+            "HTML",
+            "Next.js"
+          ]
+        }
+      ]
     }
   ]
 }

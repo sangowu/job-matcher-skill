@@ -74,9 +74,19 @@ def _host(entry_url: str, label: str) -> str:
 
 
 def _by_target_role(
-    queries: list[dict[str, Any]], target_roles: list[str], limit: int
+    queries: list[dict[str, Any]],
+    target_roles: list[str],
+    limit: int,
+    languages: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Take `limit` queries, the profile's own roles first.
+    """Take `limit` queries, the source's own language and the profile's own roles first.
+
+    The language comes first because `target_roles` are spelled the way the CV
+    spells them, which is one language. Ranking a German site's pool by that
+    alone put "AI Engineer" ahead of "KI-Ingenieur" -- an exact-spelling match
+    for the CV, and the wrong query for the site. `search_languages` is the
+    source's own order, so a local board leads with its language and a global
+    English-first career site leads with English.
 
     `market_plan.search_plan` is the expanded, interleaved query list: the
     profile's roles and the taxonomy's synonyms for them, ordered for the Web
@@ -90,12 +100,16 @@ def _by_target_role(
     An unrecognized role list leaves the order alone, so a market plan from
     before `target_roles` existed behaves as it did.
     """
-    if not target_roles:
-        return queries[:limit]
+    language_rank = {
+        language: index for index, language in enumerate(languages or [])
+    }
     rank = {role.strip().casefold(): index for index, role in enumerate(target_roles)}
+    if not rank and not language_rank:
+        return queries[:limit]
     ordered = sorted(
         enumerate(queries),
         key=lambda pair: (
+            language_rank.get(str(pair[1].get("language", "")), len(language_rank)),
             rank.get(str(pair[1].get("role", "")).strip().casefold(), len(rank)),
             pair[0],
         ),
@@ -141,7 +155,46 @@ def _validate_market_plan(value: Any) -> tuple[dict[str, Any], list[str], list[d
         normalized.append(row)
     if not normalized:
         raise DiscoveryPlanError("market_plan.search_plan cannot be empty")
-    return value, markets, normalized
+    return value, markets, normalized, _role_pool(value, markets, normalized)
+
+
+def _role_pool(
+    market_plan: dict[str, Any], markets: list[str], search_plan: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """The titles the browser channel may search a source under.
+
+    `search_plan` is capped at `max_websearch_calls`, and the browser spends
+    none of those calls -- reading the capped list gave a 3-market round one
+    title per role on every site it opened. `role_plan` is the same expansion
+    uncapped; a plan from before it existed falls back to `search_plan`, which
+    is what that round already did.
+    """
+    role_plan = market_plan.get("role_plan")
+    if role_plan is None:
+        return [
+            {key: row[key] for key in ("market_id", "language", "role", "location")}
+            for row in search_plan
+        ]
+    if not isinstance(role_plan, list) or not role_plan:
+        raise DiscoveryPlanError("market_plan.role_plan must be a non-empty list")
+    pool: list[dict[str, Any]] = []
+    for index, query in enumerate(role_plan):
+        if not isinstance(query, dict):
+            raise DiscoveryPlanError(f"market_plan.role_plan[{index}] must be an object")
+        if query.get("market_id") not in markets:
+            raise DiscoveryPlanError(f"market_plan.role_plan[{index}] has an invalid market")
+        if query.get("language") not in source_registry.INTERNAL_LANGUAGES:
+            raise DiscoveryPlanError(f"market_plan.role_plan[{index}] has an invalid language")
+        row = {
+            "market_id": query["market_id"],
+            "language": query["language"],
+            "role": str(query.get("role") or "").strip(),
+            "location": str(query.get("location") or "").strip(),
+        }
+        if not row["role"] or not row["location"]:
+            raise DiscoveryPlanError(f"market_plan.role_plan[{index}] is incomplete")
+        pool.append(row)
+    return pool
 
 
 def _validate_source_plan(value: Any, markets: list[str]) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
@@ -288,7 +341,9 @@ def build_discovery_plan(
 ) -> dict[str, Any]:
     if not isinstance(request, dict):
         raise DiscoveryPlanError("request must be an object")
-    market_plan, markets, queries = _validate_market_plan(request.get("market_plan"))
+    market_plan, markets, queries, role_pool = _validate_market_plan(
+        request.get("market_plan")
+    )
     target_roles = _string_list(
         market_plan.get("target_roles") or [], "market_plan.target_roles"
     )
@@ -424,7 +479,7 @@ def build_discovery_plan(
                     continue
                 compatible = [
                     query
-                    for query in queries
+                    for query in role_pool
                     if query["market_id"] == market_id
                     and query["language"] in source["search_languages"]
                 ]
@@ -455,7 +510,10 @@ def build_discovery_plan(
                         "location": query["location"],
                     }
                     for query in _by_target_role(
-                        item["queries"], target_roles, browser_query_limit
+                        item["queries"],
+                        target_roles,
+                        browser_query_limit,
+                        source["search_languages"],
                     )
                 ]
                 tasks["browser"].append(

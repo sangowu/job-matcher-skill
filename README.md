@@ -57,7 +57,7 @@ job-matcher/
 │   ├── scoring_rubric.md     # 5 维打分 + 五档阈值
 │   ├── search_playbook.md    # fan-out / 分市场 / 自适应分批
 │   ├── markets.json          # ie/uk/cn/de 地点、语言与 query 模板
-│   ├── role_taxonomy.json    # 中英德稳定角色族与同义词
+│   ├── role_taxonomy.json    # 中英德稳定角色族、同义词与技能门槛泛化边
 │   ├── model_tiers.json      # 型号 ↔ 档位映射，供子代理按 min_tier 选型
 │   ├── source_seeds.json     # 四市场已验证公开来源种子（不含凭据）
 │   ├── multi_region_smoke_plan.json # Phase D2 固定来源与请求硬上限

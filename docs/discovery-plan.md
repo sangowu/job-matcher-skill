@@ -9,7 +9,9 @@ browser action, ATS request, or canonical-table write.
 The stdin object contains:
 
 - `market_plan`: output from `market_plan.py plan`, including the target
-  markets and localized search rows;
+  markets, the Web Search slice (`search_plan`) and the full localized
+  expansion (`role_plan`). A plan without `role_plan` predates it and the
+  planner reads `search_plan` for both channels, which is what it did before;
 - `source_plan`: output from `source_registry.py plan`, containing only
   eligible source IDs, markets, and priorities;
 - `route_plan`: output from `discovery_mode.py plan`, including the selected
@@ -29,6 +31,12 @@ The deterministic plan contains three task lists and bounded execution waves:
 - `browser`: one bounded semantic site-search task per selected source and
   market. Sources are selected across local, public-sector, global-board, and
   company-career categories before remaining capacity is filled by priority.
+  Its queries come from `role_plan`, not from the Web-Search-capped
+  `search_plan`: the browser spends none of `max_websearch_calls`, and reading
+  the capped list left a multi-market round one title per role. The per-source
+  cut takes the source's own `search_languages` order first and the profile's
+  roles second, so a German board leads with `KI-Ingenieur` rather than with
+  the CV's one spelling of the role.
 - `web_search`: the existing localized query rows, each with one-call scope and
   bounded public source hints. A source may be a Web hint even when its policy
   prohibits browser automation.

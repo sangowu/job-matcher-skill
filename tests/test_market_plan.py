@@ -13,6 +13,7 @@ SCRIPTS_DIR = SKILL_ROOT / "scripts"
 FIXTURE_DIR = SKILL_ROOT / "tests" / "fixtures" / "multi_region"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
+import job_prefilter  # noqa: E402
 import market_plan  # noqa: E402
 import source_registry  # noqa: E402
 import validate_profile  # noqa: E402
@@ -673,3 +674,79 @@ def test_the_foreign_catalog_is_optional(resources):
     market_plan.validate_markets(payload)
 
     assert market_plan.normalize_location("Dublin, OH", payload)["market_ids"] == ["ie"]
+
+
+def test_the_plan_says_which_of_the_three_answered_for_roles(resources):
+    markets, taxonomy = resources
+
+    from_cv = market_plan.build_market_plan(
+        make_request(), markets=markets, taxonomy=taxonomy
+    )
+    from_intent = market_plan.build_market_plan(
+        make_request(roles=["Software Engineer"]), markets=markets, taxonomy=taxonomy
+    )
+    request = make_request()
+    request["cv_profile"]["target_roles"] = ["LLM Engineer"]
+    from_target = market_plan.build_market_plan(
+        request, markets=markets, taxonomy=taxonomy
+    )
+
+    assert (from_cv["roles_source"], from_cv["target_roles"]) == (
+        "cv_preferred", ["AI Engineer"]
+    )
+    assert (from_intent["roles_source"], from_intent["target_roles"]) == (
+        "user_intent", ["Software Engineer"]
+    )
+    assert (from_target["roles_source"], from_target["target_roles"]) == (
+        "cv_target", ["LLM Engineer"]
+    )
+
+
+def test_the_effective_profile_carries_the_intent_into_the_prefilter(resources):
+    """The searches honoured `user_intent.roles` and the filter never saw it.
+
+    A round told to look for Software Engineer went and looked -- the queries
+    are in `search_plan` -- and then `job_prefilter` read `preferred_roles` off
+    the CV and dropped every result on `role`. Measured on 2026-09-27 against
+    this skill's own profile.
+    """
+    markets, taxonomy = resources
+    request = make_request(roles=["Software Engineer"])
+
+    plan = market_plan.build_market_plan(request, markets=markets, taxonomy=taxonomy)
+    effective = market_plan.build_effective_profile(
+        request, markets=markets, taxonomy=taxonomy
+    )
+
+    searched = {task["role"] for task in plan["search_plan"]}
+    assert "Software Engineer" in searched
+    assert effective["roles"] == ["Software Engineer"]
+    # The CV's own answer is kept, not overwritten: only the override is added.
+    assert effective["preferred_roles"] == ["AI Engineer"]
+    job = {"title": "Software Engineer II", "location": "Dublin"}
+    assert job_prefilter.rejection_reason(job, request["cv_profile"]) == "role"
+    assert job_prefilter.rejection_reason(job, effective) is None
+
+
+def test_no_effective_profile_while_the_plan_still_needs_the_user(resources):
+    """An unresolved plan has no answer to carry, so it refuses to invent one."""
+    markets, taxonomy = resources
+    request = make_request(cv_locations=[])
+    request["cv_profile"]["preferred_locations"] = []
+
+    with pytest.raises(market_plan.MarketPlanError, match="needs user input"):
+        market_plan.build_effective_profile(
+            request, markets=markets, taxonomy=taxonomy
+        )
+
+
+def test_the_effective_profile_leaves_locations_to_the_market_filter(resources):
+    """Writing "Dublin" into `locations` would drop Cork, which nobody asked
+    for."""
+    markets, taxonomy = resources
+
+    effective = market_plan.build_effective_profile(
+        make_request(locations=["Dublin"]), markets=markets, taxonomy=taxonomy
+    )
+
+    assert "locations" not in effective

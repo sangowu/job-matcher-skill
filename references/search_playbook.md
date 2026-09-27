@@ -10,14 +10,15 @@
 ### query 拆解与约束分流
 | query 信息 | 去向 |
 |-----------|------|
-| 目标职位改写 | → search_plan 的 role（覆盖 CV `preferred_roles`） |
+| 目标职位改写 | → search_plan 的 role（覆盖 CV `preferred_roles`），**并且**经 `market_plan.py effective-profile` 写入 profile 的 `roles`——只改搜索不改初筛，搜回来的会被原样丢弃 |
 | 行业/公司类型（出海、外企） | → 搜索词 + candidate_profile.preferences |
 | 薪资下限、雇佣类型 | → **仅** candidate_profile.hard_filters（不进搜索词） |
 | 负面要求（不要外包/996/实习） | → **仅** candidate_profile.deal_breakers |
 
 ### 融合优先级
 ```
-roles     : query 改写 > CV.preferred_roles（都缺 → 追问用户）
+roles     : query 改写 > CV.target_roles > CV.preferred_roles（都缺 → 追问用户）
+            覆盖是替换不是追加；这份结果必须同时进 search_plan 和 profile.roles
 locations : 用户本轮明确地点 > CV.target_locations > CV.preferred_locations（兼容）
             > CV.current_location（最后回退）
 其余约束  : query > CV

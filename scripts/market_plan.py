@@ -665,11 +665,19 @@ def build_market_plan(
     warnings: list[str] = []
     report_language = _pick_report_language(user_intent, cv_profile, warnings)
 
+    # Reported as `roles_source`, the way locations already report theirs.
+    # Which of these three answered is the whole question when the searches a
+    # round runs and the filter it applies them to disagree.
     roles = _dedupe_strings(user_intent.get("roles"))
+    roles_source = "user_intent"
     if not roles:
         roles = _dedupe_strings(cv_profile.get("target_roles"))
+        roles_source = "cv_target"
     if not roles:
         roles = _dedupe_strings(cv_profile.get("preferred_roles"))
+        roles_source = "cv_preferred"
+    if not roles:
+        roles_source = "none"
 
     explicit_locations = "locations" in user_intent
     location_values = _dedupe_strings(user_intent.get("locations"))
@@ -765,6 +773,8 @@ def build_market_plan(
     return {
         "schema_version": SCHEMA_VERSION,
         "target_markets": target_markets,
+        "target_roles": roles,
+        "roles_source": roles_source,
         "target_locations": target_locations,
         "location_details": details,
         "location_source": location_source,
@@ -784,13 +794,44 @@ def build_market_plan(
     }
 
 
+def build_effective_profile(
+    request: dict[str, Any],
+    *,
+    markets: dict[str, Any] | None = None,
+    taxonomy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return the CV profile the round's prefilter must actually be given.
+
+    `user_intent.roles` reached the searches and nothing else: `build_market_plan`
+    honours it, `job_prefilter` reads `roles` / `preferred_roles` off the profile
+    file and never sees a user intent at all. So a round asked to look for
+    Software Engineer went and looked, and then dropped every result on `role`.
+    The plan resolves this once; this is that answer written where the filter
+    reads it, and it is deliberately the same call, not a second copy of the
+    precedence rule.
+
+    Locations are left alone. The plan's are normalized ids scoped to a market,
+    and `discovery_batch.py` already rejects an out-of-market candidate with its
+    own `market` reason; writing "Dublin" into `locations` would additionally
+    drop Cork, which nobody asked for.
+    """
+    plan = build_market_plan(request, markets=markets, taxonomy=taxonomy)
+    if plan["needs_user_input"]:
+        raise MarketPlanError(
+            "the plan still needs user input, so there is no effective profile yet: "
+            + "; ".join(plan["warnings"])
+        )
+    cv_profile = request.get("cv_profile") or {}
+    return {**cv_profile, "roles": list(plan["target_roles"])}
+
+
 def _emit(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("validate", "plan"))
+    parser.add_argument("command", choices=("validate", "plan", "effective-profile"))
     parser.add_argument("--markets", type=Path, default=MARKETS_PATH)
     parser.add_argument("--roles", type=Path, default=ROLE_TAXONOMY_PATH)
     args = parser.parse_args()
@@ -805,6 +846,11 @@ def main() -> int:
             })
             return 0
         request = json.loads(read_stdin_text() or "{}")
+        if args.command == "effective-profile":
+            _emit({"ok": True, "profile": build_effective_profile(
+                request, markets=markets, taxonomy=taxonomy
+            )})
+            return 0
         _emit({"ok": True, "plan": build_market_plan(
             request, markets=markets, taxonomy=taxonomy
         )})

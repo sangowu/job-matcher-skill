@@ -120,7 +120,10 @@ job-matcher/
 多地区 Phase A/B/C 目前仍是显式入口：`python scripts/market_plan.py validate`
 校验版本化市场/角色配置，`python scripts/market_plan.py plan` 从 stdin 接收
 `{cv_profile,user_intent}` 并生成 Ireland、UK、China、Germany 的市场、语言、地点与
-Web query 计划。`python scripts/source_registry.py validate` 校验公开来源种子；`init` 在
+Web query 计划，同时报告 `target_roles` 与 `roles_source`；
+`python scripts/market_plan.py effective-profile` 吃同一份输入，输出把已解析角色写入
+`roles` 键的 profile——确定性初筛读的就是这一份，不经过它就会出现「按用户意图去搜、
+按 CV 角色去筛」的两套答案。`python scripts/source_registry.py validate` 校验公开来源种子；`init` 在
 `data/source_registry.json` 原子合并种子，并在旧 `data/ats_companies.json` 存在时只读迁移；
 `plan --markets ie uk` 只返回 `enabled + verified + TTL 未过期` 的确定性来源，每个全球来源
 只出现一次。它们都不执行搜索或修改职位表，因此旧单地区 Web Search/ATS/merge/报告流程

@@ -50,7 +50,7 @@
 |------|------|------|------|
 | `extract_cv.py` | `python scripts/extract_cv.py <file>` | CV 文件路径 | `{ok, source_type, char_count, cv_hash, text_path, cache_hit, cached_profile_path?, warnings}` |
 | `validate_profile.py` | `python scripts/validate_profile.py`（stdin） | LLM 抽取的 CVProfile JSON | `{ok, profile, notes}` |
-| `market_plan.py` | `… validate` / `… plan`（stdin） | 四市场配置；或 `{cv_profile,user_intent}` | 配置校验；或确定性 `{target_markets,target_locations,report_language,search_languages,search_plan,...}` |
+| `market_plan.py` | `… validate` / `… plan` / `… effective-profile`（stdin） | 四市场配置；或 `{cv_profile,user_intent}` | 配置校验；确定性 `{target_markets,target_roles,roles_source,target_locations,report_language,search_languages,search_plan,...}`；或写入 `roles` 后的 profile（初筛只认这一份） |
 | `discovery_mode.py` | `… plan` / `… event`（stdin） | 用户模式 + 当前运行时只读能力状态；或本机浏览器事件 | 优先 Neo 的发现 route 决策；连接丢失时有界降级，验证/限流时暂停单站；不探测系统或读取凭据 |
 | `discovery_plan.py` | `python scripts/discovery_plan.py`（stdin） | `{market_plan,source_plan,route_plan,browser_settings?}` | 只读连接公开来源目录与 URL-free 健康计划，生成确定性 browser/Web/structured 任务；不执行搜索或写状态 |
 | `discovery_batch.py` | `… --cv-hash H --cp-hash H [--metrics-run-id R]`（stdin） | `{batch_id,wave_id,discovery_plan,task_results,source_updates,progress}` | 强校验当前波次每个任务的终态与 CandidateEnvelope，一次 merge 后提交来源状态，并从计划推导幂等 count-only 下一波决策 |
@@ -123,6 +123,7 @@
   公开 `source_seeds.json` 的 URL/访问策略与 URL-free 健康计划，输出有界 browser/Web/structured
   任务。详细契约见 `docs/discovery-plan.md`。不得跳过该步骤让浏览器自行猜网站，也不得把执行 URL
   写回健康注册表。
+- `user_intent.roles` 覆盖 CV 默认角色；没有用户角色时才依次回退 `target_roles`、`preferred_roles`。plan 输出 `roles_source` 说明这三者里是哪一个答的，`target_roles` 是**同义词展开之前**的那份。**取得 plan 之后、把 profile 交给任何 `--profile` 之前，必须用同一份 `{cv_profile,user_intent}` 调 `python scripts/market_plan.py effective-profile`，把它输出的 profile 写盘并从此只传这一份。**它在 profile 上写入 `roles` 键——`job_prefilter.prefilter_jobs` 优先读的就是这个键，那个槽存在就是为了这次覆盖。不做这一步，本轮就有两个「目标角色」的答案：`market_plan` 按用户意图去搜，初筛按 CV 的`preferred_roles` 去筛，于是搜回来的全被以 `role` 丢弃——和 `job_prefilter.py` 统一三通道所修的是同一类毛病，只是高了一层。注意覆盖是**替换**不是追加：要同时看 AI 岗和泛化 SWE，`user_intent.roles` 里两者都要写。地点不做同样处理——plan 的地点是归一化到市场的 id，而`discovery_batch.py` 已用自己的 `market` 原因拒绝越界候选；把 `Dublin` 写进 `locations` 会连 Cork 一起丢掉。
 - `user_intent.locations` 覆盖 CV 默认地点；没有用户地点时才依次回退
   `target_locations`、旧 `preferred_locations`、最后的 `current_location`。无法识别的明确地点
   返回 `needs_user_input=true`，不能回退到 CV 地点或猜国家。

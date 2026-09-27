@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "tiers": [
+    "light",
+    "standard",
+    "deep"
+  ],
+  "models": [
+    {
+      "id": "claude-haiku-4-5-20251001",
+      "tier": "light",
+      "aliases": [
+        "haiku",
+        "claude-haiku-4-5"
+      ]
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "tier": "light",
+      "aliases": []
+    },
+    {
+      "id": "claude-sonnet-5",
+      "tier": "standard",
+      "aliases": [
+        "sonnet"
+      ]
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "tier": "standard",
+      "aliases": []
+    },
+    {
+      "id": "claude-opus-5",
+      "tier": "deep",
+      "aliases": [
+        "opus"
+      ]
+    },
+    {
+      "id": "claude-opus-5-5",
+      "tier": "deep",
+      "aliases": []
+    }
+  ]
+}

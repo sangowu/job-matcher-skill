@@ -58,6 +58,7 @@ job-matcher/
 │   ├── search_playbook.md    # fan-out / 分市场 / 自适应分批
 │   ├── markets.json          # ie/uk/cn/de 地点、语言与 query 模板
 │   ├── role_taxonomy.json    # 中英德稳定角色族与同义词
+│   ├── model_tiers.json      # 型号 ↔ 档位映射，供子代理按 min_tier 选型
 │   ├── source_seeds.json     # 四市场已验证公开来源种子（不含凭据）
 │   ├── multi_region_smoke_plan.json # Phase D2 固定来源与请求硬上限
 │   ├── shadow_run.schema.json # Phase E 计数型 shadow 证据契约
@@ -88,7 +89,7 @@ job-matcher/
 │   ├── search_metrics.py     # Web Search 页级计数与耗时指标
 │   ├── summarize_metrics.py  # 7/30 天 Markdown/JSON 健康报告
 │   ├── round_timer.py        # 整轮计时，按编排模式对比墙钟
-│   ├── subagent_metrics.py   # 子代理模型/effort 配置与结果指标
+│   ├── subagent_metrics.py   # 按档位为子代理选型号、记录实际执行指标
 │   ├── browser_provider.py   # Kernel/Fake Provider 与安全配置
 │   ├── browser_control.py    # 远程视觉浏览器控制命令；本机浏览器动作的指标自报路径
 │   ├── browser_setup.py      # 一次性 localhost 配置页面
@@ -197,7 +198,7 @@ agent 会自动识别。然后在对话里：
 | `version_check_interval_hours` | 24 | GitHub 版本检查缓存时长；缓存期内不发网络请求 |
 | `version_check_timeout_seconds` | 3 | 单次只读 GitHub 请求超时秒数 |
 | `max_parallel_subagents` | 3 | 批内并行上限 |
-| `subagent_profiles` | 见配置 | 各角色请求的 model、reasoning effort 与隔离上下文策略 |
+| `subagent_profiles` | 见配置 | 各角色的档位下限 `min_tier`、reasoning effort 与隔离上下文策略；可选 `model` 钉死型号 |
 | `max_websearch_calls` | 6 | WebSearch 总次数上限 |
 | `discovery_mode` | coverage | `coverage` 默认并行浏览器+模型搜索；`auto` 保留单 route 兼容；也支持 `model_only`、`browser_only`、`combined` |
 | `cookie_consent_policy` | necessary_only | 只在唯一明确语义按钮上自动拒绝可选 Cookie；也可设 `ask_every_time` |

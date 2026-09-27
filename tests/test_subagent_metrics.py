@@ -19,7 +19,9 @@ from subagent_metrics import resolve_profile  # noqa: E402
 RUN_ID = "round-20260827-120000-abcdef"
 
 
-def test_default_subagent_profiles_choose_models_by_workload():
+def test_a_profile_may_still_pin_an_explicit_model():
+    """The escape hatch for a runtime the tier catalog has never seen, and
+    how every shipped profile behaved before tiers existed."""
     config = {
         "subagent_profiles": {
             "cv_extract": {
@@ -48,6 +50,10 @@ def test_default_subagent_profiles_choose_models_by_workload():
     assert resolve_profile("search", config)["reasoning_effort"] == "low"
     assert resolve_profile("evaluation", config)["reasoning_effort"] == "high"
     assert resolve_profile("browser", config)["model"] == "gpt-5.6-terra"
+    assert resolve_profile("browser", config)["model_source"] == "config"
+    # The pin wins even when the runtime offers something the catalog knows.
+    pinned = resolve_profile("search", config, available_models=["haiku", "opus"])
+    assert pinned["model"] == "gpt-5.6-luna"
 
 
 def test_profile_rejects_unknown_roles_and_invalid_effort():
@@ -187,3 +193,106 @@ def test_subagent_cli_links_usage_and_actual_cost(monkeypatch, tmp_path, capsys)
     summary = build_summary(path, tmp_path / "eval_runs")
     assert summary["metrics"]["subagents"]["actual_cost_usd"] == 0.0025
     assert summary["metrics"]["subagents"]["estimated_cost_usd"] is None
+
+
+def _tiers(*models):
+    return {"schema_version": 1, "tiers": ["light", "standard", "deep"], "models": list(models)}
+
+
+CATALOG = _tiers(
+    {"id": "light-model", "tier": "light", "aliases": ["lt"]},
+    {"id": "standard-model", "tier": "standard", "aliases": ["std"]},
+    {"id": "deep-model", "tier": "deep", "aliases": []},
+)
+TIERED = {
+    "subagent_profiles": {
+        "search": {"min_tier": "light", "reasoning_effort": "low", "fork_turns": "none"},
+        "evaluation": {"min_tier": "standard", "reasoning_effort": "high", "fork_turns": "none"},
+    }
+}
+
+
+def test_a_role_gets_the_cheapest_model_that_reaches_its_floor():
+    """"The lowest tier" is per role. One model for everything would run the
+    evaluation worker, whose output `analysis_contract` validates strictly, as
+    cheaply as a search worker."""
+    search = resolve_profile(
+        "search", TIERED, available_models=["deep-model", "std", "lt"], tiers=CATALOG
+    )
+    evaluation = resolve_profile(
+        "evaluation", TIERED, available_models=["deep-model", "std", "lt"], tiers=CATALOG
+    )
+
+    assert search["model"] == "light-model"
+    assert evaluation["model"] == "standard-model"
+    assert {search["model_source"], evaluation["model_source"]} == {"catalog"}
+
+
+def test_a_floor_that_cannot_be_met_is_said_rather_than_lowered():
+    profile = resolve_profile(
+        "evaluation", TIERED, available_models=["lt"], tiers=CATALOG
+    )
+
+    assert profile["model"] is None
+    assert profile["model_source"] == "unresolved"
+
+
+def test_a_model_the_catalog_does_not_carry_is_named_rather_than_placed():
+    """A new model whose name resembles a known one is a guess, and asking the
+    runtime what it has exists to stop guessing."""
+    profile = resolve_profile(
+        "search", TIERED, available_models=["lt", "light-model-9", "brand-new"], tiers=CATALOG
+    )
+
+    assert profile["model"] == "light-model"
+    assert profile["unresolved_models"] == ["brand-new", "light-model-9"]
+
+
+def test_without_a_reported_runtime_the_profile_asks_for_nothing_in_particular():
+    profile = resolve_profile("search", TIERED, tiers=CATALOG)
+
+    assert profile["model"] is None
+    assert profile["model_source"] == "runtime_inherited"
+
+
+def test_an_unrunnable_tier_in_config_is_refused():
+    with pytest.raises(ValueError, match="min_tier"):
+        resolve_profile("search", {"subagent_profiles": {"search": {
+            "min_tier": "cheapest", "reasoning_effort": "low", "fork_turns": "none",
+        }}})
+
+
+@pytest.mark.parametrize(
+    "broken,message",
+    [
+        ({"schema_version": 2, "tiers": ["light"], "models": []}, "schema_version"),
+        (_tiers({"id": "a", "tier": "light", "aliases": []}) | {"tiers": ["a", "b"]}, "tiers must be"),
+        (_tiers({"id": "a", "tier": "cheap", "aliases": []}), "invalid tier"),
+        (
+            _tiers(
+                {"id": "a", "tier": "light", "aliases": ["shared"]},
+                {"id": "b", "tier": "deep", "aliases": ["shared"]},
+            ),
+            "claimed twice",
+        ),
+    ],
+)
+def test_a_broken_tier_catalog_is_refused(tmp_path, broken, message):
+    path = tmp_path / "model_tiers.json"
+    path.write_text(json.dumps(broken), encoding="utf-8")
+
+    with pytest.raises(subagent_metrics.ModelTierError, match=message):
+        subagent_metrics.load_tiers(path)
+
+
+def test_the_shipped_catalog_and_config_resolve_together():
+    tiers = subagent_metrics.load_tiers()
+    config = json.loads(
+        (Path(__file__).resolve().parents[1] / "config.json").read_text(encoding="utf-8")
+    )
+    offered = [model["id"] for model in tiers["models"]]
+
+    for role in subagent_metrics.ROLES:
+        profile = resolve_profile(role, config, available_models=offered, tiers=tiers)
+        assert profile["model_source"] == "catalog"
+        assert profile["unresolved_models"] == []

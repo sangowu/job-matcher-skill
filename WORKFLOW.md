@@ -30,9 +30,17 @@
 - `max_parallel_subagents` 是**全局**并发预算（搜索+评估 worker 共用）；
   重叠期建议 1 个搜索 worker、其余给评估（默认 3 → 1 搜 + 2 评）。
 - 脚本输出是纯 ASCII JSON，解析后使用。所有路径相对本 skill 目录。
-- 每次子代理调用前先运行 `subagent_metrics.py profile --role <role>`，运行时支持时按返回的
-  `model`、`reasoning_effort`、`fork_turns` 创建隔离 worker；不支持覆盖时允许继承当前模型，
-  但必须在调用后把实际模型/effort 和 `fallback_used` 如实记录，不能把请求值冒充实际值。
+- 每次子代理调用前先运行 `subagent_metrics.py profile --role <role> --available-models <你能跑的型号>`。
+  **config 只声明档位下限（`min_tier`），不写型号**：哪些型号存在是**你所在运行时的事实**，
+  这里没有任何 Python 能观察到它。脚本用 `references/model_tiers.json` 把你自报的型号映射到档位，
+  返回满足该角色下限的**最便宜**的一个。"最低档"是逐角色的，不是全局一个型号：
+  evaluation worker 的返回结构要过 `analysis_contract` 强校验，把它降到 search worker 的档位
+  是让 `rejected_rate` 变差，不是让成本变好。
+- 目录里没有的型号**不按拼写猜档位**，只列进 `unresolved_models`；其余候选照常解析，运行不受影响。
+  `model_source` 说明结果的来源：`catalog`（按档位选出）、`config`（profile 显式钉死）、
+  `unresolved`（可用型号都够不到下限）、`runtime_inherited`（没传 `--available-models`）。
+  后两者 `model` 为 `null`，继承当前模型即可，但调用后必须把实际模型/effort 和 `fallback_used`
+  如实记录，不能把请求值冒充实际值。
 
 ## 脚本契约（你的确定性工具箱）
 
@@ -64,13 +72,13 @@
 | `cp_hash.py` | `python scripts/cp_hash.py`（stdin） | candidate_profile JSON | `{ok, cp_hash}`（规范化后稳定 hash） |
 | `render_html.py` | `… --cv-hash H --cp-hash H [--meta-file F]` | jobs_table + meta + PII-safe metrics | `{ok, report_path, job_count, health_status, health_breaches}` |
 | `round_timer.py` | `… start` / `… finish --round-id R --orchestration serial\|overlapped` | 整轮起止 | `{ok, round_id}` / `{ok, round_duration_ms, metrics_recorded}` |
-| `subagent_metrics.py` | `… profile --role R` / `… record …` | 角色配置 / 实际执行计数 | 请求配置；或写入一次 PII-safe 子代理指标 |
+| `subagent_metrics.py` | `… profile --role R [--available-models a,b,c]` / `… record …` | 角色档位下限 + 你自报的可用型号 / 实际执行计数 | 满足下限的最便宜型号与 `model_source`、`unresolved_models`；或写入一次 PII-safe 子代理指标 |
 | `version_check.py` | `python scripts/version_check.py [--force]` | 本地版本/Git 元数据 + 只读 GitHub public API | `{status, local_version, remote_version, local_revision, remote_revision, cache_hit}`；失败不阻断 |
 | `browser_setup.py` | `python scripts/browser_setup.py` | localhost 表单 | 测试连接，密钥进系统密钥库，非敏感设置进 `data/` |
 | `browser_control.py` | `… create/…/close/test`（远程）；`… action --action A --status S`（本机） | 远程：session id + 视觉动作；本机：Agent 自报的动作与计数 | 小 JSON；`create` 临时返回 Live View URL；`action` 只写一条 allowlist 指标事件 |
 | `browser_workflow.py` | 由 browser worker 使用 | 逐页观察与下一页动作 | 有上限的串行翻页、链接去重与暂停状态 |
 
-指令文档（按需读）：`references/cv_schema.md`、`references/scoring_rubric.md`、`references/search_playbook.md`。配置：`config.json`。
+指令文档（按需读）：`references/cv_schema.md`、`references/scoring_rubric.md`、`references/search_playbook.md`。目录：`references/model_tiers.json`（型号 ↔ 档位）。配置：`config.json`。
 
 ## 流程
 

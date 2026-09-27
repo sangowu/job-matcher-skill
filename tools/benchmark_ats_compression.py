@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import _bootstrap  # noqa: F401 - puts the skill's scripts/ on the path
 from _jobutil import skill_version
 from _stdio import use_utf8_stdout
 from ats_provider import HttpAtsProvider, RequestBudget, fetch_board

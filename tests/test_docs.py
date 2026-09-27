@@ -37,7 +37,12 @@ def _config_keys() -> list[str]:
 
 
 def _script_names() -> list[str]:
-    return sorted(path.name for path in (SKILL_ROOT / "scripts").glob("*.py"))
+    """Both directories: a tool is documentation surface like a script is."""
+    return sorted(
+        path.name
+        for directory in ("scripts", "tools")
+        for path in (SKILL_ROOT / directory).glob("*.py")
+    )
 
 
 def test_no_tracked_file_carries_a_conflict_marker():

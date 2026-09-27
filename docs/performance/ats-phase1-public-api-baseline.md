@@ -13,7 +13,7 @@
 运行命令：
 
 ```text
-python scripts/benchmark_ats.py --output docs/performance/ats-phase1-public-api-baseline.json --page-size 50 --max-pages 10 --max-workers 3 --timeout-seconds 30
+python tools/benchmark_ats.py --output docs/performance/ats-phase1-public-api-baseline.json --page-size 50 --max-pages 10 --max-workers 3 --timeout-seconds 30
 ```
 
 ## 最终结果

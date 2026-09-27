@@ -7,7 +7,7 @@ change report ranking, or enable any market.
 ## Read-only shadow comparison
 
 `references/shadow_compare_v2.schema.json` defines new ephemeral inputs accepted
-by `scripts/shadow_compare.py` (v1 remains readable for historical runs). It
+by `tools/shadow_compare.py` (v1 remains readable for historical runs). It
 contains only strong provider identity keys,
 match scores, and boolean JD/link evidence for the current formal Top-N and the
 two shadow routes. It rejects titles, companies, URLs, queries, CV/hash values,
@@ -38,7 +38,7 @@ The output contains no identity keys and is already a valid
 possible:
 
 ```bash
-python scripts/shadow_compare.py --record
+python tools/shadow_compare.py --record
 ```
 
 `--record` sends only the count-only summary to the same ledger writer. Without
@@ -62,7 +62,7 @@ canonical job table or report.
 Record a completed orchestration summary through the single-writer ledger:
 
 ```bash
-python scripts/shadow_gate.py record \
+python tools/shadow_gate.py record \
   --input data/current-shadow-summary.json
 ```
 
@@ -104,7 +104,7 @@ enablement.
 Evaluate the current ledger and live evidence with:
 
 ```bash
-python scripts/shadow_gate.py status \
+python tools/shadow_gate.py status \
   --live-smoke docs/performance/multi-region-live-smoke-20260918.json \
   --output docs/performance/multi-region-phase-e-gate-20260918.json
 ```

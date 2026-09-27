@@ -26,7 +26,7 @@ All three paired comparisons produced identical normalized-content fingerprints.
 Reproduce with:
 
 ```text
-python scripts/benchmark_ats_compression.py --output <json> --pairs 3 --max-workers 3 --page-size 50 --max-pages 1 --timeout-seconds 30
+python tools/benchmark_ats_compression.py --output <json> --pairs 3 --max-workers 3 --page-size 50 --max-pages 1 --timeout-seconds 30
 ```
 
 ## Interpretation and limits

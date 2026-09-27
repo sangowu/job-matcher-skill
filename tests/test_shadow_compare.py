@@ -11,6 +11,9 @@ import pytest
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = SKILL_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
+# The tools live outside scripts/ because a round never runs them; they
+# still import the production modules, which is what they measure.
+sys.path.insert(0, str(SCRIPTS_DIR.parent / "tools"))
 
 import shadow_compare  # noqa: E402
 import shadow_gate  # noqa: E402

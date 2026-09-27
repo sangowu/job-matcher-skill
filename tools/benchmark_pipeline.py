@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import _bootstrap  # noqa: F401 - puts the skill's scripts/ on the path
 from _jobutil import SKILL_ROOT, skill_version
 from ats_provider import FakeAtsProvider
 from browser_control import BrowserController

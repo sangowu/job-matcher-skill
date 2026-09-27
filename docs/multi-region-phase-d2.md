@@ -40,7 +40,7 @@ rules have offline regression tests and do not change production discovery.
 Run the smoke only by explicit command:
 
 ```bash
-python scripts/multi_region_smoke.py --live \
+python tools/multi_region_smoke.py --live \
   --output docs/performance/multi-region-live-smoke-20260918.json
 ```
 

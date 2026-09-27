@@ -5,7 +5,7 @@
 > 把它当待办清单读会严重误导。
 >
 > 权威状态看两处：已交付内容看 `CHANGELOG.md` 与 `docs/releases/`，
-> 发布门禁看 `python scripts/shadow_gate.py status --live-smoke <file>` 的实时判定。
+> 发布门禁看 `python tools/shadow_gate.py status --live-smoke <file>` 的实时判定。
 > 第 15 节的阶段状态由 `tests/test_docs.py` 对 `config.json` 做一致性校验，不会再悄悄过期。
 
 状态：Phase 0/A/B/C/D/F 已交付（v2.4.0）；**Phase E 未达标**，多地区默认启用仍关闭。

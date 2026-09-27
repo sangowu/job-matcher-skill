@@ -64,7 +64,7 @@ job-matcher/
 │   ├── markets.json          # ie/uk/cn/de 地点、语言与 query 模板
 │   ├── role_taxonomy.json    # 中英德稳定角色族、同义词与技能门槛泛化边
 │   ├── model_tiers.json      # 型号 ↔ 档位映射，供子代理按 min_tier 选型
-│   ├── source_seeds.json     # 四市场已验证公开来源种子（不含凭据）
+│   ├── source_seeds.json     # 五市场（ie/uk/cn/de/us）已验证公开来源种子（不含凭据）
 │   ├── multi_region_smoke_plan.json # Phase D2 固定来源与请求硬上限
 │   ├── shadow_run.schema.json # Phase E 计数型 shadow 证据契约
 │   ├── shadow_compare.schema.json # Phase E 临时候选对照输入契约
@@ -85,7 +85,7 @@ job-matcher/
 │   ├── source_registry.py    # 来源种子校验、健康状态、迁移与确定性来源计划
 │   ├── candidate_contract.py # 严格校验 Phase C CandidateEnvelope
 │   ├── candidate_handoff.py  # 【已弃用】旧双 route 入口，被 discovery_batch.py 取代
-│   ├── multi_region_smoke.py # 显式、计数型四市场公开来源 smoke
+│   ├── multi_region_smoke.py # 显式、计数型每市场一槽的公开来源 smoke
 │   ├── shadow_gate.py        # Phase E 幂等 shadow 台账与逐市场发布门
 │   ├── shadow_compare.py     # 只读计算增量、交集、JD 与潜在 Top-N
 │   ├── analysis_contract.py  # 校验 JDProfile/MatchScore worker 输出
@@ -232,7 +232,7 @@ agent 会自动识别。然后在对话里：
 | `web_queries_per_market_per_wave` | 2 | 每市场、每波次执行的 Web Search 查询上限 |
 | `web_source_hints_per_task` | 6 | 每条 Web Search 任务携带的公开来源提示上限 |
 | `multi_region_enabled` | false | **只管 Phase E shadow 门禁**；只有 `shadow_gate.py` 读它，live 发现路径不读，因此它不是多市场总闸 |
-| `multi_region_rollout` | 四市场均 off | 每市场独立设置 off / shadow / opt_in / default；default 必须通过 Phase E 门禁。同样只作用于 shadow 门禁 |
+| `multi_region_rollout` | 四市场均 off（不含 us） | 每市场独立设置 off / shadow / opt_in / default；default 必须通过 Phase E 门禁。同样只作用于 shadow 门禁 |
 | `stop_threshold` | 12 | 净有效职位达标停止 |
 | `consecutive_empty_stop` | 2 | 连续 N 批 0 结果则停止 |
 | `ats_enabled` | false | 是否启用公开 ATS 增强管道；默认显式关闭 |

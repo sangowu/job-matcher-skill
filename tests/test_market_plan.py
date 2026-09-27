@@ -926,3 +926,85 @@ def test_a_taxonomy_without_generalizations_still_validates(resources):
         family.pop("generalizes_to", None)
 
     assert market_plan.validate_role_taxonomy(payload) is payload
+
+
+def test_the_market_set_comes_from_the_catalog_not_from_five_copies():
+    """Five modules carried their own copy of the tuple, and `validate_markets`
+    additionally asserted the file matched it, so the catalog was never the
+    answer -- it only had to agree with one. Adding a market meant editing six
+    places plus their tests before the new entry counted for anything."""
+    import candidate_contract
+    import multi_region_smoke
+    import render_html
+    from _jobutil import supported_markets
+
+    catalog = set(supported_markets())
+
+    assert catalog == set(market_plan.SUPPORTED_MARKETS)
+    assert catalog == set(source_registry.SUPPORTED_MARKETS)
+    assert catalog == set(candidate_contract.SUPPORTED_MARKETS)
+    assert catalog == set(render_html.SUPPORTED_MARKETS)
+    assert catalog == set(multi_region_smoke.SUPPORTED_MARKETS)
+
+
+def test_a_market_catalog_naming_one_market_is_accepted(resources):
+    """The old check demanded exactly ie, uk, cn and de, which is what made the
+    set a code change rather than a catalog entry."""
+    markets, _ = resources
+    single = {
+        "schema_version": 1,
+        "foreign_administrative_areas": markets["foreign_administrative_areas"],
+        "markets": [copy.deepcopy(markets["markets"][0])],
+    }
+
+    validated = market_plan.validate_markets(single)
+
+    assert [item["market_id"] for item in validated["markets"]] == ["ie"]
+
+
+def test_an_empty_market_catalog_is_still_refused(resources):
+    markets, _ = resources
+    payload = {**copy.deepcopy(markets), "markets": []}
+
+    with pytest.raises(market_plan.MarketPlanError, match="non-empty"):
+        market_plan.validate_markets(payload)
+
+
+def test_a_city_cannot_also_be_listed_as_foreign(resources):
+    """The blocker a new market actually hits.
+
+    `foreign_administrative_areas` is a closed reverse-catalog of the places no
+    supported market covers -- 50 states, 13 provinces, DC -- so it reads "New
+    York" as foreign because nothing claimed it. Add a US market without pruning
+    that entry and `normalize_location("New York")` still answers
+    `location_type: foreign` with no market: the market exists, its city is
+    listed, and every posting in it is dropped without a word. Measured while
+    adding a US market to the catalog on 2026-09-27.
+    """
+    markets, _ = resources
+    payload = copy.deepcopy(markets)
+    payload["foreign_administrative_areas"]["names"].append("Dublin")
+
+    with pytest.raises(market_plan.MarketPlanError, match="own city"):
+        market_plan.validate_markets(payload)
+
+
+def test_the_live_planners_do_not_read_the_shadow_rollout_switches():
+    """`multi_region_enabled` reads like a master switch and is not one: only
+    `shadow_gate.py` consumes it, so a plan targeting three markets runs while
+    the repository default says `false` with every market `off`. Pinned so the
+    next reader does not assume the switch is holding something back."""
+    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    live = ("discovery_plan.py", "discovery_batch.py", "candidate_handoff.py")
+
+    for name in live:
+        text = (scripts / name).read_text(encoding="utf-8")
+        assert "multi_region_enabled" not in text, name
+        assert "multi_region_rollout" not in text, name
+
+    readers = {
+        path.name
+        for path in scripts.glob("*.py")
+        if "multi_region_rollout" in path.read_text(encoding="utf-8")
+    }
+    assert readers == {"shadow_gate.py"}

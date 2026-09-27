@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import re
@@ -12,6 +13,46 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlparse
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
+
+
+MARKETS_PATH = SKILL_ROOT / "references" / "markets.json"
+
+
+class MarketCatalogError(RuntimeError):
+    """Raised when the market catalog cannot answer which markets exist."""
+
+
+@functools.lru_cache(maxsize=1)
+def supported_markets(path: Path | None = None) -> tuple[str, ...]:
+    """The market ids `markets.json` defines, in catalog order.
+
+    Five modules each carried their own copy of this tuple and `market_plan`
+    additionally asserted the file matched it exactly, so the catalog was never
+    the answer -- it only had to agree with the answer, and adding a market
+    meant editing six places plus their tests before the new entry counted.
+    Read once and cached: the file ships with the skill and does not change
+    under a run. `supported_markets.cache_clear()` is for tests that write one.
+    """
+    catalog = path or MARKETS_PATH
+    try:
+        payload = json.loads(catalog.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise MarketCatalogError(f"cannot read {catalog}: {error}") from error
+    markets = payload.get("markets") if isinstance(payload, dict) else None
+    if not isinstance(markets, list) or not markets:
+        raise MarketCatalogError(f"{catalog} defines no markets")
+    ids: list[str] = []
+    for market in markets:
+        market_id = market.get("market_id") if isinstance(market, dict) else None
+        if not isinstance(market_id, str) or not _MARKET_ID.fullmatch(market_id):
+            raise MarketCatalogError(f"{catalog} has an invalid market_id: {market_id!r}")
+        if market_id in ids:
+            raise MarketCatalogError(f"{catalog} defines {market_id} twice")
+        ids.append(market_id)
+    return tuple(ids)
+
+
+_MARKET_ID = re.compile(r"[a-z]{2}")
 
 
 def load_config() -> dict:

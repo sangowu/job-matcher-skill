@@ -28,6 +28,7 @@ from typing import Any, Iterable
 from urllib.parse import urlparse
 
 import _filelock
+from _jobutil import supported_markets
 from _stdio import StdinUnavailable, read_stdin_text
 
 
@@ -39,7 +40,9 @@ LEGACY_ATS_PATH = SKILL_ROOT / "data" / "ats_companies.json"
 LOCK_PATH = SKILL_ROOT / "data" / "source_registry.lock"
 
 SCHEMA_VERSION = 1
-SUPPORTED_MARKETS = ("ie", "uk", "cn", "de")
+# Derived from references/markets.json, which is the only place the market set
+# is written down. Five modules used to carry their own copy of it.
+SUPPORTED_MARKETS = supported_markets()
 INTERNAL_LANGUAGES = ("en", "de", "zh-Hans")
 SOURCE_TYPES = {
     "ats_board",
@@ -426,7 +429,11 @@ def validate_market_source_links(
                 f"markets.{market_id}.source_ids is inconsistent: {'; '.join(detail)}"
             )
     if seen != set(SUPPORTED_MARKETS):
-        raise SourceValidationError("markets.json must define ie, uk, cn, and de")
+        missing = sorted(set(SUPPORTED_MARKETS) - seen)
+        raise SourceValidationError(
+            "markets.json must define every market it declares, missing: "
+            + ", ".join(missing)
+        )
 
 
 def load_seeds(

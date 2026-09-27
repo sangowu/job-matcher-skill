@@ -705,3 +705,42 @@ def test_the_template_names_the_signed_in_case_in_both_languages():
     assert template.count("session_dependent_detail") == 3
     assert '${t("session_dependent_detail")}' in template
     assert template.count("session_dependent_count") == 1
+
+
+def test_a_market_card_can_say_a_channel_does_not_apply_there():
+    """A market that returned nothing and a market with no such channel were
+    the same empty card, so the DiscoveryPlan's per-market verdicts are passed
+    through to the coverage card."""
+    meta = render_html.normalize_report_meta(
+        {
+            "target_markets": ["ie", "cn"],
+            "market_coverage": [
+                {"market_id": "ie", "status": "executed", "sources_planned": 3,
+                 "sources_succeeded": 3, "candidates_incremental": 4,
+                 "channels": {"structured": "planned", "browser": "planned",
+                              "web_search": "deferred"}},
+                {"market_id": "cn", "status": "executed", "sources_planned": 2,
+                 "sources_succeeded": 2, "candidates_incremental": 0,
+                 "channels": {"structured": "unavailable_in_market",
+                              "browser": "planned", "web_search": "invented"}},
+            ],
+        }
+    )
+
+    rows = {row["market_id"]: row for row in meta["market_coverage"]}
+    assert rows["cn"]["channels"]["structured"] == "unavailable_in_market"
+    assert rows["ie"]["channels"]["web_search"] == "deferred"
+    # A state this report has no wording for is dropped rather than displayed.
+    assert "web_search" not in rows["cn"]["channels"]
+
+
+def test_coverage_without_channel_verdicts_still_renders():
+    """Route summaries predate the verdicts and carry none."""
+    meta = render_html.normalize_report_meta(
+        {
+            "target_markets": ["ie"],
+            "market_coverage": [{"market_id": "ie", "status": "executed"}],
+        }
+    )
+
+    assert meta["market_coverage"][0]["channels"] == {}

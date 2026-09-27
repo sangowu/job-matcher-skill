@@ -163,6 +163,9 @@ const I18N = {
     coverage_executed: "已执行", coverage_partial: "覆盖有限", coverage_failed: "来源失败",
     coverage_skipped: "已跳过", coverage_not_collected: "未收集", coverage_unknown: "状态未知",
     coverage_counts: "来源成功 {0}/{1} · 失败 {2} · 跳过 {3} · 增量候选 {4}",
+    channel_structured: "结构化", channel_browser: "浏览器", channel_web_search: "Web 搜索",
+    channel_unavailable_in_market: "该市场无此通道", channel_route_off: "本轮未启用",
+    channel_deferred: "本轮未排到",
     multi_source: "多来源", provenance: "发现证据", normalized_location: "规范地点",
     same_role: "重复发布", same_role_heading: "同一岗位的其他发布",
     session_dependent: "登录态结果",
@@ -227,6 +230,9 @@ const I18N = {
     coverage_executed: "Executed", coverage_partial: "Limited coverage", coverage_failed: "Source failure",
     coverage_skipped: "Skipped", coverage_not_collected: "Not collected", coverage_unknown: "Status unknown",
     coverage_counts: "Sources {0}/{1} succeeded · {2} failed · {3} skipped · {4} incremental candidates",
+    channel_structured: "Structured", channel_browser: "Browser", channel_web_search: "Web Search",
+    channel_unavailable_in_market: "no such channel in this market", channel_route_off: "route off this round",
+    channel_deferred: "not reached this round",
     multi_source: "Multiple sources", provenance: "Discovery evidence", normalized_location: "Normalized location",
     same_role: "Posted twice", same_role_heading: "Other postings of this role",
     session_dependent: "Signed-in result",
@@ -322,7 +328,15 @@ function renderCoverage() {
     const counts = row.status === "not_collected" || row.status === "unknown"
       ? ""
       : `<p class="mt-1 text-[10px] text-gray-500 dark:text-gray-400">${esc(t("coverage_counts", row.sources_succeeded ?? 0, row.sources_planned ?? 0, row.sources_failed ?? 0, row.sources_skipped ?? 0, candidateCount))}</p>`;
-    return `<div class="rounded-lg border px-2.5 py-2 ${coverageStyle(row.status)}"><div class="flex items-center justify-between gap-2"><strong class="text-xs">${esc(categoryLabel("market", row.market_id))}</strong><span class="text-[10px] font-semibold">${esc(t("coverage_" + row.status))}</span></div>${counts}</div>`;
+    // Only the channels that did not run are worth a line: a market with
+    // nothing in it should say whether the channel was missing or the round was.
+    const notes = Object.entries(row.channels || {})
+      .filter(([, state]) => state !== "planned")
+      .map(([channel, state]) => `${t("channel_" + channel)}: ${t("channel_" + state)}`);
+    const channelLine = notes.length
+      ? `<p class="mt-1 text-[10px] text-gray-500 dark:text-gray-400">${esc(notes.join(" · "))}</p>`
+      : "";
+    return `<div class="rounded-lg border px-2.5 py-2 ${coverageStyle(row.status)}"><div class="flex items-center justify-between gap-2"><strong class="text-xs">${esc(categoryLabel("market", row.market_id))}</strong><span class="text-[10px] font-semibold">${esc(t("coverage_" + row.status))}</span></div>${counts}${channelLine}</div>`;
   }).join("");
 }
 

@@ -43,6 +43,17 @@ The deterministic plan contains three task lists and bounded execution waves:
 - `structured`: verified public endpoint/API sources when `ats_enabled` is
   explicitly true.
 
+`per_market` states, for each target market, why each channel is or is not in
+this plan: `planned`, `route_off` (the caller's own switch), `deferred` (sources
+exist and none reached a dispatched wave), or `unavailable_in_market` -- no
+eligible source in that market offers the channel at all. That last one is the
+region-to-channel mapping, derived from the source catalog rather than kept by
+hand: China skips the ATS channel because none of its sources is an `ats_board`,
+and the plan now says so instead of merely producing no structured task. A
+market with no planned channel at all is also named in `warnings`. Passing these
+verdicts into the report's `market_coverage[].channels` is what lets a card
+distinguish "no such channel here" from "nothing was posted here".
+
 `waves` assigns every task exactly once. Wave 1 combines the highest-value
 available channels and prioritizes browser-source category diversity. Later
 waves contain deterministic overflow from the same verified plan. The Agent

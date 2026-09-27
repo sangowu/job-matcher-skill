@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 import _filelock
+from _jobutil import supported_markets
 from _stdio import StdinUnavailable, read_stdin_text
 
 
@@ -22,7 +23,7 @@ SKILL_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LEDGER = SKILL_ROOT / "data" / "multi_region_shadow_runs.json"
 DEFAULT_CONFIG = SKILL_ROOT / "config.json"
 STALE_LOCK_SECONDS = 120
-SUPPORTED_MARKETS = ("ie", "uk", "cn", "de")
+SUPPORTED_MARKETS = supported_markets()
 DISCOVERY_ROUTES = ("regional_registry", "agent_web_search")
 ROLLOUT_MODES = {"off", "shadow", "opt_in", "default"}
 RUN_ID_PATTERN = re.compile(r"shadow-\d{8}-\d{6}-[a-f0-9]{6}\Z")

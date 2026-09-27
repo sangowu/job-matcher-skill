@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -1254,3 +1255,36 @@ def test_a_state_name_inside_a_longer_segment_still_counts(resources):
     )
 
     assert normalized["market_ids"] == ["us"]
+
+
+def test_no_module_writes_the_market_set_out_by_hand():
+    """The single-source change compared named constants, and a literal escaped it.
+
+    `merge_jobs._market_ids_from_sources` carried `{"ie", "uk", "cn", "de"}`
+    inline, so every US posting merged with `market_ids: []` and
+    `market_status: "unknown"` -- the report could neither filter it by market nor
+    attribute it to one, while the row's own provenance said `us`. A name is easy
+    to grep for; this is what catches the other shape.
+    """
+    root = Path(__file__).resolve().parents[1]
+    # A membership test against an inline set of market ids, which is the shape
+    # the defect had. A dict mapping a legacy region name to a subset is not
+    # this, and neither is a set of URL tokens that happens to contain "uk".
+    pattern = re.compile(r"in\s*[({\[]([^)}\]]*)[)}\]]")
+    known = set(market_plan.SUPPORTED_MARKETS)
+    literals = []
+    for directory in ("scripts", "tools"):
+        for path in (root / directory).glob("*.py"):
+            for line_number, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), 1
+            ):
+                if line.lstrip().startswith("#"):
+                    continue
+                for body in pattern.findall(line):
+                    quoted = re.findall(r'"([^"]*)"', body)
+                    if len(quoted) >= 2 and set(quoted) <= known:
+                        literals.append(f"{path.name}:{line_number}")
+    assert not literals, (
+        "a membership test writes the market set out by hand at: "
+        + ", ".join(literals)
+    )

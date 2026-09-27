@@ -45,6 +45,7 @@ from analysis_contract import (
 from candidate_contract import CandidateContractError, validate_candidate_envelope
 from _jobutil import (
     all_identity_keys,
+    supported_markets,
     all_url_keys,
     is_closed_posting,
     is_strong_identity_key,
@@ -280,11 +281,20 @@ def _provenance_key(source: dict) -> tuple[str, str, str, str]:
 
 
 def _market_ids_from_sources(sources: list[dict]) -> list[str]:
+    """The markets this row's provenance attributes it to.
+
+    Read from the catalog. This set was written out inline here, which the
+    single-source change missed because it is a literal and not a constant named
+    `SUPPORTED_MARKETS` -- so every US posting merged with `market_ids: []` and
+    `market_status: "unknown"`, and the report could neither filter it by market
+    nor attribute it to one, while its own provenance said `us`.
+    """
+    known = set(supported_markets())
     output: list[str] = []
     for source in sources:
         normalized = source.get("location_normalized")
         market_id = normalized.get("market_id") if isinstance(normalized, dict) else None
-        if market_id in {"ie", "uk", "cn", "de"} and market_id not in output:
+        if market_id in known and market_id not in output:
             output.append(market_id)
     return output
 

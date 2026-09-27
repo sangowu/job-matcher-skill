@@ -574,3 +574,59 @@ def test_a_channel_that_opens_past_the_last_wave_plans_nothing():
 
     assert plan["tasks"]["web_search"] == []
     assert plan["omitted_by_wave_budget"]["web_search"] > 0
+
+
+def test_a_browser_source_is_asked_the_profile_own_roles_first():
+    """The cut used to fall wherever synonym expansion put things.
+
+    `search_plan` is the expanded, interleaved query list, and a browser
+    source gets only `browser_queries_per_source` of it. Slicing it raw meant
+    the profile's first preferred role could be cut in favour of a synonym.
+    Measured on 2026-09-27: "AI Engineer" -- first in the CV -- landed third
+    and was dropped, while "Applied AI Engineer" was kept and matched one
+    posting on irishjobs.ie as an exact phrase. The AI Engineer roles that
+    site did carry were never searched.
+    """
+    seeds = source_registry.load_seeds()
+    request = _request(seeds)
+    request["market_plan"] = market_plan.build_market_plan(
+        {
+            "cv_profile": {
+                "preferred_roles": [
+                    "AI Engineer", "Applied AI Engineer", "Python Backend Engineer"
+                ]
+            },
+            "user_intent": {"locations": ["Dublin"]},
+        },
+        max_websearch_calls=6,
+        multi_region_enabled=True,
+    )
+    expanded = [query["role"] for query in request["market_plan"]["search_plan"]]
+    assert expanded.index("Applied AI Engineer") < expanded.index("AI Engineer")
+
+    plan = discovery_plan.build_discovery_plan(
+        request, seeds=seeds, config={**_config(), "browser_queries_per_source": 2}
+    )
+
+    for task in plan["tasks"]["browser"]:
+        roles = [query["role"] for query in task["queries"]]
+        assert roles[0] == "AI Engineer", task["task_id"]
+        assert len(roles) == 2
+
+
+def test_a_market_plan_without_target_roles_keeps_the_order_it_had():
+    """Nothing wrote `target_roles` before 2026-09-27, so its absence is the
+    old behaviour rather than an error."""
+    seeds = source_registry.load_seeds()
+    request = _request(seeds)
+    request["market_plan"].pop("target_roles", None)
+    expected = [
+        query["role"] for query in request["market_plan"]["search_plan"][:2]
+    ]
+
+    plan = discovery_plan.build_discovery_plan(
+        request, seeds=seeds, config={**_config(), "browser_queries_per_source": 2}
+    )
+
+    task = plan["tasks"]["browser"][0]
+    assert [query["role"] for query in task["queries"]] == expected

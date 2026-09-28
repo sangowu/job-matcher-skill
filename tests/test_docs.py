@@ -254,3 +254,52 @@ def test_the_per_round_instruction_budget_stays_where_it_was_put():
         f"SKILL.md + WORKFLOW.md is {total} characters, over the {budget} ceiling; "
         "move the reasoning into docs/rationale.md rather than raising this"
     )
+
+
+def _documented_defaults(text: str) -> dict[str, str]:
+    """The default column of the configuration table, by key."""
+    return {
+        key: value.strip().strip("`")
+        for key, value in re.findall(r"^\|\s*`([a-z_0-9]+)`\s*\|\s*([^|]+?)\s*\|", text, re.M)
+    }
+
+
+@pytest.mark.parametrize("readme", READMES)
+def test_every_documented_default_is_the_shipped_default(readme):
+    """The table said what a knob does and no longer what it is set to.
+
+    `test_every_config_knob_is_documented` checks a key is mentioned, which is
+    what let the table read `ats_enabled | false` while config.json shipped it
+    true, and `ats_boards_per_round | 30` against a shipped 60. A default that
+    is wrong is worse than one that is missing: it is read and believed.
+    """
+    config = json.loads((SKILL_ROOT / "config.json").read_text(encoding="utf-8"))
+    documented = _documented_defaults(_readme_text(readme))
+    wrong = []
+    for key, shown in documented.items():
+        if key not in config:
+            continue
+        actual = config[key]
+        # A nested value is summarised in prose rather than transcribed.
+        if isinstance(actual, (dict, list)):
+            continue
+        expected = "true" if actual is True else "false" if actual is False else str(actual)
+        if shown != expected:
+            wrong.append(f"{key}: table says {shown!r}, config.json ships {expected!r}")
+    assert not wrong, f"{readme}: " + "; ".join(wrong)
+
+
+@pytest.mark.parametrize("readme", READMES)
+def test_every_reference_catalog_is_listed(readme):
+    """A catalog nobody documents is one nobody knows to look at.
+
+    `geo_countries.json` was added and listed nowhere, the same way the market
+    list in this tree went three weeks out of date.
+    """
+    text = _readme_text(readme)
+    missing = [
+        path.name
+        for path in sorted((SKILL_ROOT / "references").glob("*"))
+        if path.is_file() and path.name not in text
+    ]
+    assert not missing, f"{readme} does not mention: {', '.join(missing)}"

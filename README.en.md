@@ -72,13 +72,16 @@ job-matcher/
 │   ├── cv_schema.md          # CV extraction rules
 │   ├── scoring_rubric.md     # 5-dim scoring + tier thresholds
 │   ├── search_playbook.md    # fan-out / per-market / adaptive batching
-│   ├── markets.json          # ie/uk/cn/de locations, languages, and query templates
+│   ├── markets.json          # per-market locations, languages and query templates; this file defines the market set
+│   ├── geo_countries.json    # countries no market covers, so "foreign" and "unreadable" stay different answers
 │   ├── role_taxonomy.json    # role families, synonyms, skill-gated edges
 │   ├── model_tiers.json      # model-to-tier map used to pick a subagent model by min_tier
 │   ├── source_seeds.json     # verified public seeds for ie/uk/cn/de/us (no credentials)
 │   ├── multi_region_smoke_plan.json # Phase D2 fixed sources and request limits
 │   ├── shadow_run.schema.json # Phase E count-only shadow evidence contract
 │   ├── shadow_compare.schema.json # ephemeral Phase E comparison input
+│   ├── shadow_run_v2.schema.json # Phase E shadow evidence contract, v2
+│   ├── shadow_compare_v2.schema.json # Phase E comparison input contract, v2
 │   ├── candidate_envelope.schema.json # Phase C discovery candidate contract
 │   ├── ats_phase1_boards.json # public-company sample for the ATS baseline
 │   └── ats_phase5_quality_boards.json # three-provider quality sample
@@ -106,7 +109,7 @@ job-matcher/
 │   ├── browser_control.py    # remote visual-browser CLI; metric self-reporting for local browsers
 │   ├── browser_setup.py      # one-shot localhost setup page
 │   ├── browser_workflow.py   # listing pagination/pause state machine
-│   ├── ats_provider.py       # public Ashby/Greenhouse/Lever GET adapters and Fake
+│   ├── ats_provider.py       # public read-only adapters for Ashby/Greenhouse/Lever/Workday and amazon.jobs, and Fake
 │   ├── job_prefilter.py      # deterministic role/location/seniority prefilter, one rule for all channels
 │   ├── rejected_log.py       # marks identities the prefilter refused (counts repeats; never skips the filter)
 │   ├── ats_pipeline.py       # ATS registry, sync, and normalization
@@ -266,13 +269,13 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `web_queries_per_market_per_wave` | 2 | per-market Web Search query cap in each wave |
 | `web_source_hints_per_task` | 6 | public source-hint cap per Web Search task |
 | `multi_region_enabled` | false | **Phase E shadow gate only**; `shadow_gate.py` is the one reader and the live discovery path ignores it, so it is not a multi-market master switch |
-| `multi_region_rollout` | all four off | independent off / shadow / opt_in / default mode per market; default requires the Phase E gate. Shadow gate only, as above |
+| `multi_region_rollout` | every listed market off | independent off / shadow / opt_in / default mode per market; default requires the Phase E gate. Shadow gate only, as above |
 | `stop_threshold` | 12 | stop once enough net-valid jobs found |
 | `consecutive_empty_stop` | 2 | stop after N consecutive empty batches |
-| `ats_enabled` | false | enable the public ATS enhancement pipeline; explicitly off by default |
+| `ats_enabled` | true | enable the public ATS enhancement pipeline |
 | `ats_defer_jd` | true | read the listing without job descriptions, then fetch one description per posting the round keeps; false restores one request per board with the descriptions inline |
 | `ats_max_concurrency` | 3 | hard cap for concurrent ATS boards |
-| `ats_boards_per_round` | 30 | hard cap for boards synced per round (pipeline ceiling 30) |
+| `ats_boards_per_round` | 60 | cap on boards planned per wave; the rest are counted in `omitted_by_wave_budget.structured` |
 | `ats_requests_per_round` | 100 | hard cap for ATS HTTP requests per round |
 | `ats_page_size` | 50 | Lever page size |
 | `ats_max_pages` | 10 | hard cap for sequential pages per Lever board |
@@ -343,7 +346,7 @@ The summary reports p50/p95 per mode plus `overlap_saving_pct`, which stays `n/a
 
 Release regressions use a fixed 15-job cold dataset and 10 Fake sessions: `python tools/benchmark_pipeline.py --output <json> --baseline docs/performance/v2.2.0-small-baseline.json`. The artifact contains raw iterations, p50/p95, absolute and relative changes, with no real web search or cloud-provider calls; it also verifies that all three Fake ATS JDs reach temporary tasks while the canonical table contains zero raw JDs. See [`docs/performance/strong-job-identity-baseline.md`](docs/performance/strong-job-identity-baseline.md) for the identity-migration run, [`docs/performance/ats-phase2-fake-baseline.md`](docs/performance/ats-phase2-fake-baseline.md) for the three-provider offline ATS run, [`docs/performance/ats-phase4-jd-handoff.md`](docs/performance/ats-phase4-jd-handoff.md) for the Phase 4 handoff measurement, and [`docs/performance/ats-phase4-live-quality.md`](docs/performance/ats-phase4-live-quality.md) for the three-JD live quality audit. A controlled discovery-to-merge A/B with fixed Web candidates and bounded live ATS calls uses `python tools/benchmark_ats_e2e.py --web-candidates <json> --profile <json> --output <json>`; it makes public ATS requests, requires explicit local inputs, and enforces production hard caps. See [`docs/performance/ats-phase3-controlled-e2e.md`](docs/performance/ats-phase3-controlled-e2e.md) for the result and limitations. The three-provider JD review uses `python tools/benchmark_ats_quality.py collect ...` to create an uncommitted local sample and then `audit` to emit a count-only gate report; see [`docs/performance/ats-phase5-multiprovider-quality.md`](docs/performance/ats-phase5-multiprovider-quality.md) for this small-sample result and its limits. HTTP compression can be checked with the same-result interleaved A/B in `python tools/benchmark_ats_compression.py --output <json> --pairs 3`; the bounded three-provider run cut median wire bytes by 79.31% with identical content fingerprints, job counts, and request counts. See [`docs/performance/ats-http-compression-ab.md`](docs/performance/ats-http-compression-ab.md).
 
-ATS Phase 2 provides an optional production enhancement pipeline and remains off by default through `ats_enabled: false`. Official Ashby/Greenhouse/Lever URLs found by Web Search can be added to the local registry with `python scripts/ats_pipeline.py discover`. Greenhouse discovery also recognizes public pages on `job-boards.eu.greenhouse.io`, while the public API still uses the official `boards-api.greenhouse.io` endpoint. Once enabled, `sync --profile <cv-profile.json>` syncs due boards, while `run --profile ...` combines discovery and sync. The pipeline uses public GET only, requests gzip by default with independent compressed and decompressed size limits, and performs deterministic title/location/seniority prefiltering. A standalone `AI` product or team suffix is not a valid role match; explicit phrases such as `AI evaluation`, `AI systems`, and `agent systems` remain AI-role signals. Phase 4 cleans ATS-provided JD text, caps it at 50,000 characters, and hands it to the ranking worker through the same `merge_jobs.py` local run snapshot. Tasks with text skip page fetching; tasks without it use the existing fallback ladder. Web and ATS still share the canonical job table and analysis cache, and the table stores only the JD hash. Once Phase B initializes `data/source_registry.json`, ATS control writes go only to the generic registry and legacy `data/ats_companies.json` stays read-only; the old file remains the fallback when no generic registry exists. `data/ats_sync_state.json` continues to hold low-sensitivity sync summaries. ATS budgets are independent from Web Search; boards may run concurrently, while one Lever board paginates sequentially. If a Greenhouse `content=true` response exceeds 25 MB, one content-free listing retry may run within the same global request budget and records `content_fallback`. The PII-safe public regression remains `python tools/benchmark_ats.py --output <json> --page-size 50 --max-pages 10` and stores no job descriptions, titles, or URLs. See [`docs/ats-provider-phase1.md`](docs/ats-provider-phase1.md).
+ATS Phase 2 provides a production enhancement pipeline controlled by `ats_enabled`, which currently defaults to on. Official Ashby/Greenhouse/Lever URLs found by Web Search can be added to the local registry with `python scripts/ats_pipeline.py discover`. Greenhouse discovery also recognizes public pages on `job-boards.eu.greenhouse.io`, while the public API still uses the official `boards-api.greenhouse.io` endpoint. Once enabled, `sync --profile <cv-profile.json>` syncs due boards, while `run --profile ...` combines discovery and sync. The pipeline uses public GET only, requests gzip by default with independent compressed and decompressed size limits, and performs deterministic title/location/seniority prefiltering. A standalone `AI` product or team suffix is not a valid role match; explicit phrases such as `AI evaluation`, `AI systems`, and `agent systems` remain AI-role signals. Phase 4 cleans ATS-provided JD text, caps it at 50,000 characters, and hands it to the ranking worker through the same `merge_jobs.py` local run snapshot. Tasks with text skip page fetching; tasks without it use the existing fallback ladder. Web and ATS still share the canonical job table and analysis cache, and the table stores only the JD hash. Once Phase B initializes `data/source_registry.json`, ATS control writes go only to the generic registry and legacy `data/ats_companies.json` stays read-only; the old file remains the fallback when no generic registry exists. `data/ats_sync_state.json` continues to hold low-sensitivity sync summaries. ATS budgets are independent from Web Search; boards may run concurrently, while one Lever board paginates sequentially. If a Greenhouse `content=true` response exceeds 25 MB, one content-free listing retry may run within the same global request budget and records `content_fallback`. The PII-safe public regression remains `python tools/benchmark_ats.py --output <json> --page-size 50 --max-pages 10` and stores no job descriptions, titles, or URLs. See [`docs/ats-provider-phase1.md`](docs/ats-provider-phase1.md).
 
 ## 🔧 Dependencies
 

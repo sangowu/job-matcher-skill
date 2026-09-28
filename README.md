@@ -72,13 +72,16 @@ job-matcher/
 │   ├── cv_schema.md          # CV 抽取规则
 │   ├── scoring_rubric.md     # 5 维打分 + 五档阈值
 │   ├── search_playbook.md    # fan-out / 分市场 / 自适应分批
-│   ├── markets.json          # ie/uk/cn/de 地点、语言与 query 模板
+│   ├── markets.json          # 市场的地点、语言与 query 模板（市场集以本文件为准）
+│   ├── geo_countries.json    # 没有市场覆盖的国家/地区；用于把「境外」和「读不出」分开
 │   ├── role_taxonomy.json    # 中英德稳定角色族、同义词与技能门槛泛化边
 │   ├── model_tiers.json      # 型号 ↔ 档位映射，供子代理按 min_tier 选型
 │   ├── source_seeds.json     # 已验证的公开来源种子（不含凭据）；市场由 markets.json 决定
 │   ├── multi_region_smoke_plan.json # Phase D2 固定来源与请求硬上限
 │   ├── shadow_run.schema.json # Phase E 计数型 shadow 证据契约
 │   ├── shadow_compare.schema.json # Phase E 临时候选对照输入契约
+│   ├── shadow_run_v2.schema.json # Phase E shadow 证据契约 v2
+│   ├── shadow_compare_v2.schema.json # Phase E 候选对照输入契约 v2
 │   ├── candidate_envelope.schema.json # Phase C 发现候选契约
 │   ├── ats_phase1_boards.json # ATS 小基线公开公司样本
 │   └── ats_phase5_quality_boards.json # 三供应商质量小样本
@@ -106,7 +109,7 @@ job-matcher/
 │   ├── browser_control.py    # 远程视觉浏览器控制命令；本机浏览器动作的指标自报路径
 │   ├── browser_setup.py      # 一次性 localhost 配置页面
 │   ├── browser_workflow.py   # 列表翻页/暂停状态机
-│   ├── ats_provider.py       # Ashby/Greenhouse/Lever 公开 GET 适配器与 Fake
+│   ├── ats_provider.py       # Ashby/Greenhouse/Lever/Workday + amazon.jobs 公开只读适配器与 Fake
 │   ├── job_prefilter.py      # 角色/地点/资历确定性初筛，三个通道共用一份规则
 │   ├── rejected_log.py       # 被初筛拒过的身份标记（只用于统计重复，从不用来跳过初筛）
 │   ├── ats_pipeline.py       # ATS 标识库、同步与候选归一化
@@ -234,13 +237,13 @@ agent 会自动识别。然后在对话里：
 | `web_queries_per_market_per_wave` | 2 | 每市场、每波次执行的 Web Search 查询上限 |
 | `web_source_hints_per_task` | 6 | 每条 Web Search 任务携带的公开来源提示上限 |
 | `multi_region_enabled` | false | **只管 Phase E shadow 门禁**；只有 `shadow_gate.py` 读它，live 发现路径不读，因此它不是多市场总闸 |
-| `multi_region_rollout` | 四市场均 off（不含 us） | 每市场独立设置 off / shadow / opt_in / default；default 必须通过 Phase E 门禁。同样只作用于 shadow 门禁 |
+| `multi_region_rollout` | 已列出的市场均 off | 每市场独立设置 off / shadow / opt_in / default；default 必须通过 Phase E 门禁。同样只作用于 shadow 门禁 |
 | `stop_threshold` | 12 | 净有效职位达标停止 |
 | `consecutive_empty_stop` | 2 | 连续 N 批 0 结果则停止 |
-| `ats_enabled` | false | 是否启用公开 ATS 增强管道；默认显式关闭 |
+| `ats_enabled` | true | 是否启用公开 ATS 增强管道 |
 | `ats_defer_jd` | true | 先读不含 JD 正文的职位列表，再只为本轮保留的候选各取一次正文；false 恢复每个 board 一次请求、正文随列表一起下载 |
 | `ats_max_concurrency` | 3 | 跨 ATS board 并发硬上限 |
-| `ats_boards_per_round` | 30 | 单轮同步 board 数硬上限（管道内上限 30）|
+| `ats_boards_per_round` | 60 | 单轮每波次 board 数上限；超出的 board 记入 `omitted_by_wave_budget.structured` |
 | `ats_requests_per_round` | 100 | 单轮 ATS HTTP 请求硬上限 |
 | `ats_page_size` | 50 | Lever 每页请求数量 |
 | `ats_max_pages` | 10 | 单个 Lever board 顺序翻页硬上限 |
@@ -311,7 +314,7 @@ python scripts/round_timer.py finish --round-id <R> --orchestration overlapped|s
 
 版本性能回归使用固定 15 职位冷数据集和 10 个 Fake 会话：`python tools/benchmark_pipeline.py --output <json> --baseline docs/performance/v2.2.0-small-baseline.json`。输出同时包含原始迭代、p50/p95、绝对变化和相对变化；不会调用真实 Web Search 或云 Provider，并验证三家 Fake ATS 的 JD 均进入临时任务、主表零正文。强身份迁移基准见 [`docs/performance/strong-job-identity-baseline.md`](docs/performance/strong-job-identity-baseline.md)，三家 ATS 离线管道基准见 [`docs/performance/ats-phase2-fake-baseline.md`](docs/performance/ats-phase2-fake-baseline.md)，Phase 4 交接基准见 [`docs/performance/ats-phase4-jd-handoff.md`](docs/performance/ats-phase4-jd-handoff.md)，真实三条五维抽检见 [`docs/performance/ats-phase4-live-quality.md`](docs/performance/ats-phase4-live-quality.md)。固定 Web 候选对照组与受限真实 ATS 的 discovery-to-merge A/B 使用 `python tools/benchmark_ats_e2e.py --web-candidates <json> --profile <json> --output <json>`；它会发出公开 ATS 请求，必须显式提供本地输入并遵守生产硬上限。结果与限制见 [`docs/performance/ats-phase3-controlled-e2e.md`](docs/performance/ats-phase3-controlled-e2e.md)。三供应商 JD 质量复核可先用 `python tools/benchmark_ats_quality.py collect ...` 创建不提交的本地样本，再用 `audit` 生成计数型门禁报告；本次小样本结果与限制见 [`docs/performance/ats-phase5-multiprovider-quality.md`](docs/performance/ats-phase5-multiprovider-quality.md)。ATS HTTP 压缩可用 `python tools/benchmark_ats_compression.py --output <json> --pairs 3` 做相同结果集的交错 A/B；本次三供应商实测中位传输量减少 79.31%，内容指纹、职位数与请求数均相同，详见 [`docs/performance/ats-http-compression-ab.md`](docs/performance/ats-http-compression-ab.md)。
 
-ATS Phase 2 已提供可选的生产增强管道，默认仍由 `ats_enabled: false` 关闭。Web Search 结果中的官方 Ashby/Greenhouse/Lever URL 可经 `python scripts/ats_pipeline.py discover` 写入本地标识库；Greenhouse 同时识别 `job-boards.eu.greenhouse.io` 的公开职位页，但公开 API 仍使用官方 `boards-api.greenhouse.io`。启用后用 `sync --profile <cv-profile.json>` 同步已到期 board，或用 `run --profile ...` 一次完成发现与同步。管道只做公开 GET，默认请求 gzip 并同时限制压缩响应与解压后正文大小，按标题/地点/资历确定性初筛；单独的 `AI` 产品/团队后缀不是有效岗位匹配，明确的 `AI evaluation`、`AI systems`、`agent systems` 等岗位短语才作为 AI 方向信号。Phase 4 会把 ATS 已提供的 JD 清洗并限制为 50,000 字符，通过同一 `merge_jobs.py` 的本地 run 快照交给精排 worker；有正文的任务跳过网页抓取，没有正文的任务继续走原容错阶梯。Web 与 ATS 仍共用职位主表和分析缓存，主表只留 JD hash。Phase B 初始化通用 `data/source_registry.json` 后，ATS 控制状态只写通用 registry，旧 `data/ats_companies.json` 保持只读；通用 registry 不存在时仍回退旧文件。`data/ats_sync_state.json` 继续保存低敏同步摘要。ATS 预算独立于 Web Search；跨 board 可并发，Lever 单 board内顺序翻页。Greenhouse 的 `content=true` 响应超过 25 MB 时可在同一全局请求预算内降级重试不含正文的列表，并记录 `content_fallback`。公开 API 回归仍使用 `python tools/benchmark_ats.py --output <json> --page-size 50 --max-pages 10`，且脱敏证据不保存职位正文、标题或 URL。详见 [`docs/ats-provider-phase1.md`](docs/ats-provider-phase1.md)。
+ATS Phase 2 的生产增强管道由 `ats_enabled` 控制（当前默认开启）。Web Search 结果中的官方 Ashby/Greenhouse/Lever URL 可经 `python scripts/ats_pipeline.py discover` 写入本地标识库；Greenhouse 同时识别 `job-boards.eu.greenhouse.io` 的公开职位页，但公开 API 仍使用官方 `boards-api.greenhouse.io`。启用后用 `sync --profile <cv-profile.json>` 同步已到期 board，或用 `run --profile ...` 一次完成发现与同步。管道只做公开 GET，默认请求 gzip 并同时限制压缩响应与解压后正文大小，按标题/地点/资历确定性初筛；单独的 `AI` 产品/团队后缀不是有效岗位匹配，明确的 `AI evaluation`、`AI systems`、`agent systems` 等岗位短语才作为 AI 方向信号。Phase 4 会把 ATS 已提供的 JD 清洗并限制为 50,000 字符，通过同一 `merge_jobs.py` 的本地 run 快照交给精排 worker；有正文的任务跳过网页抓取，没有正文的任务继续走原容错阶梯。Web 与 ATS 仍共用职位主表和分析缓存，主表只留 JD hash。Phase B 初始化通用 `data/source_registry.json` 后，ATS 控制状态只写通用 registry，旧 `data/ats_companies.json` 保持只读；通用 registry 不存在时仍回退旧文件。`data/ats_sync_state.json` 继续保存低敏同步摘要。ATS 预算独立于 Web Search；跨 board 可并发，Lever 单 board内顺序翻页。Greenhouse 的 `content=true` 响应超过 25 MB 时可在同一全局请求预算内降级重试不含正文的列表，并记录 `content_fallback`。公开 API 回归仍使用 `python tools/benchmark_ats.py --output <json> --page-size 50 --max-pages 10`，且脱敏证据不保存职位正文、标题或 URL。详见 [`docs/ats-provider-phase1.md`](docs/ats-provider-phase1.md)。
 
 ## 🔧 依赖
 

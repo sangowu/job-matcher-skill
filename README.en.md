@@ -36,7 +36,7 @@ CV + query
    │ [main agent] fuse query      → search_plan + candidate_profile
    │ [discovery plan] browser platform + model/Web + optional ATS → [script] merge_jobs (dedup/cache/eval snapshot)
    │ [parallel subagents] coarse → fine (fetch JD) + scoring + liveness → [script] conditional commit
-   │ [script] render_html         → report_*.html (auto-opened)
+   │ [script] render_html         → report.html + report_data.js (auto-opened)
    ▼
 interactive HTML report
 ```
@@ -121,7 +121,7 @@ job-matcher/
 │   ├── _jobutil.py           # shared: normalization / dedup keys / URL canonicalization
 │   ├── _filelock.py          # shared: cross-process exclusive file lock (every local store)
 │   └── _stdio.py             # shared: UTF-8 stdout/stderr, and a stdin read that cannot hang
-├── assets/template.html  # static report template (Tailwind + vanilla JS)
+├── assets/template.html  # static report template (Tailwind + vanilla JS), copied verbatim to report.html
 └── data/                 # runtime data (.gitignored, contains PII)
 ```
 

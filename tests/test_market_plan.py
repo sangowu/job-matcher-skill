@@ -45,7 +45,7 @@ def test_versioned_market_and_role_resources_validate(resources):
     markets, taxonomy = resources
 
     assert [item["market_id"] for item in markets["markets"]] == [
-        "ie", "uk", "cn", "de", "us"
+        "ie", "uk", "cn", "de", "us", "nl"
     ]
     assert all(market["query_templates"] for market in markets["markets"])
     # A market names no sources. It used to mirror, per market, the seeds that

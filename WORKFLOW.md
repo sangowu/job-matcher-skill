@@ -37,7 +37,7 @@
 |------|------|------|------|
 | `extract_cv.py` | `python scripts/extract_cv.py <file>` | CV 文件路径 | `{ok, source_type, char_count, cv_hash, text_path, cache_hit, cached_profile_path?, warnings}` |
 | `validate_profile.py` | `python scripts/validate_profile.py`（stdin） | LLM 抽取的 CVProfile JSON | `{ok, profile, notes}` |
-| `market_plan.py` | `… validate` / `… plan` / `… effective-profile`（stdin） | 四市场配置；或 `{cv_profile,user_intent}` | 配置校验；确定性 `{target_markets,target_roles,roles_source,generalized_roles,target_locations,report_language,search_languages,search_plan,role_plan,...}`；或写入 `roles`（目标角色 + 泛化角色）后的 profile（初筛只认这一份） |
+| `market_plan.py` | `… validate` / `… plan` / `… effective-profile`（stdin） | 市场配置；或 `{cv_profile,user_intent}` | 配置校验；确定性 `{target_markets,target_roles,roles_source,generalized_roles,target_locations,report_language,search_languages,search_plan,role_plan,...}`；或写入 `roles`（目标角色 + 泛化角色）后的 profile（初筛只认这一份） |
 | `discovery_mode.py` | `… plan` / `… event`（stdin） | 用户模式 + 当前运行时只读能力状态；或本机浏览器事件 | 优先 Neo 的发现 route 决策；连接丢失时有界降级，验证/限流时暂停单站；不探测系统或读取凭据 |
 | `discovery_plan.py` | `python scripts/discovery_plan.py`（stdin） | `{market_plan,source_plan,route_plan,browser_settings?}` | 只读连接公开来源目录与 URL-free 健康计划，生成确定性 browser/Web/structured 任务；不执行搜索或写状态 |
 | `discovery_batch.py` | `… --cv-hash H --cp-hash H [--metrics-run-id R]`（stdin） | `{batch_id,wave_id,discovery_plan,task_results,source_updates,progress}` | 强校验当前波次每个任务的终态与 CandidateEnvelope，一次 merge 后提交来源状态，并从计划推导幂等 count-only 下一波决策 |

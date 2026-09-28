@@ -885,6 +885,129 @@
           "WY"
         ]
       }
+    },
+    {
+      "market_id": "nl",
+      "country": "Netherlands",
+      "country_names": {
+        "en": "Netherlands",
+        "de": "Niederlande",
+        "zh-Hans": "荷兰"
+      },
+      "country_aliases": [
+        "Netherlands",
+        "The Netherlands",
+        "Holland",
+        "Nederland",
+        "NL",
+        "荷兰"
+      ],
+      "default_search_languages": [
+        "en"
+      ],
+      "cities": [
+        {
+          "city_id": "amsterdam",
+          "name": "Amsterdam",
+          "names": {
+            "en": "Amsterdam",
+            "de": "Amsterdam",
+            "zh-Hans": "阿姆斯特丹"
+          },
+          "aliases": [
+            "Amsterdam",
+            "Amsterdam Area",
+            "Greater Amsterdam",
+            "阿姆斯特丹"
+          ],
+          "administrative_areas": [
+            "North Holland",
+            "Noord-Holland"
+          ]
+        },
+        {
+          "city_id": "rotterdam",
+          "name": "Rotterdam",
+          "names": {
+            "en": "Rotterdam",
+            "de": "Rotterdam",
+            "zh-Hans": "鹿特丹"
+          },
+          "aliases": [
+            "Rotterdam",
+            "Rotterdam Area",
+            "鹿特丹"
+          ],
+          "administrative_areas": [
+            "South Holland",
+            "Zuid-Holland"
+          ]
+        },
+        {
+          "city_id": "the-hague",
+          "name": "The Hague",
+          "names": {
+            "en": "The Hague",
+            "de": "Den Haag",
+            "zh-Hans": "海牙"
+          },
+          "aliases": [
+            "The Hague",
+            "Den Haag",
+            "'s-Gravenhage",
+            "海牙"
+          ],
+          "administrative_areas": [
+            "South Holland",
+            "Zuid-Holland"
+          ]
+        },
+        {
+          "city_id": "utrecht",
+          "name": "Utrecht",
+          "names": {
+            "en": "Utrecht",
+            "de": "Utrecht",
+            "zh-Hans": "乌得勒支"
+          },
+          "aliases": [
+            "Utrecht",
+            "Utrecht Area",
+            "乌得勒支"
+          ],
+          "administrative_areas": [
+            "Utrecht",
+            "Provincie Utrecht"
+          ]
+        },
+        {
+          "city_id": "eindhoven",
+          "name": "Eindhoven",
+          "names": {
+            "en": "Eindhoven",
+            "de": "Eindhoven",
+            "zh-Hans": "埃因霍温"
+          },
+          "aliases": [
+            "Eindhoven",
+            "Eindhoven Area",
+            "埃因霍温"
+          ],
+          "administrative_areas": [
+            "North Brabant",
+            "Noord-Brabant"
+          ]
+        }
+      ],
+      "query_templates": [
+        {
+          "template_id": "nl-generic-en",
+          "language": "en",
+          "source_type": "open_web",
+          "discovery_route": "agent_web_search",
+          "template": "{role} jobs {location}"
+        }
+      ]
     }
   ]
 }

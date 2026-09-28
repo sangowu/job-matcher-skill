@@ -2,7 +2,7 @@
   "schema_version": 1,
   "evidence_boundary": "This bounded smoke run observes only the selected source entry pages and at most one matching detail page per market. It does not estimate market recall or justify enabling a source by default.",
   "limits": {
-    "max_sources": 5,
+    "max_sources": 6,
     "max_requests_per_source": 2,
     "max_response_bytes": 524288,
     "timeout_seconds": 8,
@@ -52,6 +52,21 @@
       "request_path": "/jobs/dev-engineering",
       "role_terms": ["ai engineer", "machine learning engineer", "backend engineer"],
       "location_terms": ["new york", "san francisco", "united states"]
+    },
+    {
+      "market_id": "nl",
+      "source_slot": "nl-local-1",
+      "source_id": "werkenvoornederland-nl",
+      "mode": "public_get",
+      "role_terms": [
+        "ai engineer",
+        "machine learning engineer"
+      ],
+      "location_terms": [
+        "amsterdam",
+        "netherlands",
+        "nederland"
+      ]
     }
   ]
 }

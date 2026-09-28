@@ -42,6 +42,9 @@ JOB_LINK_MARKERS = (
     "career",
     "position",
     "stelle",
+    # Dutch. The English stem above does not cover it: "vacature" shares no
+    # substring with "vacanc", so every Dutch job link read as navigation.
+    "vacature",
     "recruit",
 )
 CAPTCHA_MARKERS = (
@@ -409,7 +412,10 @@ def validate_plan(plan: dict[str, Any], seeds: dict[str, Any]) -> list[dict[str,
     _positive_int(limits.get("timeout_seconds"), "timeout_seconds", 20)
     _positive_int(limits.get("max_redirects"), "max_redirects", 3)
     if len(markets) != len(SUPPORTED_MARKETS) or len(markets) > limits["max_sources"]:
-        raise SmokeError("smoke plan must contain exactly the four supported markets")
+        raise SmokeError(
+            "smoke plan must contain exactly the supported markets, within "
+            "max_sources"
+        )
 
     source_rows = seeds.get("sources")
     if not isinstance(source_rows, list):

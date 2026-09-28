@@ -26,8 +26,8 @@
       "additionalProperties": false,
       "required": ["market_id", "city_id", "remote_scope", "confidence"],
       "properties": {
-        "market_id": {"type": ["string", "null"], "enum": ["ie", "uk", "cn", "de", "us", null]},
-        "market_ids": {"type": "array", "maxItems": 5, "uniqueItems": true, "items": {"enum": ["ie", "uk", "cn", "de", "us"]}},
+        "market_id": {"type": ["string", "null"], "enum": ["ie", "uk", "cn", "de", "us", "nl", null]},
+        "market_ids": {"type": "array", "maxItems": 6, "uniqueItems": true, "items": {"enum": ["ie", "uk", "cn", "de", "us", "nl"]}},
         "city_id": {"type": ["string", "null"], "maxLength": 100},
         "remote_scope": {"type": ["string", "null"], "maxLength": 40},
         "confidence": {"enum": ["exact", "country", "scope", "unknown"]}

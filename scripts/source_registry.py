@@ -59,6 +59,11 @@ ACCESS_METHODS = {
     "public_read_only_endpoint",
     "ats_public_api",
 }
+# The access methods the structured channel fetches through. A source offering
+# one of them is read in a single request that returns everything the board
+# holds, in every country it holds it for -- which is why such a source is not
+# filtered by the markets it declares. See `build_source_plan`.
+STRUCTURED_METHODS = {"ats_public_api", "public_read_only_endpoint"}
 SOURCE_STATUSES = {"candidate", "verified", "unavailable", "disabled"}
 # Providers with an applicant-tracking-system API, which is what the
 # `ats_public_api` access method names. Kept here so this module stays free of
@@ -391,17 +396,20 @@ def validate_seed_payload(payload: dict[str, Any]) -> dict[str, Any]:
 def validate_market_source_links(
     seeds: dict[str, Any], markets_payload: dict[str, Any]
 ) -> None:
+    """Check the market catalog, and that it does not name sources.
+
+    It used to carry a `source_ids` list per market, checked here for equality
+    with the `markets` each source declares in `source_seeds.json`. The two
+    were the same fact written twice, 171 entries of it, and every edit to one
+    file had to be mirrored into the other or validation failed -- which is how
+    it failed, on a one-word change to a single source. A source says which
+    markets it serves; nothing else gets to say it. The key is refused rather
+    than ignored so the mirror cannot come back a row at a time.
+    """
+    del seeds  # the catalog no longer has to agree with anything here
     markets = markets_payload.get("markets")
     if not isinstance(markets, list):
         raise SourceValidationError("markets.json markets must be a list")
-    by_market = {
-        market_id: {
-            source["source_id"]
-            for source in seeds["sources"]
-            if market_id in source["markets"]
-        }
-        for market_id in SUPPORTED_MARKETS
-    }
     seen: set[str] = set()
     for market in markets:
         if not isinstance(market, dict) or market.get("market_id") not in SUPPORTED_MARKETS:
@@ -410,23 +418,10 @@ def validate_market_source_links(
         if market_id in seen:
             raise SourceValidationError(f"markets.json duplicates market: {market_id}")
         seen.add(market_id)
-        linked = set(
-            _string_list(
-                market.get("source_ids"),
-                f"markets.{market_id}.source_ids",
-                allow_empty=True,
-            )
-        )
-        if linked != by_market[market_id]:
-            missing = sorted(by_market[market_id] - linked)
-            unknown = sorted(linked - by_market[market_id])
-            detail = []
-            if missing:
-                detail.append(f"missing {', '.join(missing)}")
-            if unknown:
-                detail.append(f"mis-scoped {', '.join(unknown)}")
+        if "source_ids" in market:
             raise SourceValidationError(
-                f"markets.{market_id}.source_ids is inconsistent: {'; '.join(detail)}"
+                f"markets.{market_id} must not list source_ids: a source declares "
+                "its own markets in source_seeds.json"
             )
     if seen != set(SUPPORTED_MARKETS):
         missing = sorted(set(SUPPORTED_MARKETS) - seen)
@@ -1317,6 +1312,21 @@ def build_source_plan(
     live outside version control: the catalog records that the source refuses
     automation, the acknowledgement records that this installation proceeds
     anyway, and neither half enables it alone.
+
+    A source the structured channel can fetch is not filtered by the markets it
+    declares, and is planned for every market the round asked for. Such a source
+    is read in one request that returns the whole board, so which countries are
+    in it is a fact of the response, not of the catalog -- and the catalog's
+    reading is routinely short. Measured 2026-09-28 across six Greenhouse boards
+    this repository marks `ie`/`uk`/`de`: 1,642 postings, of which 25 were in
+    the Netherlands and 436 in countries no market covers. Every one of them was
+    fetched and then dropped before anything could look at it. Which of them a
+    round keeps is decided afterwards, from each posting's own location, by
+    `ats_pipeline.filter_to_markets`.
+
+    A source without that channel stays filtered. It is queried per market with
+    that market's own language and locations, so planning it for a market it
+    does not serve buys a request that cannot return anything.
     """
     validate_registry(registry)
     acknowledged = set(risk_acknowledged)
@@ -1343,7 +1353,9 @@ def build_source_plan(
         registry["sources"], key=lambda source: (-source["priority"], source["source_id"])
     )
     for source in ordered:
-        if not set(source["markets"]) & set(requested):
+        structured = bool(set(source["access_methods"]) & STRUCTURED_METHODS)
+        covered = [market_id for market_id in requested if market_id in source["markets"]]
+        if not structured and not covered:
             continue
         if not source["enabled"] or source["status"] == "disabled":
             excluded["disabled"] += 1
@@ -1367,9 +1379,13 @@ def build_source_plan(
         selected.append(
             {
                 "source_id": source["source_id"],
-                "markets": [
-                    market_id for market_id in requested if market_id in source["markets"]
-                ],
+                # For a structured source, every market the round asked for:
+                # the board is fetched whole either way, and its declaration is
+                # not the authority on which countries are in it. Downstream
+                # this is the scope a candidate's own location is checked
+                # against, so widening it here is what lets a posting outside
+                # the declaration survive long enough to be placed.
+                "markets": list(requested) if structured else covered,
                 "priority": source["priority"],
             }
         )

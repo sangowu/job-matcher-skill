@@ -942,3 +942,83 @@ def test_a_round_with_no_browser_route_can_still_commit_its_waves():
     assert min(task["wave_id"] for task in plan["tasks"]["web_search"]) > min(
         task["wave_id"] for task in plan["tasks"]["structured"]
     )
+
+
+def _structured_source_plan(seeds: dict) -> dict:
+    """A source plan built the way `build_source_plan` builds one for `ie`.
+
+    Every structured board is in it, whatever markets it declares, because the
+    board is fetched whole and the countries in it are settled by the response.
+    """
+    sources = [
+        {
+            "source_id": source["source_id"],
+            "markets": (
+                ["ie"]
+                if set(source["access_methods"]) & source_registry.STRUCTURED_METHODS
+                else ["ie"]
+            ),
+            "priority": source["priority"],
+        }
+        for source in seeds["sources"]
+        if source["enabled"]
+        and source["verified"]
+        and not source.get("requires_risk_ack")
+        and (
+            set(source["access_methods"]) & source_registry.STRUCTURED_METHODS
+            or "ie" in source["markets"]
+        )
+    ]
+    return {
+        "schema_version": 1,
+        "market_ids": ["ie"],
+        "sources": sources,
+        "source_ids": [source["source_id"] for source in sources],
+    }
+
+
+def test_a_tight_board_budget_keeps_the_boards_that_name_the_round_s_market():
+    """Admitting every board must not cost the round a board it already had.
+
+    A structured board is planned whatever it declares, so an `ie` round now has
+    roughly two and a half times the candidates it had. Under a budget smaller
+    than that pool, spending it on newly admitted boards would be a loss, not a
+    gain -- so the boards that name the market sort first and the rest follow.
+    """
+    seeds = source_registry.load_seeds()
+    declared = {
+        source["source_id"]
+        for source in seeds["sources"]
+        if "ie" in source["markets"]
+        and set(source["access_methods"]) & source_registry.STRUCTURED_METHODS
+        and source["automation_allowed"] is True
+    }
+    request = {**_request(seeds), "source_plan": _structured_source_plan(seeds)}
+    budget = 5
+    plan = discovery_plan.build_discovery_plan(
+        request,
+        seeds=seeds,
+        config={
+            **_config(),
+            "ats_enabled": True,
+            "ats_boards_per_round": budget,
+            "discovery_max_waves": 1,
+        },
+    )
+    chosen = [task["source_id"] for task in plan["tasks"]["structured"]]
+    assert len(chosen) == budget
+    assert set(chosen) <= declared, "the budget went to a board that never named ie"
+
+    # And with room for all of them, the ones that do not name ie are there too:
+    # that is the whole point of admitting them.
+    roomy = discovery_plan.build_discovery_plan(
+        request,
+        seeds=seeds,
+        config={**_config(), "ats_enabled": True, "ats_boards_per_round": 200},
+    )
+    every = [task["source_id"] for task in roomy["tasks"]["structured"]]
+    assert set(every) > declared
+    # Each one carries the round's markets, which is the scope a candidate's own
+    # location is checked against downstream.
+    for task in roomy["tasks"]["structured"]:
+        assert task["markets"] == ["ie"]

@@ -48,49 +48,49 @@ def test_versioned_market_and_role_resources_validate(resources):
         "ie", "uk", "cn", "de", "us"
     ]
     assert all(market["query_templates"] for market in markets["markets"])
-    # The catalog grows, so pin the relationship rather than the head count:
-    # every market lists exactly the seeds that name it, each one once.
+    # A market names no sources. It used to mirror, per market, the seeds that
+    # name it -- the same fact in two files, kept equal by a validator, and the
+    # thing that broke when one of them was edited. Each market still has to be
+    # covered, which is checked against the seed catalog itself.
+    assert all("source_ids" not in market for market in markets["markets"])
     seeds = source_registry.load_seeds()["sources"]
     for market in markets["markets"]:
-        listed = market["source_ids"]
         covering = {
             source["source_id"] for source in seeds
             if market["market_id"] in source["markets"]
         }
         assert covering, market["market_id"]
-        assert set(listed) == covering, market["market_id"]
-        assert len(listed) == len(set(listed)), market["market_id"]
-    assert all(
-        len(set(market["source_ids"])) == len(market["source_ids"])
-        for market in markets["markets"]
-    )
     assert len(taxonomy["role_families"]) >= 4
 
 
-@pytest.mark.parametrize("duplicate_kind", ["market", "city", "source"])
-def test_duplicate_market_city_and_source_ids_are_rejected(resources, duplicate_kind):
+@pytest.mark.parametrize("duplicate_kind", ["market", "city"])
+def test_duplicate_market_and_city_ids_are_rejected(resources, duplicate_kind):
     markets, _ = resources
     payload = copy.deepcopy(markets)
     if duplicate_kind == "market":
         payload["markets"][1]["market_id"] = payload["markets"][0]["market_id"]
-    elif duplicate_kind == "city":
+    else:
         payload["markets"][1]["cities"][0]["city_id"] = (
             payload["markets"][0]["cities"][0]["city_id"]
         )
-    else:
-        payload["markets"][0]["source_ids"] = ["same-source", "same-source"]
 
     with pytest.raises(market_plan.MarketPlanError, match="duplicate"):
         market_plan.validate_markets(payload)
 
 
-def test_unknown_source_reference_is_rejected(resources):
+def test_a_market_naming_its_own_sources_is_refused(resources):
+    """The mirror is refused rather than ignored, so it cannot return a row at a time.
+
+    A market carrying `source_ids` had to list exactly the seeds naming it. Two
+    files holding one fact is a thing to keep in sync; a source says which
+    markets it serves and nothing else gets to say it.
+    """
     markets, _ = resources
     payload = copy.deepcopy(markets)
-    payload["markets"][0]["source_ids"] = ["not-in-phase-b-registry"]
+    payload["markets"][0]["source_ids"] = ["irishjobs-ie"]
 
-    with pytest.raises(market_plan.MarketPlanError, match="unknown source_id"):
-        market_plan.validate_markets(payload, known_source_ids=set())
+    with pytest.raises(market_plan.MarketPlanError, match="must not list source_ids"):
+        market_plan.validate_markets(payload)
 
 
 @pytest.mark.parametrize(

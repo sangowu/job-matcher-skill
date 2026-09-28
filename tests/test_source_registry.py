@@ -110,10 +110,9 @@ def _legacy_registry() -> dict:
 def test_public_source_seeds_validate_locked_market_coverage():
     seeds = source_registry.load_seeds()
     markets, _ = market_plan.load_resources()
-    known = {source["source_id"] for source in seeds["sources"]}
-
     assert len(seeds["sources"]) >= 41, "the reviewed catalog must not shrink"
-    assert all(set(market["source_ids"]) <= known for market in markets["markets"])
+    # A market names no sources; the seed catalog is where that is written.
+    assert all("source_ids" not in market for market in markets["markets"])
     for market_id in source_registry.SUPPORTED_MARKETS:
         eligible = [
             source
@@ -131,12 +130,9 @@ def test_public_source_seeds_validate_locked_market_coverage():
         ]
         assert len(local) >= 3
         assert len(company) >= 10
-        market = next(item for item in markets["markets"] if item["market_id"] == market_id)
-        assert set(market["source_ids"]) == {
-            source["source_id"]
-            for source in seeds["sources"]
-            if market_id in source["markets"]
-        }
+        # The market exists in the market catalog, which is all that file has to
+        # say about it: the sources are the seed catalog's business.
+        assert any(item["market_id"] == market_id for item in markets["markets"])
 
 
 def test_global_job_boards_are_not_counted_as_local_market_sources():
@@ -246,10 +242,48 @@ def test_only_enabled_verified_unexpired_sources_enter_deterministic_plan(tmp_pa
         # A source whose operator forbids automation waits for the person's own
         # acknowledgement, which this plan was built without.
         and not source.get("requires_risk_ack")
-        and {"ie", "de"} & set(source["markets"])
+        # A structured source is planned whatever markets it declares: it is
+        # fetched whole, so the countries in it are settled by the response.
+        and (
+            set(source["access_methods"]) & source_registry.STRUCTURED_METHODS
+            or {"ie", "de"} & set(source["markets"])
+        )
     }
     assert set(plan["source_ids"]) == eligible
     assert len(plan["source_ids"]) == len(eligible), "a source must appear once"
+
+    by_id = {source["source_id"]: source for source in plan["sources"]}
+    # A structured source carries the round's markets, not its own declaration:
+    # this is the scope each posting's location is later checked against, and a
+    # board declared for `us` alone is exactly the one whose Irish postings the
+    # old rule threw away before anything could read them.
+    us_only = next(
+        source
+        for source in source_registry.load_seeds()["sources"]
+        if source["markets"] == ["us"]
+        and set(source["access_methods"]) & source_registry.STRUCTURED_METHODS
+        and source["source_id"] in by_id
+    )
+    assert by_id[us_only["source_id"]]["markets"] == ["ie", "de"]
+    # A source without that channel is still planned only where it serves. It is
+    # queried per market in that market's own language, so a market it does not
+    # cover buys a request that cannot return anything.
+    seeds_by_id = {
+        source["source_id"]: source for source in source_registry.load_seeds()["sources"]
+    }
+    unstructured = [
+        source
+        for source in plan["sources"]
+        if not set(seeds_by_id[source["source_id"]]["access_methods"])
+        & source_registry.STRUCTURED_METHODS
+    ]
+    assert unstructured, "the catalog has sources the structured channel cannot reach"
+    for source in unstructured:
+        declared = set(seeds_by_id[source["source_id"]]["markets"])
+        assert source["markets"] == [
+            market for market in ("ie", "de") if market in declared
+        ]
+        assert source["markets"], "an unstructured source with no overlap is not planned"
 
     _apply(
         registry_path,

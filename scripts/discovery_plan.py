@@ -26,7 +26,9 @@ CONFIG_PATH = SKILL_ROOT / "config.json"
 SCHEMA_VERSION = 1
 BROWSER_PROVIDERS = {"browseros_neo", "user_browser"}
 ROUTES = {"browser", "model_search"}
-STRUCTURED_METHODS = {"ats_public_api", "public_read_only_endpoint"}
+# The catalog owns this vocabulary, and `build_source_plan` decides the market
+# scope from the same set. A second copy here could disagree with it.
+STRUCTURED_METHODS = source_registry.STRUCTURED_METHODS
 COOKIE_POLICIES = {"necessary_only", "ask_every_time"}
 CATEGORY_ORDER = ("local", "public", "global", "company")
 
@@ -692,6 +694,21 @@ def build_discovery_plan(
             if not methods:
                 continue
             structured_candidates.append((source_id, health, source, methods[0]))
+        # A board that names one of the round's markets goes first. Every
+        # structured board is now planned whatever it declares, because the
+        # declaration is not what decides which countries the response holds --
+        # but it is still the best guess available, and ordering on it keeps the
+        # boards a round used to get as the prefix of the boards it gets now.
+        # Without this a tight `ats_boards_per_round` would spend the budget on
+        # the newly admitted boards and drop ones that were never in question.
+        scoped = set(markets)
+        structured_candidates.sort(
+            key=lambda item: (
+                0 if scoped & set(catalog_by_id[item[0]]["markets"]) else 1,
+                -item[1]["priority"],
+                item[0],
+            )
+        )
         selected_structured = structured_candidates[: structured_limit * max_waves]
         omitted["structured"] = len(structured_candidates) - len(selected_structured)
         for position, (source_id, health, source, access_method) in enumerate(

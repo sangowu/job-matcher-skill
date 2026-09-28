@@ -23,7 +23,6 @@ from _stdio import StdinUnavailable, read_stdin_text
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 MARKETS_PATH = SKILL_ROOT / "references" / "markets.json"
 ROLE_TAXONOMY_PATH = SKILL_ROOT / "references" / "role_taxonomy.json"
-SOURCE_SEEDS_PATH = SKILL_ROOT / "references" / "source_seeds.json"
 CONFIG_PATH = SKILL_ROOT / "config.json"
 
 SCHEMA_VERSION = 1
@@ -162,7 +161,7 @@ def _validate_foreign_areas(value: Any, markets: list[Any]) -> None:
 
 
 def validate_markets(
-    payload: dict[str, Any], *, known_source_ids: set[str] | None = None
+    payload: dict[str, Any]
 ) -> dict[str, Any]:
     if payload.get("schema_version") != SCHEMA_VERSION:
         raise MarketPlanError("markets.json schema_version must be 1")
@@ -223,16 +222,15 @@ def validate_markets(
                 if not isinstance(names.get(language), str) or not names[language]:
                     raise MarketPlanError(f"{city_id}.names.{language} is required")
 
-        source_ids = _strings(
-            market.get("source_ids"), f"{market_id}.source_ids", allow_empty=True
-        )
-        _require_unique(source_ids, f"{market_id} source_id")
-        if known_source_ids is not None:
-            unknown = sorted(set(source_ids) - known_source_ids)
-            if unknown:
-                raise MarketPlanError(
-                    f"{market_id} references unknown source_id: {', '.join(unknown)}"
-                )
+        # A market does not name sources. It used to, and that list had to equal
+        # the `markets` each source declares in `source_seeds.json` -- the same
+        # fact in two files, which is a thing to keep in sync rather than a
+        # thing to know. Refused rather than ignored so it cannot come back.
+        if "source_ids" in market:
+            raise MarketPlanError(
+                f"{market_id} must not list source_ids: a source declares its own "
+                "markets in source_seeds.json"
+            )
 
         templates = market.get("query_templates")
         if not isinstance(templates, list) or not templates:
@@ -419,21 +417,11 @@ def _validate_administrative_areas(markets: list[Any], foreign: Any) -> None:
 def load_resources(
     markets_path: Path = MARKETS_PATH,
     taxonomy_path: Path = ROLE_TAXONOMY_PATH,
-    *,
-    known_source_ids: set[str] | None = None,
-    source_seeds_path: Path = SOURCE_SEEDS_PATH,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    if known_source_ids is None and source_seeds_path.exists():
-        seeds = _read_json(source_seeds_path)
-        sources = seeds.get("sources")
-        if not isinstance(sources, list):
-            raise MarketPlanError("source_seeds.json sources must be a list")
-        known_source_ids = {
-            str(source.get("source_id"))
-            for source in sources
-            if isinstance(source, dict) and source.get("source_id")
-        }
-    markets = validate_markets(_read_json(markets_path), known_source_ids=known_source_ids)
+    # The seed catalog is no longer read here. It was read only to check the
+    # per-market `source_ids` mirror, which markets no longer carry, and reading
+    # it cost this module a dependency on a file it has nothing else to do with.
+    markets = validate_markets(_read_json(markets_path))
     taxonomy = validate_role_taxonomy(_read_json(taxonomy_path))
     return markets, taxonomy
 
@@ -1114,11 +1102,15 @@ def build_market_plan(
             if language not in all_languages:
                 all_languages.append(language)
     target_locations = [detail["location_id"] for detail in recognized]
-    regional_source_ids: list[str] = []
-    for market_id in target_markets:
-        for source_id in market_by_id[market_id]["source_ids"]:
-            if source_id not in regional_source_ids:
-                regional_source_ids.append(source_id)
+    # No `regional_source_ids`. It was read off `markets.json`, which held a
+    # per-market mirror of the `markets` each source declares in
+    # `source_seeds.json`, and `discovery_plan` used it as a third gate on top
+    # of the two in `build_source_plan`. Two lists that had to stay equal, and
+    # the mirror is what broke first: adding a market to one source failed
+    # validation for the other file. The seed catalog is the one place that
+    # says which markets a source serves, and `build_source_plan` is the one
+    # place that decides what a round reaches. `discovery_plan` still honours
+    # the key when a caller supplies one; nothing here supplies it.
     return {
         "schema_version": SCHEMA_VERSION,
         "target_markets": target_markets,
@@ -1131,7 +1123,6 @@ def build_market_plan(
         "report_language": report_language,
         "search_languages": all_languages,
         "search_languages_by_market": languages_by_market,
-        "regional_source_ids": regional_source_ids,
         "search_plan": search_plan,
         "role_plan": role_plan,
         "max_websearch_calls": budget,

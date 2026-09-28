@@ -148,27 +148,6 @@ def _append_seeds(seeds_path: Path, blocks: list[str]) -> None:
     seeds_path.write_text(text, encoding="utf-8", newline=newline)
 
 
-def _link_markets(markets_path: Path, promoted: list[dict[str, Any]]) -> None:
-    """markets.json 的 source_ids 必须与种子逐市场一一对应。"""
-    text, newline = _read_normalized(markets_path)
-    for market in json.loads(text)["markets"]:
-        market_id = market["market_id"]
-        new_ids = [
-            source["source_id"]
-            for source in promoted
-            if market_id in source["markets"] and source["source_id"] not in market["source_ids"]
-        ]
-        if not new_ids:
-            continue
-        # 各市场的末项可能相同，按 market_id 锚点定位各自的区块。
-        anchor = text.index(f'"market_id": "{market_id}"')
-        start = text.index('"source_ids": [', anchor)
-        close = text.index("\n      ]", start)
-        addition = ",\n".join(f'        "{source_id}"' for source_id in new_ids)
-        text = text[:close] + ",\n" + addition + text[close:]
-    markets_path.write_text(text, encoding="utf-8", newline=newline)
-
-
 def promote(
     *,
     registry_path: Path = source_registry.REGISTRY_PATH,
@@ -198,7 +177,8 @@ def promote(
         return summary
 
     _append_seeds(seeds_path, [render_seed(source) for source in chosen])
-    _link_markets(markets_path, chosen)
+    # markets.json 不再需要同步：它曾按市场镜像一份 source_ids，提升时要靠
+    # 文本手术把新 id 插进各市场的区块里。一个来源服务哪些市场，只由种子自己说。
     try:
         # 种子契约在落盘后立即复核；失败则不改注册表 origin，便于人工回退。
         promoted_seeds = source_registry.load_seeds(seeds_path, markets_path=markets_path)

@@ -942,3 +942,94 @@ def test_a_round_with_no_browser_route_can_still_commit_its_waves():
     assert min(task["wave_id"] for task in plan["tasks"]["web_search"]) > min(
         task["wave_id"] for task in plan["tasks"]["structured"]
     )
+
+
+def _structured_source_plan(seeds: dict, *, invert_priority: bool = False) -> dict:
+    """A source plan built the way `build_source_plan` builds one for `ie`.
+
+    Every structured board is in it, whatever markets it declares, because the
+    board is fetched whole and the countries in it are settled by the response.
+
+    `invert_priority` ranks every board that names ie below every board that
+    does not. The catalog's own priorities happen to put the ie boards first, so
+    without this a budget test passes whether or not anything orders them.
+    """
+    sources = []
+    for source in seeds["sources"]:
+        structured = set(source["access_methods"]) & source_registry.STRUCTURED_METHODS
+        if not (source["enabled"] and source["verified"]):
+            continue
+        if source.get("requires_risk_ack"):
+            continue
+        if not structured and "ie" not in source["markets"]:
+            continue
+        priority = source["priority"]
+        if invert_priority:
+            priority = 10 if "ie" in source["markets"] else 90
+        sources.append(
+            {
+                "source_id": source["source_id"],
+                "markets": ["ie"],
+                "priority": priority,
+            }
+        )
+    return {
+        "schema_version": 1,
+        "market_ids": ["ie"],
+        "sources": sources,
+        "source_ids": [source["source_id"] for source in sources],
+    }
+
+
+def test_a_tight_board_budget_keeps_the_boards_that_name_the_round_s_market():
+    """Admitting every board must not cost the round a board it already had.
+
+    A structured board is planned whatever it declares, so an `ie` round now has
+    roughly two and a half times the candidates it had. Under a budget smaller
+    than that pool, spending it on newly admitted boards would be a loss, not a
+    gain -- so the boards that name the market sort first and the rest follow.
+
+    The plan is given inverted priorities, ranking every ie board below every
+    other, because the catalog's own priorities already order them that way and
+    this test passed with the ordering deleted.
+    """
+    seeds = source_registry.load_seeds()
+    declared = {
+        source["source_id"]
+        for source in seeds["sources"]
+        if "ie" in source["markets"]
+        and set(source["access_methods"]) & source_registry.STRUCTURED_METHODS
+        and source["automation_allowed"] is True
+    }
+    request = {
+        **_request(seeds),
+        "source_plan": _structured_source_plan(seeds, invert_priority=True),
+    }
+    budget = 5
+    plan = discovery_plan.build_discovery_plan(
+        request,
+        seeds=seeds,
+        config={
+            **_config(),
+            "ats_enabled": True,
+            "ats_boards_per_round": budget,
+            "discovery_max_waves": 1,
+        },
+    )
+    chosen = [task["source_id"] for task in plan["tasks"]["structured"]]
+    assert len(chosen) == budget
+    assert set(chosen) <= declared, "the budget went to a board that never named ie"
+
+    # And with room for all of them, the ones that do not name ie are there too:
+    # that is the whole point of admitting them.
+    roomy = discovery_plan.build_discovery_plan(
+        {**_request(seeds), "source_plan": _structured_source_plan(seeds)},
+        seeds=seeds,
+        config={**_config(), "ats_enabled": True, "ats_boards_per_round": 200},
+    )
+    every = [task["source_id"] for task in roomy["tasks"]["structured"]]
+    assert set(every) > declared
+    # Each one carries the round's markets, which is the scope a candidate's own
+    # location is checked against downstream.
+    for task in roomy["tasks"]["structured"]:
+        assert task["markets"] == ["ie"]

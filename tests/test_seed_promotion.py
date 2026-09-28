@@ -136,17 +136,25 @@ def test_promotion_without_ownership_transfer_would_break_the_catalog(tmp_path):
         source_registry.merge_seeds(registry, seeds)
 
 
-def test_markets_json_is_kept_in_step_with_the_promoted_seed(tmp_path):
+def test_promotion_leaves_the_market_catalog_untouched(tmp_path):
+    """Promotion used to write the new id into each market's `source_ids`.
+
+    That list was a per-market mirror of the `markets` the seed itself declares,
+    which promotion kept in step by text surgery on a second hand-written file.
+    The seed carries the markets; nothing has to be inserted anywhere else.
+    """
     paths = _workspace(tmp_path)
+    before = paths["markets"].read_bytes()
     _harvest(paths, "newco", ["Dublin, Ireland", "Berlin, Germany"])
 
     _promote(paths)
 
-    markets = json.loads(paths["markets"].read_text(encoding="utf-8"))
-    by_id = {market["market_id"]: market["source_ids"] for market in markets["markets"]}
-    assert "newco-greenhouse" in by_id["ie"]
-    assert "newco-greenhouse" in by_id["de"]
-    assert "newco-greenhouse" not in by_id["uk"]
+    assert paths["markets"].read_bytes() == before
+    seeds = json.loads(paths["seeds"].read_text(encoding="utf-8"))
+    promoted = next(
+        source for source in seeds["sources"] if source["source_id"] == "newco-greenhouse"
+    )
+    assert promoted["markets"] == ["ie", "de"]
 
 
 @pytest.mark.parametrize("newline", [b"\n", b"\r\n"])

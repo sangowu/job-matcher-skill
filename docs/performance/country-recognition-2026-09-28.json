@@ -1,0 +1,39 @@
+{
+  "checked_at": "2026-09-28",
+  "subject": "Telling a country this skill does not serve from a place it cannot read",
+  "method": "Locations placed by market_plan.normalize_location, and the refusal checked at discovery_batch._prefilter_reported_candidates, which is what reads the answer. The population is every posting the structured channel fetches: 59 boards, 10,231 postings, read-only.",
+  "the_defect": {
+    "what": "`normalize_location` answered `foreign` for exactly one country. `foreign_administrative_areas` held Canada's thirteen provinces because somebody wrote them out, so every other country outside the markets came back `unknown` -- the same answer as a place the catalog has never heard of.",
+    "where_it_bites": "discovery_batch._prefilter_reported_candidates refuses a candidate when its location contradicts the round's scope or reads `foreign`. A posting in a country with no market has no market_ids, so it contradicts nothing, and it was not `foreign`, so it was kept. Measured before the change, on an ie round: postings in Paris, Bangalore, Tokyo and Sydney were all kept, and one in Toronto was refused.",
+    "where_it_does_not": "The structured channel was never exposed. ats_pipeline.filter_to_markets keeps only a posting whose market_ids intersect the round, so an unplaceable location is dropped there whatever its location_type says. The exposed paths are the browser and Web Search channels, which report candidates rather than fetch them.",
+    "observed_harm": "None in the recorded table. All 68 rows of data/jobs_table.json place inside a market; no foreign row reached it. The defect is demonstrable and has not yet cost anything."
+  },
+  "the_catalog": {
+    "file": "references/geo_countries.json",
+    "entries": 212,
+    "contents": "Every country ISO 3166-1 lists that no market covers, plus the territories a job listing writes as a place of work (Hong Kong, Macao, Puerto Rico, the Channel Islands, the French overseas departments and similar).",
+    "no_two_letter_codes": "Deliberate. A location string writes a US state that way: IN is Indiana before it is India, LA is Los Angeles before Laos, and AL, ID, MD, MT and NE collide the same way. Only written-out names are listed.",
+    "no_overlap_with_the_markets": "A market's own country is recognised as that market. A name in both files would be two answers to one question, and a test refuses it."
+  },
+  "matching": {
+    "rule": "Whole words for an alias written in latin letters; plain containment otherwise.",
+    "why_whole_words": "The market aliases are read as substrings unless three characters or fewer, which is safe for a short curated list. A country name is long enough to look safe and is not. Measured with the rule removed, these six all answered wrongly: 'Nigerian Embassy, Accra, Ghana' gave Nigeria rather than Ghana, and 'Chadwick Street, Toronto', 'Malian Quarter, Dakar', 'Omani Building, Doha', 'Cuban Avenue, Lima' and 'Iranian Street, Baku' gave Chad, Mali, Oman, Cuba and Iran. `foreign` is what refuses a posting, so each wrong reading throws away a real job.",
+    "why_not_for_chinese": "Chinese writes a location without separators -- 日本东京 is Tokyo, Japan -- so requiring a word boundary there refuses to read the name at all, and a Chinese country name does not sit inside an unrelated place the way India sits inside Indiana.",
+    "ordering": "Longest alias first, so Guinea-Bissau is read before Guinea and South Sudan before Sudan. Whole-word matching separates Niger from Nigeria on its own."
+  },
+  "population": {
+    "boards": 59,
+    "postings": 10231,
+    "before": {"city": 3639, "country": 3464, "foreign": 250, "unknown": 2878},
+    "after": {"city": 3639, "country": 3464, "foreign": 1970, "unknown": 1158},
+    "note": "The before/after split of foreign and unknown is the whole change; city and country are untouched, which is the point -- a market must still be read as a market.",
+    "countries_now_named": {
+      "Canada": 250, "France": 218, "India": 168, "Singapore": 149, "Japan": 111,
+      "Spain": 108, "Poland": 90, "Italy": 84, "Australia": 76, "Mexico": 72,
+      "Brazil": 60, "Portugal": 40, "Greece": 37, "South Korea": 32,
+      "Israel": 31, "Bulgaria": 31
+    },
+    "still_unreadable": 1158
+  },
+  "what_this_does_not_do": "It does not make a new market cheap to add. A market still needs its cities, its aliases in all three internal languages and a query template; this file carries a name and its aliases and nothing else. It answers which country a posting is in, not how to serve that country."
+}

@@ -1358,3 +1358,240 @@ def test_no_module_writes_the_market_set_out_by_hand():
         "a membership test writes the market set out by hand at: "
         + ", ".join(literals)
     )
+
+# --- countries no market covers ------------------------------------------
+
+@pytest.mark.parametrize(
+    "location,country",
+    [
+        ("Paris, France", "France"),
+        ("Bangalore, India", "India"),
+        ("Tokyo, Japan", "Japan"),
+        ("Singapore", "Singapore"),
+        ("Sydney, Australia", "Australia"),
+        ("Toronto, ON, Canada", "Canada"),
+        ("Barcelona, Spain", "Spain"),
+        ("Hong Kong", "Hong Kong"),
+    ],
+)
+def test_a_country_no_market_covers_is_foreign_and_named(resources, location, country):
+    """`foreign` and `unknown` are different answers and were the same one.
+
+    Everything downstream that refuses a posting reads `foreign`. Only Canada
+    reached it, and only because its thirteen provinces had been written out by
+    hand, so an Irish round refused a posting in Toronto and kept one in Paris,
+    Bangalore, Tokyo or Sydney.
+    """
+    markets, _ = resources
+    placed = market_plan.normalize_location(location, markets)
+
+    assert placed["location_type"] == "foreign"
+    assert placed["canonical_name"] == country
+    assert placed["market_ids"] == []
+    # Still no opinion on a market, which is what `unknown` confidence means
+    # here: there is no market to be uncertain about.
+    assert placed["confidence"] == "unknown"
+
+
+def test_a_place_that_cannot_be_read_is_still_not_foreign(resources):
+    """"Somewhere we do not serve" contradicts a round's scope; "we have never
+    heard of this" only fails to corroborate it. Collapsing the two would refuse
+    every posting whose location this catalog cannot parse."""
+    markets, _ = resources
+    placed = market_plan.normalize_location("Zzzqqq, Nowhereland", markets)
+
+    assert placed["location_type"] == "unknown"
+    assert placed["canonical_name"] is None
+
+
+@pytest.mark.parametrize(
+    "location,market_id,not_the_country",
+    [
+        # Each of these has a country name sitting inside it. Reading any as a
+        # country would refuse a real posting in a market this skill serves.
+        ("Indianapolis, Indiana", "us", "India"),
+        ("Indianapolis, IN", "us", "India"),
+        ("Atlanta, Georgia", "us", "Georgia"),
+        ("Malibu, CA", "us", "Mali"),
+        ("Chadwick Building, London", "uk", "Chad"),
+        ("Oman Street, Dublin", "ie", "Oman"),
+    ],
+)
+def test_a_market_is_read_before_the_country_catalog(
+    resources, location, market_id, not_the_country
+):
+    """Each of these has a country name inside it and belongs to a market."""
+    markets, _ = resources
+    placed = market_plan.normalize_location(location, markets)
+
+    assert market_id in placed["market_ids"]
+    assert placed["canonical_name"] != not_the_country
+
+
+@pytest.mark.parametrize(
+    "location,expected",
+    [
+        # A country name inside a longer word, where no market catches the text
+        # first -- which is where whole-word matching is the only thing between
+        # a posting and a wrong refusal.
+        ("Nigerian Embassy, Accra, Ghana", "Ghana"),
+        ("Chadwick Street, Toronto", None),
+        ("Malian Quarter, Dakar", None),
+        ("Omani Building, Doha", None),
+        ("Cuban Avenue, Lima", None),
+        ("Iranian Street, Baku", None),
+    ],
+)
+def test_a_country_name_inside_a_longer_word_is_not_a_country(
+    resources, location, expected
+):
+    """Country aliases match whole words, not substrings.
+
+    The market aliases are read as substrings unless they are three characters
+    or fewer, which is safe for a short curated list. A country name is long
+    enough to look safe and is not: Nigeria sits inside "Nigerian", Chad inside
+    "Chadwick", Mali inside "Malian", Oman inside "Omani", Cuba inside "Cuban",
+    Iran inside "Iranian". Read as substrings these six answer Nigeria, Chad,
+    Mali, Oman, Cuba and Iran -- and `foreign` is what refuses a posting, so
+    each wrong reading throws away a real job.
+    """
+    markets, _ = resources
+    placed = market_plan.normalize_location(location, markets)
+
+    assert placed["canonical_name"] == expected
+
+
+@pytest.mark.parametrize(
+    "location,country",
+    [
+        ("Lagos, Nigeria", "Nigeria"),
+        ("Niamey, Niger", "Niger"),
+        ("Bissau, Guinea-Bissau", "Guinea-Bissau"),
+        ("Conakry, Guinea", "Guinea"),
+        ("Juba, South Sudan", "South Sudan"),
+        ("Khartoum, Sudan", "Sudan"),
+    ],
+)
+def test_the_longer_country_name_wins_over_the_one_inside_it(
+    resources, location, country
+):
+    """Niger is inside Nigeria, Guinea inside Guinea-Bissau, Sudan inside South
+    Sudan. Whole-word matching separates the first pair and length ordering the
+    other two, since both halves are whole words there."""
+    markets, _ = resources
+    assert market_plan.normalize_location(location, markets)["canonical_name"] == country
+
+
+def test_a_market_country_is_never_read_as_foreign(resources):
+    """The two catalogs must not both answer for one country."""
+    markets, _ = resources
+    for market in markets["markets"]:
+        for alias in [market["country"], *market["country_aliases"]]:
+            placed = market_plan.normalize_location(alias, markets)
+            assert placed["location_type"] != "foreign", alias
+            assert market["market_id"] in placed["market_ids"], alias
+
+
+def test_the_country_catalog_names_no_market_and_no_two_letter_code():
+    """A two-letter code is how a location writes a US state.
+
+    IN is Indiana before it is India, LA is Los Angeles before Laos, and AL, ID,
+    MD, MT and NE collide the same way, so codes are deliberately absent.
+    """
+    import json
+
+    path = Path(__file__).resolve().parents[1] / "references" / "geo_countries.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    markets, _ = market_plan.load_resources()
+    market_names = {
+        market_plan._normalize_text(alias)
+        for market in markets["markets"]
+        for alias in [market["country"], *market["country_aliases"]]
+    }
+
+    codes = set()
+    for country in payload["countries"]:
+        assert country["country_code"] not in codes, country["country_code"]
+        codes.add(country["country_code"])
+        assert country["aliases"], country["name"]
+        for alias in country["aliases"]:
+            assert market_plan._normalize_text(alias) not in market_names, alias
+            # The rule is about latin codes colliding with US state
+            # abbreviations. A two-character Chinese name is not one of those.
+            if alias.isascii():
+                assert len(alias) > 2, alias
+    assert len(codes) >= 150
+
+
+def test_a_posting_outside_the_round_is_refused_by_the_prefilter(resources):
+    """What the distinction is for, at the place that reads it."""
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    import discovery_batch
+
+    markets, _ = resources
+    profile = {"roles": ["AI Engineer"], "target_roles": ["AI Engineer"], "skills": ["Python"]}
+    task = {"market_id": "ie", "search_language": "en"}
+
+    def candidate(location: str) -> dict:
+        return {
+            "title": "AI Engineer",
+            "company": "Acme",
+            "location": location,
+            "url": "https://example.com/job/1",
+            "snippet": "",
+            "source_id": "x",
+            "discovery_route": "browseros_neo",
+            "source_type": "local_job_board",
+        }
+
+    for location in ("Paris, France", "Bangalore, India", "Sydney, Australia"):
+        kept, dropped, _refused = discovery_batch._prefilter_reported_candidates(
+            [candidate(location)],
+            channel="browser",
+            task=task,
+            profile=profile,
+            markets=markets,
+        )
+        assert kept == [], location
+        assert dropped == {"market": 1}, location
+
+    kept, _dropped, _refused = discovery_batch._prefilter_reported_candidates(
+        [candidate("Dublin, Ireland")],
+        channel="browser",
+        task=task,
+        profile=profile,
+        markets=markets,
+    )
+    assert len(kept) == 1
+
+
+@pytest.mark.parametrize(
+    "location,country",
+    [
+        ("东京, 日本", "Japan"),
+        ("日本东京", "Japan"),
+        ("韩国首尔", "South Korea"),
+        ("法国 巴黎", "France"),
+        ("新加坡", "Singapore"),
+    ],
+)
+def test_a_chinese_country_name_needs_no_separator(resources, location, country):
+    """Chinese writes a location without spaces, so a word boundary cannot be
+    required there. The collisions word boundaries exist to prevent are a latin
+    problem -- India inside Indiana -- and a Chinese country name does not sit
+    inside an unrelated place the same way."""
+    markets, _ = resources
+    placed = market_plan.normalize_location(location, markets)
+
+    assert placed["location_type"] == "foreign"
+    assert placed["canonical_name"] == country
+
+
+def test_a_chinese_market_name_still_wins_over_the_country_catalog(resources):
+    markets, _ = resources
+    placed = market_plan.normalize_location("北京, 中国", markets)
+
+    assert placed["market_ids"] == ["cn"]
+    assert placed["location_type"] == "city"

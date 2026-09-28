@@ -14,6 +14,7 @@ import argparse
 import json
 import re
 import unicodedata
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
 from _jobutil import supported_markets
@@ -22,6 +23,7 @@ from _stdio import StdinUnavailable, read_stdin_text
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 MARKETS_PATH = SKILL_ROOT / "references" / "markets.json"
+GEO_COUNTRIES_PATH = SKILL_ROOT / "references" / "geo_countries.json"
 ROLE_TAXONOMY_PATH = SKILL_ROOT / "references" / "role_taxonomy.json"
 CONFIG_PATH = SKILL_ROOT / "config.json"
 
@@ -526,6 +528,81 @@ def _administrative_qualifier(
             return None, hit
     return None, None
 
+@lru_cache(maxsize=1)
+def _foreign_country_aliases(path: Path | None = None) -> tuple[tuple[str, str], ...]:
+    """`(normalized alias, country name)` for every country no market covers.
+
+    Read once; the file ships with the skill and does not change under a run.
+    `_foreign_country_aliases.cache_clear()` is for tests that write one.
+    """
+    catalog = path or GEO_COUNTRIES_PATH
+    try:
+        payload = json.loads(catalog.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise MarketPlanError(f"cannot read {catalog}: {error}") from error
+    countries = payload.get("countries")
+    if not isinstance(countries, list) or not countries:
+        raise MarketPlanError("geo_countries.json countries must be a non-empty list")
+    rows: list[tuple[str, str]] = []
+    for country in countries:
+        if not isinstance(country, dict):
+            raise MarketPlanError("geo_countries.json entries must be objects")
+        name = country.get("name")
+        aliases = country.get("aliases")
+        if not isinstance(name, str) or not name.strip():
+            raise MarketPlanError("geo_countries.json entry is missing a name")
+        if not isinstance(aliases, list) or not aliases:
+            raise MarketPlanError(f"{name} must list at least one alias")
+        for alias in aliases:
+            if not isinstance(alias, str) or not alias.strip():
+                raise MarketPlanError(f"{name} has an empty alias")
+            rows.append((_normalize_text(alias), name))
+    # Longest first, so "Guinea-Bissau" is read before "Guinea" and
+    # "South Sudan" before "Sudan".
+    return tuple(sorted(rows, key=lambda row: len(row[0]), reverse=True))
+
+
+def _foreign_country(normalized: str, path: Path | None = None) -> str | None:
+    """The country this text names, if no market covers it.
+
+    Matched on whole words, not as a substring, which is how the market aliases
+    above are read only for aliases of three characters or fewer. A country name
+    is long enough to look safe and is not: "India" sits inside "Indiana",
+    "Niger" inside "Nigeria", "Chad" inside "Chadwick", "Mali" inside "Malibu".
+    Reading any of those as a country would refuse a real posting, and a refusal
+    is the only thing this answer is used for.
+    """
+    for alias, name in _foreign_country_aliases(path):
+        if _contains_words(alias, normalized):
+            return name
+    return None
+
+
+def _contains_words(alias: str, text: str) -> bool:
+    """Is `alias` in `text` as a whole word or run of words.
+
+    Word boundaries are asked for only of an alias written in latin letters,
+    because that is where the collisions are and where spaces mark a word.
+    Chinese writes a location without separators -- "日本东京" is Tokyo, Japan --
+    so requiring one there would refuse to read the name at all, and a Chinese
+    country name does not sit inside an unrelated place the way "India" sits
+    inside "Indiana". The same split `_alias_matches` already makes above.
+    """
+    if not alias:
+        return False
+    if not alias.isascii():
+        return alias in text
+    start = text.find(alias)
+    while start != -1:
+        before = text[start - 1] if start else " "
+        end = start + len(alias)
+        after = text[end] if end < len(text) else " "
+        if not before.isalnum() and not after.isalnum():
+            return True
+        start = text.find(alias, start + 1)
+    return False
+
+
 def _named_markets(normalized: str, markets: dict[str, Any]) -> set[str]:
     """Which markets the text names by country, not by city."""
     return {
@@ -599,7 +676,11 @@ def normalize_location(value: Any, markets: dict[str, Any]) -> dict[str, Any]:
             "remote_scope": None,
             "work_mode": mode,
             "confidence": "unknown",
-            "canonical_name": None,
+            # The area already settled that this is foreign; the country
+            # catalog only says which country, so both foreign answers name one
+            # where they can. "Toronto, ON, CA" reported no country at all while
+            # "Paris, France" reported one.
+            "canonical_name": _foreign_country(normalized),
             "names": {},
         }
 
@@ -707,16 +788,26 @@ def normalize_location(value: Any, markets: dict[str, Any]) -> dict[str, Any]:
             "names": city["names"] if city else market["country_names"],
         }
 
+    # Nothing here is a market. Before calling the place unreadable, ask whether
+    # it is a country this skill simply does not serve -- "Paris, France" and
+    # "Zzz, Nowhere" were the same answer, and one of them contradicts a round's
+    # scope while the other only fails to corroborate it. Everything downstream
+    # that refuses a posting reads `foreign`, so until now an Irish round kept a
+    # posting in Paris, Bangalore, Tokyo or Sydney and refused one in Toronto,
+    # the single country whose administrative areas had been written out by hand.
+    foreign_country = _foreign_country(normalized)
     return {
         "input": raw,
         "market_ids": [],
         "city_id": None,
         "location_id": None,
-        "location_type": "unknown",
+        "location_type": "foreign" if foreign_country else "unknown",
         "remote_scope": None,
         "work_mode": mode,
+        # Still `unknown`: the market is not in doubt, there is none, and
+        # `location_matches_market` reads this to mean "no opinion".
         "confidence": "unknown",
-        "canonical_name": None,
+        "canonical_name": foreign_country,
         "names": {},
     }
 

@@ -98,22 +98,55 @@ def _utc_timestamp(value: Any) -> str:
     return parsed.isoformat().replace("+00:00", "Z")
 
 
-def _location(value: Any) -> dict[str, str | None]:
+def _market_id_list(value: Any, market_id: str | None) -> list[str]:
+    """Every market this location resolves to, in the order the text names them.
+
+    `market_id` answers "exactly one market, or nothing to say", which is what a
+    task scope check needs. It is not what the job table stores: that field is
+    `market_ids`, plural, and a posting listed in "Dublin, Ireland; London,
+    England" belongs to both. Collapsing that to `None` left the row attributed
+    to no market at all, so the report could neither filter nor place it, while
+    the catalog was certain about both -- a refusal to answer, not a guess
+    avoided.
+
+    Absent, it is the singular reading, so one field is enough for a worker that
+    only has one market to report.
+    """
+    if value is None:
+        return [market_id] if market_id else []
+    if not isinstance(value, list) or len(value) > len(SUPPORTED_MARKETS):
+        raise CandidateContractError("location_normalized.market_ids is invalid")
+    output: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or item not in SUPPORTED_MARKETS:
+            raise CandidateContractError("location_normalized.market_ids is invalid")
+        if item not in output:
+            output.append(item)
+    if market_id is not None and market_id not in output:
+        raise CandidateContractError(
+            "location_normalized.market_id is not among its market_ids"
+        )
+    return output
+
+
+def _location(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise CandidateContractError("location_normalized must be an object")
     expected = {"market_id", "city_id", "remote_scope", "confidence"}
-    if set(value) != expected:
+    if not expected <= set(value) or set(value) - expected - {"market_ids"}:
         raise CandidateContractError(
             "location_normalized must contain market_id, city_id, remote_scope, and confidence"
         )
     market_id = value.get("market_id")
     if market_id is not None and market_id not in SUPPORTED_MARKETS:
         raise CandidateContractError("location_normalized.market_id is invalid")
+    market_ids = _market_id_list(value.get("market_ids"), market_id)
     confidence = value.get("confidence")
     if confidence not in LOCATION_CONFIDENCE:
         raise CandidateContractError("location_normalized.confidence is invalid")
-    output: dict[str, str | None] = {
+    output: dict[str, Any] = {
         "market_id": market_id,
+        "market_ids": market_ids,
         "city_id": None,
         "remote_scope": None,
         "confidence": confidence,
@@ -127,7 +160,7 @@ def _location(value: Any) -> dict[str, str | None]:
             if len(item) > limit:
                 raise CandidateContractError(f"location_normalized.{field} is too long")
         output[field] = item
-    if confidence == "unknown" and market_id is not None:
+    if confidence == "unknown" and (market_id is not None or market_ids):
         raise CandidateContractError("unknown location confidence cannot assert a market")
     return output
 

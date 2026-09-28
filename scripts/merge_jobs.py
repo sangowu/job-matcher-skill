@@ -293,10 +293,26 @@ def _market_ids_from_sources(sources: list[dict]) -> list[str]:
     output: list[str] = []
     for source in sources:
         normalized = source.get("location_normalized")
-        market_id = normalized.get("market_id") if isinstance(normalized, dict) else None
-        if market_id in known and market_id not in output:
-            output.append(market_id)
+        if not isinstance(normalized, dict):
+            continue
+        # A location can resolve to several markets, and the plural field is
+        # where that is written down. Reading only the singular one dropped
+        # every multi-location posting to `market_ids: []`, unattributed.
+        claimed = normalized.get("market_ids")
+        if not isinstance(claimed, list):
+            claimed = [normalized.get("market_id")]
+        for market_id in claimed:
+            if market_id in known and market_id not in output:
+                output.append(market_id)
     return output
+
+
+def _has_placement(source: dict) -> bool:
+    """Whether this provenance entry places the posting in any market."""
+    normalized = source.get("location_normalized")
+    if not isinstance(normalized, dict):
+        return False
+    return bool(_market_ids_from_sources([source]))
 
 
 def _ensure_job_provenance(job: dict) -> bool:
@@ -772,12 +788,20 @@ def _merge_into(hit: dict, cand: dict) -> bool:
         ensure_ascii=False,
         sort_keys=True,
     )
-    source_keys = {_provenance_key(rs) for rs in hit.get("raw_sources", [])}
+    stored_by_key = {_provenance_key(rs): rs for rs in hit.get("raw_sources", [])}
     for rs in cand.get("raw_sources", []):
         key = _provenance_key(rs)
-        if key not in source_keys:
+        stored = stored_by_key.get(key)
+        if stored is None:
             hit.setdefault("raw_sources", []).append(rs)
-            source_keys.add(key)
+            stored_by_key[key] = rs
+        elif _has_placement(rs) and not _has_placement(stored):
+            # Same source, same observation, and the stored copy predates the
+            # plural reading -- so the row stayed unattributed however often it
+            # was seen again. Filling an absent field is the lazy migration the
+            # rest of the table already does; a placement that exists is never
+            # overwritten.
+            stored["location_normalized"] = rs["location_normalized"]
     # 合并 url_keys
     existing = set(hit.get("url_keys", []))
     for uk in all_url_keys(cand):

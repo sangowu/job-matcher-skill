@@ -314,8 +314,10 @@ def to_candidate_envelopes(
             )
         location = market_plan.normalize_location(candidate.get("location"), resolved)
         market_ids = location["market_ids"]
-        # Exactly one market is an attribution. Several is a guess, so say
-        # nothing rather than pick the first and call it an answer.
+        # Exactly one market is an attribution. Several is not one market, so
+        # the singular field says nothing rather than pick the first and call it
+        # an answer -- but the plural field carries all of them, because that is
+        # what the job table stores and what the catalog actually resolved.
         market_id = market_ids[0] if len(market_ids) == 1 else None
         envelope = {
             "title": candidate.get("title", ""),
@@ -337,6 +339,7 @@ def to_candidate_envelopes(
             "identity_keys": candidate.get("identity_keys") or [],
             "location_normalized": {
                 "market_id": market_id,
+                "market_ids": market_ids,
                 "city_id": location["city_id"],
                 "remote_scope": location["remote_scope"],
                 "confidence": location["confidence"],

@@ -944,31 +944,35 @@ def test_a_round_with_no_browser_route_can_still_commit_its_waves():
     )
 
 
-def _structured_source_plan(seeds: dict) -> dict:
+def _structured_source_plan(seeds: dict, *, invert_priority: bool = False) -> dict:
     """A source plan built the way `build_source_plan` builds one for `ie`.
 
     Every structured board is in it, whatever markets it declares, because the
     board is fetched whole and the countries in it are settled by the response.
+
+    `invert_priority` ranks every board that names ie below every board that
+    does not. The catalog's own priorities happen to put the ie boards first, so
+    without this a budget test passes whether or not anything orders them.
     """
-    sources = [
-        {
-            "source_id": source["source_id"],
-            "markets": (
-                ["ie"]
-                if set(source["access_methods"]) & source_registry.STRUCTURED_METHODS
-                else ["ie"]
-            ),
-            "priority": source["priority"],
-        }
-        for source in seeds["sources"]
-        if source["enabled"]
-        and source["verified"]
-        and not source.get("requires_risk_ack")
-        and (
-            set(source["access_methods"]) & source_registry.STRUCTURED_METHODS
-            or "ie" in source["markets"]
+    sources = []
+    for source in seeds["sources"]:
+        structured = set(source["access_methods"]) & source_registry.STRUCTURED_METHODS
+        if not (source["enabled"] and source["verified"]):
+            continue
+        if source.get("requires_risk_ack"):
+            continue
+        if not structured and "ie" not in source["markets"]:
+            continue
+        priority = source["priority"]
+        if invert_priority:
+            priority = 10 if "ie" in source["markets"] else 90
+        sources.append(
+            {
+                "source_id": source["source_id"],
+                "markets": ["ie"],
+                "priority": priority,
+            }
         )
-    ]
     return {
         "schema_version": 1,
         "market_ids": ["ie"],
@@ -984,6 +988,10 @@ def test_a_tight_board_budget_keeps_the_boards_that_name_the_round_s_market():
     roughly two and a half times the candidates it had. Under a budget smaller
     than that pool, spending it on newly admitted boards would be a loss, not a
     gain -- so the boards that name the market sort first and the rest follow.
+
+    The plan is given inverted priorities, ranking every ie board below every
+    other, because the catalog's own priorities already order them that way and
+    this test passed with the ordering deleted.
     """
     seeds = source_registry.load_seeds()
     declared = {
@@ -993,7 +1001,10 @@ def test_a_tight_board_budget_keeps_the_boards_that_name_the_round_s_market():
         and set(source["access_methods"]) & source_registry.STRUCTURED_METHODS
         and source["automation_allowed"] is True
     }
-    request = {**_request(seeds), "source_plan": _structured_source_plan(seeds)}
+    request = {
+        **_request(seeds),
+        "source_plan": _structured_source_plan(seeds, invert_priority=True),
+    }
     budget = 5
     plan = discovery_plan.build_discovery_plan(
         request,
@@ -1012,7 +1023,7 @@ def test_a_tight_board_budget_keeps_the_boards_that_name_the_round_s_market():
     # And with room for all of them, the ones that do not name ie are there too:
     # that is the whole point of admitting them.
     roomy = discovery_plan.build_discovery_plan(
-        request,
+        {**_request(seeds), "source_plan": _structured_source_plan(seeds)},
         seeds=seeds,
         config={**_config(), "ats_enabled": True, "ats_boards_per_round": 200},
     )

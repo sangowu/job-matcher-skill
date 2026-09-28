@@ -1,0 +1,52 @@
+{
+  "checked_at": "2026-09-28",
+  "subject": "Whether the four ie sources carrying automation_allowed:false still need it",
+  "method": "scripts/check_robots.py against the URL a round would actually visit, query string included; entry page opened once in a browser to see what it presents.",
+  "outcome": "Three confirmed refused by the site's own published rules and left as they were. One (jobs-ie) carried a constraint the site does not assert, and is enabled.",
+  "results": [
+    {
+      "source_id": "linkedin-jobs",
+      "url": "https://ie.linkedin.com/jobs/search",
+      "robots_allowed": false,
+      "rule": "disallow: /",
+      "decision": "unchanged",
+      "note": "Whole host refused. Also needs a signed-in account, so any automation would run under the user's own credentials against terms that forbid it."
+    },
+    {
+      "source_id": "indeed-ie",
+      "url": "https://ie.indeed.com/viewjob?jk=abc123",
+      "robots_allowed": false,
+      "rule": "disallow: /viewjob",
+      "decision": "unchanged",
+      "note": "The search listing is allowed (allow: /) but the job detail page is refused, and the detail page is where the JD is. Operator terms separately forbid agentic access."
+    },
+    {
+      "source_id": "accenture-careers",
+      "url": "https://www.accenture.com/ie-en/careers/jobsearch?jk=&sb=1",
+      "robots_allowed": false,
+      "rule": "disallow: */careers/jobsearch?",
+      "decision": "unchanged",
+      "note": "The landing page is allowed and the search with a query string is not, which is what the recorded constraint already said. The two human paths stay."
+    },
+    {
+      "source_id": "jobs-ie",
+      "urls": [
+        {"url": "https://www.jobs.ie/", "allowed": true, "rule": "no matching rule"},
+        {"url": "https://www.jobs.ie/search?keywords=ai+engineer", "allowed": true, "rule": "no matching rule"},
+        {"url": "https://www.jobs.ie/jobs/ai-engineer", "allowed": true, "rule": "no matching rule"}
+      ],
+      "entry_page_observed": {
+        "public_job_count_shown": 3448,
+        "companies_shown": "749+",
+        "login_required": false,
+        "bot_interstitial": false,
+        "consent_dialog": "standard, with an explicit Just Necessary button"
+      },
+      "decision": "automation_allowed true, public_read_only_page added, constraint removed",
+      "note": "robots.txt asserts nothing about these paths and the site presents no access control. The same market's other local_job_board, irishjobs-ie, was already automation_allowed:true on the same footing; the two were inconsistent with no evidence behind the difference."
+    }
+  ],
+  "not_examined": [
+    "jobs-ac-uk carries the same respect_site_access_controls constraint and was not re-checked here. It is a uk source and nobody looked at it; the flag stays until someone does."
+  ]
+}

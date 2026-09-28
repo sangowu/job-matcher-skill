@@ -273,9 +273,10 @@ def test_ttl_expiry_routes_source_to_reverification(tmp_path):
 
     assert "irishjobs-ie" not in plan["source_ids"]
     assert "irishjobs-ie" in plan["due_for_verification"]
-    # Two: the ten company_careers seeds and publicjobs-ie were actually
-    # checked on 2026-09-26, so their TTL no longer lapses by this date.
-    assert plan["excluded"]["expired"] == 2
+    # One: the ten company_careers seeds and publicjobs-ie were actually checked
+    # on 2026-09-26 and jobs-ie on 2026-09-28, so their TTL no longer lapses by
+    # this date.
+    assert plan["excluded"]["expired"] == 1
 
 
 def test_transient_failure_stays_retryable_and_three_definitive_failures_disable_plan(

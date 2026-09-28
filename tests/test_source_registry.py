@@ -707,7 +707,8 @@ def test_ats_api_access_requires_a_supported_provider():
     board = next(
         source for source in payload["sources"] if source["source_type"] == "ats_board"
     )
-    board["provider"] = "workday"
+    # A real applicant tracking system this repository has no adapter for.
+    board["provider"] = "smartrecruiters"
 
     with pytest.raises(source_registry.SourceValidationError, match="no ATS API adapter"):
         source_registry.validate_seed_payload(payload)

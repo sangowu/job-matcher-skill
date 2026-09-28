@@ -69,7 +69,7 @@ SOURCE_STATUSES = {"candidate", "verified", "unavailable", "disabled"}
 # `ats_public_api` access method names. Kept here so this module stays free of
 # local imports; tests/test_source_registry.py pins both sets against
 # ats_provider so they cannot drift apart.
-ATS_API_PROVIDERS = {"ashby", "greenhouse", "lever"}
+ATS_API_PROVIDERS = {"ashby", "greenhouse", "lever", "workday"}
 # Everything the structured channel can fetch. Wider than the set above:
 # `amazon_jobs` is a company's own public search endpoint reached through
 # `public_read_only_endpoint`, not an ATS, and calling it one would let a seed
@@ -88,6 +88,7 @@ SEED_KEYS = {
     "provider",
     "board_token",
     "instance",
+    "site",
     "entry_url",
     "markets",
     "search_languages",
@@ -365,6 +366,17 @@ def validate_seed_payload(payload: dict[str, Any]) -> dict[str, Any]:
             raise SourceValidationError(f"{prefix}.board_token is invalid")
         if "instance" in source and not _TOKEN_PATTERN.fullmatch(str(source["instance"])):
             raise SourceValidationError(f"{prefix}.instance is invalid")
+        if "site" in source and not _TOKEN_PATTERN.fullmatch(str(source["site"])):
+            raise SourceValidationError(f"{prefix}.site is invalid")
+        # Workday identifies a board by tenant, data centre and career site, and
+        # none of the three can be dropped or derived: no site segment answers
+        # 400, the wrong data centre answers 422, and the bare tenant host does
+        # not resolve. A row missing one would plan a task that cannot be
+        # fetched, which is why an ats_board needs a board_token just above.
+        if source["provider"] == "workday" and not {"instance", "site"} <= set(source):
+            raise SourceValidationError(
+                f"{prefix}.provider 'workday' requires instance and site"
+            )
         # An ATS board without a token, or one naming a provider with no
         # adapter, would plan a structured task that can never be fetched.
         if source["source_type"] == "ats_board" and "board_token" not in source:
@@ -683,6 +695,8 @@ def _source_record_from_seed(seed: dict[str, Any]) -> dict[str, Any]:
         record["board_token"] = seed["board_token"]
     if "instance" in seed:
         record["instance"] = seed["instance"]
+    if "site" in seed:
+        record["site"] = seed["site"]
     return record
 
 
@@ -723,7 +737,7 @@ def merge_seeds(
                 changed = True
         # Board identity is optional, so it is synced separately: a seed that
         # drops it must clear the stale value rather than leave it behind.
-        for field in ("board_token", "instance"):
+        for field in ("board_token", "instance", "site"):
             if current.get(field) != desired.get(field):
                 if field in desired:
                     current[field] = desired[field]

@@ -732,6 +732,8 @@ def build_discovery_plan(
                 task["board_token"] = source["board_token"]
             if "instance" in source:
                 task["instance"] = source["instance"]
+            if "site" in source:
+                task["site"] = source["site"]
             tasks["structured"].append(task)
 
     for values in exclusions.values():

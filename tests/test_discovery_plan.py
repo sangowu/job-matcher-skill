@@ -873,10 +873,23 @@ def test_a_market_says_which_channels_it_has_rather_than_falling_silent():
 
     assert set(built["per_market"]) == set(plan["target_markets"])
     assert built["per_market"]["ie"]["structured"] == "planned"
-    # The mapping the requirement asks for, derived from the catalog rather than
-    # kept by hand: no eligible Chinese source offers a structured endpoint.
-    assert built["per_market"]["cn"]["structured"] == "unavailable_in_market"
     assert built["per_market"]["cn"]["browser"] == "planned"
+    # The mapping the requirement asks for, derived from the catalog rather than
+    # kept by hand. cn had no structured channel at all until a Workday board
+    # that posts in China entered the catalog, and this fixture scopes sources
+    # by their declared markets -- so what the row says follows from the
+    # catalog, which is the point, rather than from a constant written here.
+    cn_structured = any(
+        source["enabled"]
+        and source["verified"]
+        and source["automation_allowed"] is True
+        and "cn" in source["markets"]
+        and set(source["access_methods"]) & source_registry.STRUCTURED_METHODS
+        for source in seeds["sources"]
+    )
+    assert built["per_market"]["cn"]["structured"] == (
+        "planned" if cn_structured else "unavailable_in_market"
+    )
 
 
 def test_a_channel_its_caller_switched_off_is_not_reported_as_missing():

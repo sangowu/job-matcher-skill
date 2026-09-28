@@ -605,3 +605,181 @@ def test_a_provider_with_no_content_free_listing_ignores_the_defer_flag():
     assert metrics["content_deferred"] is False
     assert metrics["jobs_with_jd"] == 1
     assert jobs[0]["jd_text"] == "Ashby JD"
+
+def _workday_board() -> dict:
+    return {
+        "provider": "workday",
+        "company": "Acme",
+        "board_token": "acme",
+        "instance": "wd5",
+        "site": "apply",
+    }
+
+
+def _workday_page(paths: list[str], total: int | None) -> dict:
+    page: dict = {
+        "jobPostings": [
+            {
+                "title": f"Engineer {path}",
+                "externalPath": path,
+                "locationsText": "Dublin, Ireland",
+                "postedOn": "Posted Today",
+                "bulletFields": ["R1"],
+            }
+            for path in paths
+        ],
+        "userAuthenticated": False,
+        "facets": [],
+    }
+    if total is not None:
+        page["total"] = total
+    return page
+
+
+def test_workday_pagination_is_bounded_by_the_total_not_by_a_short_page():
+    """An offset past the end returns the first page again, not an empty one.
+
+    Measured 2026-09-28 on a board of 2,000: offset 2000 and offset 4000 both
+    returned offset 0's twenty rows, identically. A paginator that stops only on
+    a short page would collect that page once per remaining page and count the
+    duplicates as new postings. The endpoint also reports `total` on the first
+    page only, reading 0 afterwards, so it has to be captured there.
+    """
+    first = _workday_page([f"/job/Dublin/role-{n}" for n in range(3)], total=6)
+    second = _workday_page([f"/job/Dublin/role-{n}" for n in range(3, 6)], total=0)
+    # What the endpoint really does once the offset runs past the end.
+    wrapped = _workday_page([f"/job/Dublin/role-{n}" for n in range(3)], total=0)
+    provider = FakeAtsProvider([first, second, wrapped, wrapped, wrapped])
+
+    metrics, jobs = fetch_board(
+        _workday_board(), provider_client=provider, page_size=3, max_pages=5
+    )
+
+    assert metrics["ok"] is True
+    assert metrics["truncated"] is False
+    assert len(provider.calls) == 2, "the total ended it; the wrapped pages were never asked for"
+    assert len(jobs) == 6
+    assert len({job["provider_job_id"] for job in jobs}) == 6
+
+
+def test_workday_listing_row_without_a_path_is_counted_not_dropped_silently():
+    """One row in NVIDIA's first twenty carried `bulletFields` and nothing else."""
+    page = _workday_page(["/job/Dublin/role-1"], total=2)
+    page["jobPostings"].append({"bulletFields": ["R2"]})
+    provider = FakeAtsProvider([page])
+
+    metrics, jobs = fetch_board(
+        _workday_board(), provider_client=provider, page_size=2, max_pages=1
+    )
+
+    assert len(jobs) == 1
+    assert metrics["jobs_received"] == 2
+    assert metrics["invalid_or_unlisted_jobs"] == 1
+
+
+def test_workday_listing_is_always_deferred_and_the_jd_comes_from_the_detail_page():
+    """Workday has no description field in the listing at any setting.
+
+    Greenhouse is in the same set for the opposite reason -- it *can* leave them
+    out -- so a Workday posting has no description until `fetch_job_content`
+    fetches one, whatever `defer_content` said.
+    """
+    listing = FakeAtsProvider([_workday_page(["/job/Dublin/role-1"], total=1)])
+    metrics, jobs = fetch_board(
+        _workday_board(),
+        provider_client=listing,
+        page_size=1,
+        max_pages=1,
+        defer_content=False,
+    )
+    assert metrics["content_deferred"] is True
+    assert jobs[0]["jd_text"] == ""
+    assert jobs[0]["description_present"] is False
+
+    detail = FakeAtsProvider(
+        [{"jobPostingInfo": {"jobDescription": "<p>Build things</p>", "title": "Engineer"}}]
+    )
+    jd_metrics = ats_provider.fetch_job_content(
+        _workday_board(), jobs, provider_client=detail
+    )
+
+    assert jd_metrics["jobs_filled"] == 1
+    assert jobs[0]["jd_text"] == "Build things"
+    assert jobs[0]["description_present"] is True
+    assert detail.calls == [
+        "https://acme.wd5.myworkdayjobs.com/wday/cxs/acme/apply/job/Dublin/role-1"
+    ]
+
+
+def test_workday_candidate_links_to_the_page_a_person_opens():
+    """The detail endpoint is not a URL to show anybody; the career site is."""
+    provider = FakeAtsProvider([_workday_page(["/job/Dublin/role-1"], total=1)])
+    _metrics, jobs = fetch_board(
+        _workday_board(), provider_client=provider, page_size=1, max_pages=1
+    )
+    assert jobs[0]["url"] == "https://acme.wd5.myworkdayjobs.com/apply/job/Dublin/role-1"
+
+
+def test_workday_posts_its_search_and_sends_no_query_terms():
+    """The endpoint refuses GET, so reaching it means posting the search.
+
+    What is posted is built here from an offset and a limit. A board is fetched
+    whole and filtered locally, which is what makes the result reproducible, so
+    `searchText` stays empty exactly as `amazon_jobs_url` takes no query.
+    """
+    provider = FakeAtsProvider([_workday_page(["/job/Dublin/role-1"], total=1)])
+    fetch_board(_workday_board(), provider_client=provider, page_size=20, max_pages=1)
+
+    assert provider.bodies == [
+        {"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": ""}
+    ]
+
+
+def test_workday_page_size_is_capped_at_what_the_endpoint_accepts():
+    """20 is 200 and 50 is 400, so a larger page_size is lowered, not sent."""
+    provider = FakeAtsProvider([_workday_page(["/job/Dublin/role-1"], total=1)])
+    fetch_board(_workday_board(), provider_client=provider, page_size=50, max_pages=1)
+
+    assert provider.bodies[0]["limit"] == ats_provider.WORKDAY_PAGE_SIZE == 20
+
+
+@pytest.mark.parametrize(
+    "missing", ["instance", "site"]
+)
+def test_workday_board_missing_an_identifier_is_refused_before_any_request(missing):
+    """Three identifiers, none derivable: no site is 400, a wrong data centre is
+    422, and the bare tenant host does not resolve."""
+    board = _workday_board()
+    del board[missing]
+    provider = FakeAtsProvider([])
+
+    metrics, jobs = fetch_board(board, provider_client=provider)
+
+    assert metrics["ok"] is False
+    assert metrics["failure_kind"] == "invalid_board_token"
+    assert jobs == []
+    assert provider.calls == []
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/job/Dublin/../../etc/passwd",
+        "https://elsewhere.example/job/Dublin/role",
+        "/careers/Dublin/role",
+        "",
+    ],
+)
+def test_workday_refuses_a_posting_path_it_would_not_have_built(path):
+    """The path comes from the response and goes into a URL, so it is checked."""
+    page = _workday_page([], total=1)
+    page["jobPostings"] = [
+        {"title": "Engineer", "externalPath": path, "locationsText": "Dublin"}
+    ]
+    provider = FakeAtsProvider([page])
+
+    _metrics, jobs = fetch_board(
+        _workday_board(), provider_client=provider, page_size=1, max_pages=1
+    )
+
+    assert jobs == []

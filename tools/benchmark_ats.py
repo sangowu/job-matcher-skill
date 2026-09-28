@@ -54,12 +54,22 @@ class _CallableProvider:
     def __init__(self, callback: FetchJson) -> None:
         self.callback = callback
 
-    def fetch_json(self, url: str, timeout_seconds: float) -> tuple[Any, int, float]:
-        return self.callback(url, timeout_seconds)
+    def fetch_json(
+        self, url: str, timeout_seconds: float, *, json_body: Any = None
+    ) -> tuple[Any, int, float]:
+        # The callback is a hook callers supply, and its long-standing shape
+        # takes a URL and a timeout. A body is forwarded only when there is one,
+        # so a hook that never reaches a provider requiring POST keeps working
+        # unchanged; one that does reach it is told which argument it is missing.
+        if json_body is None:
+            return self.callback(url, timeout_seconds)
+        return self.callback(url, timeout_seconds, json_body=json_body)
 
 
-def _fetch_json(url: str, timeout_seconds: float) -> tuple[Any, int, float]:
-    return HttpAtsProvider().fetch_json(url, timeout_seconds)
+def _fetch_json(
+    url: str, timeout_seconds: float, *, json_body: Any = None
+) -> tuple[Any, int, float]:
+    return HttpAtsProvider().fetch_json(url, timeout_seconds, json_body=json_body)
 
 
 def fetch_board(

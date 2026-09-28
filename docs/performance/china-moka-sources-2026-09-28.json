@@ -1,0 +1,70 @@
+{
+  "checked_at": "2026-09-28",
+  "subject": "Whether the two Chinese recruiting SaaS platforms can be read, and how",
+  "method": "robots.txt read with scripts/check_robots.py against the URL a round would visit, following the site's own redirect first; the listing endpoint exercised from plain Python with the project's own user agent; the page opened in a real browser to see what it renders. Read-only throughout.",
+  "beisen": {
+    "hosts": ["careers.italent.cn", "www.italent.cn", "www.zhiye.com"],
+    "robots": "User-agent:*\\r\\nDisallow:/ on both italent hosts",
+    "decision": "refused, whole host",
+    "note": "A direct fetch of careers.italent.cn/robots.txt with an ordinary browser user agent answered 406, which reads like 'no rules published'. check_robots.py, with the project's own agent, got 200 and the file above. The host rejecting one agent is not the host having no rules, and the two readings give opposite answers. www.zhiye.com fails TLS certificate verification."
+  },
+  "moka": {
+    "host": "app.mokahr.com",
+    "url_shape": "/social-recruitment/{orgId}/{siteId}",
+    "robots": "User-agent: * with exactly two Disallow lines, both individual boards: /social-recruitment/lingjuninvest/46355 and /social-recruitment/shopee/74378. Everything else is permitted.",
+    "redirect_trap": "/social-recruitment/lingjuninvest redirects to /social-recruitment/lingjuninvest/46355, which is the path the file disallows. Checking robots against the URL before the redirect would have read that tenant as permitted. It is not in the catalog.",
+    "listing_endpoint": {
+      "request": "POST /api/outer/ats-apply/website/jobs/v2 with {orgId, siteId, limit, offset, site, locale}",
+      "reachable": "200 with no cookie and the project's own user agent",
+      "payload": "{\"data\": \"<base64 ciphertext>\", \"necromancer\": \"<key id>\"} -- the response is encrypted and decrypted by the site's own JavaScript",
+      "decision": "not a structured source. Reading that payload means defeating a protection the operator deliberately added, which robots permitting the path does not change."
+    },
+    "browser_channel": "The page renders normally in a browser: a job list with titles, work locations and stable per-posting ids. That is the site working as intended for a visitor and needs nothing defeated, so these are public_read_only_page sources."
+  },
+  "tenant_discovery": {
+    "method": "/social-recruitment/{org} answers 302 to the board it serves when the slug is a tenant and 404 when it is not, so the site says which slugs are real.",
+    "slugs_tried": 69,
+    "tenants_found": 22,
+    "robots_permitted": 22,
+    "note": "Guessed slugs, which is a cold start. The durable path is board_harvest's: read orgId and siteId off a job URL that some other channel already found."
+  },
+  "verified_and_added": [
+    {"source_id": "shopee-moka-cn", "jobs_shown": "546", "cities": "深圳 北京 上海 广州"},
+    {"source_id": "hypergryph-moka-cn", "jobs_shown": "355", "cities": "上海 苏州"},
+    {"source_id": "zuoyebang-moka-cn", "jobs_shown": "250", "cities": "北京 深圳 成都 广州 武汉 上海"},
+    {"source_id": "moonshot-moka-cn", "jobs_shown": "106", "cities": "北京 上海 深圳 成都"},
+    {"source_id": "iluvatar-moka-cn", "jobs_shown": "67", "cities": "上海 北京 西安 深圳"},
+    {"source_id": "biren-moka-cn", "jobs_shown": "51", "cities": "上海 北京 杭州 深圳"},
+    {"source_id": "trunk-moka-cn", "jobs_shown": "45", "cities": "合肥"},
+    {"source_id": "cambricon-moka-cn", "jobs_shown": "20+", "cities": "北京 上海 深圳"},
+    {"source_id": "enflame-moka-cn", "jobs_shown": "20+", "cities": "上海 成都 深圳 北京 杭州"},
+    {"source_id": "agora-moka-cn", "jobs_shown": "20+", "cities": "上海 广州 深圳 杭州"},
+    {"source_id": "huohua-moka-cn", "jobs_shown": "20+", "cities": "西安 合肥 武汉 上海"},
+    {"source_id": "tuya-moka-cn", "jobs_shown": "20+", "cities": "杭州 深圳"},
+    {"source_id": "manbang-moka-cn", "jobs_shown": "6", "cities": "南京"},
+    {"source_id": "fourparadigm-moka-cn", "jobs_shown": "5", "cities": "上海 北京"}
+  ],
+  "found_and_not_added": [
+    {"org": "deepglint", "reason": "当前网页已关停 -- the careers site is shut down"},
+    {"org": "lilith", "reason": "当前网页已关停"},
+    {"org": "himalaya", "reason": "当前网页已关停"},
+    {"org": "haomo", "reason": "当前网页已关停"},
+    {"org": "huolala", "reason": "renders nothing"},
+    {"org": "jiguang", "reason": "renders nothing"},
+    {"org": "zhiyitech", "reason": "renders nothing"},
+    {"org": "lingjuninvest", "reason": "its board is the path robots.txt disallows"},
+    {"org": "moka", "reason": "resolves, not opened, so not recorded as verified"}
+  ],
+  "what_cn_looked_like_before": {
+    "sources": 14,
+    "structured": 0,
+    "chinese_employers": 0,
+    "note": "Ten company_careers rows, every one a multinational's global careers site; three Chinese job boards all carrying automation_allowed: false; one university page. The market had no Chinese employer in it at all."
+  },
+  "what_cn_looks_like_now": {
+    "sources": 28,
+    "browser_usable": 23,
+    "chinese_employers": 14,
+    "channels": "per_market.cn reads planned on structured, browser and web_search together for the first time. The browser channel now picks Chinese employers over the multinationals' global sites."
+  }
+}

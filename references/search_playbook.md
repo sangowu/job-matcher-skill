@@ -69,12 +69,17 @@ locations : 用户本轮明确地点 > CV.target_locations > CV.preferred_locati
 ### 自适应分批（编排者）
 ```
 第1批：取 plan 前 2 条 query 执行搜索（有子代理则并行委派、各 1 次 web 搜索；否则逐条搜）
-  → 汇总回传 → merge_jobs.py(聚合/缓存判定) → 统计净有效新职位
-  ├─ ≥ stop_threshold(12) → 停
+  → 汇总回传 → merge_jobs.py(聚合/缓存判定) → 统计本批新增唯一候选
+  ├─ 累计 ≥ stop_threshold → 停
   └─ < 阈值 → 追加下一批（plan 剩余 query）
-停止条件（任一）：净有效 ≥ stop_threshold(12) / web 搜索累计 ≥ max_websearch_calls(6)
-                / 连续 consecutive_empty_stop(2) 批 0 结果
-批内并行（有子代理时）≤ max_parallel_subagents(3)，与评估 worker 共用该预算
+停止判定由 discovery_batch.py 输出（`continuation.decision`），三条任一成立即停：
+  · 累计唯一候选 ≥ stop_threshold          → target_reached
+  · plan 中已无下一波任务                   → plan_exhausted
+  · 连续 consecutive_empty_stop 批 0 新增   → diminishing_returns
+计的是 merge 新增的**唯一候选**，未经评分、也不代表 JD 完整。
+max_websearch_calls 是编排者的 web 搜索次数预算，不参与上述判定：耗尽后不再发起新的
+web 查询，已派发的任务仍按上面三条收尾。
+批内并行（有子代理时）≤ max_parallel_subagents，与评估 worker 共用该预算
 ```
 
 ### 外部内容安全（搜索执行方必读）

@@ -44,7 +44,7 @@
     "cn": "off",
     "de": "off"
   },
-  "stop_threshold": 12,
+  "stop_threshold": 20,
   "consecutive_empty_stop": 2,
   "ats_enabled": true,
   "ats_defer_jd": true,

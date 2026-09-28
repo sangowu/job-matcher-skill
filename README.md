@@ -238,7 +238,7 @@ agent 会自动识别。然后在对话里：
 | `web_source_hints_per_task` | 6 | 每条 Web Search 任务携带的公开来源提示上限 |
 | `multi_region_enabled` | false | **只管 Phase E shadow 门禁**；只有 `shadow_gate.py` 读它，live 发现路径不读，因此它不是多市场总闸 |
 | `multi_region_rollout` | 已列出的市场均 off | 每市场独立设置 off / shadow / opt_in / default；default 必须通过 Phase E 门禁。同样只作用于 shadow 门禁 |
-| `stop_threshold` | 12 | 净有效职位达标停止 |
+| `stop_threshold` | 20 | 累计唯一候选达标即停（`continuation.reason=target_reached`）。计的是 merge 新增的唯一候选，发生在评分与 JD 补全之前；取 `top_n` + `precise_buffer`，使刚好触线停下的一轮仍够填满报告 |
 | `consecutive_empty_stop` | 2 | 连续 N 批 0 结果则停止 |
 | `ats_enabled` | true | 是否启用公开 ATS 增强管道 |
 | `ats_defer_jd` | true | 先读不含 JD 正文的职位列表，再只为本轮保留的候选各取一次正文；false 恢复每个 board 一次请求、正文随列表一起下载 |

@@ -187,3 +187,18 @@ def test_every_seeded_board_names_a_provider_the_round_can_actually_fetch():
     providers = {source["provider"] for source in _ats_seeds()}
 
     assert providers <= set(ats_provider.PROVIDERS), providers - set(ats_provider.PROVIDERS)
+
+
+def test_discovery_stops_no_earlier_than_the_report_needs():
+    """A round may stop exactly on the threshold, so it has to be enough.
+
+    `stop_threshold` shipped as 12 against a `top_n` of 15: a round that hit
+    the threshold on the nose had three candidates too few to fill the report
+    and none of the `precise_buffer` the ranking expects to choose from. It
+    went unnoticed because a single wave usually returns far more than the
+    threshold at once -- the hole only opens on a thin round, which is the
+    round that could least afford it.
+    """
+    config = _config()
+
+    assert config["stop_threshold"] >= config["top_n"] + config["precise_buffer"]

@@ -270,7 +270,7 @@ Or paste your CV text + job intent. The skill runs the full pipeline and opens t
 | `web_source_hints_per_task` | 6 | public source-hint cap per Web Search task |
 | `multi_region_enabled` | false | **Phase E shadow gate only**; `shadow_gate.py` is the one reader and the live discovery path ignores it, so it is not a multi-market master switch |
 | `multi_region_rollout` | every listed market off | independent off / shadow / opt_in / default mode per market; default requires the Phase E gate. Shadow gate only, as above |
-| `stop_threshold` | 12 | stop once enough net-valid jobs found |
+| `stop_threshold` | 20 | stop once this many unique candidates have accumulated (`continuation.reason=target_reached`). It counts what the merge added, before scoring and before JD backfill; it is `top_n` + `precise_buffer`, so a round that stops exactly on the threshold still has enough to fill the report |
 | `consecutive_empty_stop` | 2 | stop after N consecutive empty batches |
 | `ats_enabled` | true | enable the public ATS enhancement pipeline |
 | `ats_defer_jd` | true | read the listing without job descriptions, then fetch one description per posting the round keeps; false restores one request per board with the descriptions inline |

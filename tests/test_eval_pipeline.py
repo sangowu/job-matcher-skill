@@ -777,6 +777,113 @@ def test_legacy_table_is_migrated_in_place(isolated_store, monkeypatch, capsys):
     assert migrated["raw_sources"][0]["discovery_route"] == "unknown"
 
 
+def test_a_posting_in_two_markets_is_attributed_to_both(
+    isolated_store, monkeypatch, capsys
+):
+    """`market_ids` is plural, and a posting listed twice earns both entries.
+
+    Provenance carried only a singular `market_id`, which a location resolving
+    to two markets left empty -- so every multi-location posting landed with
+    `market_ids: []` and `market_status: "unknown"`, unfilterable in the report,
+    while the catalog had placed it in both.
+    """
+    candidate = phase_c_candidate(
+        route="regional_registry",
+        source_id="de-local-fixture",
+        language="de",
+        title="AI Engineer",
+        url="https://example.com/jobs/ie-uk",
+        location="Dublin, Ireland; London, England",
+        location_normalized={
+            "market_id": None,
+            "market_ids": ["ie", "uk"],
+            "city_id": "dublin",
+            "remote_scope": None,
+            "confidence": "exact",
+        },
+    )
+
+    invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate], "cv", "cp")
+    job = load_table(isolated_store)["jobs"][0]
+
+    assert job["market_ids"] == ["ie", "uk"]
+    assert job["market_status"] == "known"
+
+
+def test_a_row_stored_without_a_placement_takes_one_when_it_is_seen_again(
+    isolated_store, monkeypatch, capsys
+):
+    """The lazy migration the rest of the table already does, for this field.
+
+    Rows merged before provenance could hold a plural reading keep an entry with
+    no placement, and `_merge_into` drops an incoming source whose provenance key
+    it already has -- so the row would stay unattributed however often the same
+    board reported it. An absent placement is filled; a present one is never
+    overwritten.
+    """
+    without = phase_c_candidate(
+        route="regional_registry",
+        source_id="de-local-fixture",
+        language="de",
+        title="AI Engineer",
+        url="https://example.com/jobs/ie-uk",
+        location="Dublin, Ireland; London, England",
+        location_normalized={
+            "market_id": None,
+            "city_id": None,
+            "remote_scope": None,
+            "confidence": "unknown",
+        },
+    )
+    invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [without], "cv", "cp")
+    assert load_table(isolated_store)["jobs"][0]["market_ids"] == []
+
+    with_placement = dict(
+        without,
+        location_normalized={
+            "market_id": None,
+            "market_ids": ["ie", "uk"],
+            "city_id": "dublin",
+            "remote_scope": None,
+            "confidence": "exact",
+        },
+    )
+    invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [with_placement], "cv", "cp")
+    jobs = load_table(isolated_store)["jobs"]
+
+    assert len(jobs) == 1
+    assert jobs[0]["market_ids"] == ["ie", "uk"]
+    assert jobs[0]["market_status"] == "known"
+    assert len(jobs[0]["raw_sources"]) == 1
+
+
+def test_a_stored_placement_is_not_overwritten_by_a_later_silence(
+    isolated_store, monkeypatch, capsys
+):
+    base = phase_c_candidate(
+        route="regional_registry",
+        source_id="de-local-fixture",
+        language="de",
+        title="AI Engineer",
+        url="https://example.com/jobs/berlin",
+    )
+    invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [base], "cv", "cp")
+
+    silent = dict(
+        base,
+        location_normalized={
+            "market_id": None,
+            "city_id": None,
+            "remote_scope": None,
+            "confidence": "unknown",
+        },
+    )
+    invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [silent], "cv", "cp")
+    job = load_table(isolated_store)["jobs"][0]
+
+    assert job["market_ids"] == ["de"]
+
+
 def test_distinct_jobs_are_not_merged_by_aggregation(isolated_store, monkeypatch, capsys):
     output = invoke(
         monkeypatch, capsys, merge_jobs.cmd_merge,

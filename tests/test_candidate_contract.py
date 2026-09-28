@@ -56,6 +56,15 @@ def test_json_schema_and_runtime_validator_share_required_contract():
     assert set(schema["properties"]["source_type"]["enum"]) == (
         candidate_contract.SOURCE_TYPES
     )
+    location = schema["properties"]["location_normalized"]["properties"]
+    assert set(location["market_id"]["enum"]) == (
+        candidate_contract.SUPPORTED_MARKETS | {None}
+    )
+    assert set(location["market_ids"]["items"]["enum"]) == (
+        candidate_contract.SUPPORTED_MARKETS
+    )
+    assert location["market_ids"]["maxItems"] == len(candidate_contract.SUPPORTED_MARKETS)
+    assert "market_ids" in normalized["location_normalized"]
     assert normalized["search_language"] == "de"
     assert normalized["identity_keys"] == ["greenhouse:123"]
 
@@ -79,6 +88,93 @@ def test_invalid_candidate_envelopes_are_rejected(mutation, message):
         candidate_contract.validate_candidate_envelope(
             item, known_source_ids={"amazon-careers"}
         )
+
+
+def test_a_location_in_two_markets_keeps_both():
+    """The plural field is what the job table stores, so it is not collapsed.
+
+    A posting listed in Dublin and London belongs to two markets. The singular
+    field stays empty, because no single market is the answer, and the row is
+    still attributed -- which is what the report filters on.
+    """
+    normalized = candidate_contract.validate_candidate_envelope(
+        envelope(
+            location="Dublin, Ireland; London, England",
+            location_normalized={
+                "market_id": None,
+                "market_ids": ["ie", "uk"],
+                "city_id": "dublin",
+                "remote_scope": None,
+                "confidence": "exact",
+            },
+        )
+    )
+
+    assert normalized["location_normalized"]["market_id"] is None
+    assert normalized["location_normalized"]["market_ids"] == ["ie", "uk"]
+
+
+def test_one_market_needs_only_the_singular_field():
+    """A worker with one market to report writes one field, as it always did."""
+    normalized = candidate_contract.validate_candidate_envelope(envelope())
+
+    assert normalized["location_normalized"]["market_ids"] == ["de"]
+
+
+def test_no_market_at_all_stays_empty_rather_than_absent():
+    normalized = candidate_contract.validate_candidate_envelope(
+        envelope(
+            location_normalized={
+                "market_id": None,
+                "city_id": None,
+                "remote_scope": None,
+                "confidence": "unknown",
+            }
+        )
+    )
+
+    assert normalized["location_normalized"]["market_ids"] == []
+
+
+@pytest.mark.parametrize(
+    "market_ids, message",
+    [
+        (["ie", "xx"], "market_ids is invalid"),
+        ("ie", "market_ids is invalid"),
+        ([None], "market_ids is invalid"),
+        (["ie", "uk", "cn", "de", "us", "ie2"], "market_ids is invalid"),
+        (["uk"], "not among its market_ids"),
+    ],
+)
+def test_the_plural_field_is_bounded_and_agrees_with_the_singular_one(market_ids, message):
+    item = envelope(
+        location_normalized={
+            "market_id": "de",
+            "market_ids": market_ids,
+            "city_id": "berlin",
+            "remote_scope": None,
+            "confidence": "exact",
+        }
+    )
+
+    with pytest.raises(candidate_contract.CandidateContractError, match=message):
+        candidate_contract.validate_candidate_envelope(item)
+
+
+def test_unknown_location_cannot_assert_markets_either():
+    """The plural field cannot smuggle in what the singular one is refused."""
+    item = envelope(
+        location_normalized={
+            "market_id": None,
+            "market_ids": ["de"],
+            "city_id": None,
+            "remote_scope": None,
+            "confidence": "unknown",
+        }
+    )
+
+    with pytest.raises(candidate_contract.CandidateContractError, match="cannot assert"):
+        candidate_contract.validate_candidate_envelope(item)
 
 
 def test_unknown_location_cannot_assert_a_market():

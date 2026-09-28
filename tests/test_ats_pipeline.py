@@ -12,6 +12,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import ats_pipeline  # noqa: E402
+import candidate_contract  # noqa: E402
 import market_plan  # noqa: E402
 from ats_provider import AtsProviderError, FakeAtsProvider  # noqa: E402
 
@@ -466,6 +467,42 @@ def test_the_envelope_keeps_its_remote_scope_field_and_never_fills_it():
     # on `location`, whatever market it resolves to.
     assert envelopes[1]["location_normalized"]["market_id"] == "us"
     assert envelopes[1]["location_normalized"]["confidence"] == "country"
+    for envelope in envelopes:
+        assert envelope["location_normalized"]["market_ids"] == (
+            [envelope["location_normalized"]["market_id"]]
+        )
+
+
+def test_a_posting_listed_in_two_markets_reports_both():
+    """One market is an attribution; two are two, not nothing.
+
+    The singular field is what a task scope check reads, so it stays empty when
+    no single market is the answer. The plural field is what the job table
+    stores, and dropping it there left these postings attributed to no market at
+    all -- measured on a live round, eight of eighty-five rows.
+    """
+    candidates = [
+        {"title": "AI Engineer", "company": "Acme",
+         "location": "Dublin, Ireland; London, England",
+         "url": "https://boards.greenhouse.io/acme/jobs/3", "source_id": "acme-greenhouse",
+         "identity_keys": ["greenhouse:3"], "jd_text": "text"},
+    ]
+
+    envelopes = [
+        envelope
+        for envelope, _ in ats_pipeline.to_candidate_envelopes(
+            candidates, source_types={"acme-greenhouse": "ats_board"}
+        )
+    ]
+
+    assert envelopes[0]["location_normalized"]["market_id"] is None
+    assert envelopes[0]["location_normalized"]["market_ids"] == ["ie", "uk"]
+    # And it survives the contract the merge writer puts it through.
+    normalized = candidate_contract.validate_candidate_envelope(
+        {key: value for key, value in envelopes[0].items()
+         if key not in {"jd_text", "jd_text_truncated"}}
+    )
+    assert normalized["location_normalized"]["market_ids"] == ["ie", "uk"]
 
 
 def test_a_candidate_whose_source_type_is_unknown_is_an_error():

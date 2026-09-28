@@ -977,8 +977,14 @@ def test_the_market_set_comes_from_the_catalog_not_from_five_copies():
     answer -- it only had to agree with one. Adding a market meant editing six
     places plus their tests before the new entry counted for anything."""
     import candidate_contract
-    import multi_region_smoke
     import render_html
+
+    # `multi_region_smoke` lives in tools/, which is not on the path for a
+    # module under scripts/. Inserting it here rather than relying on
+    # test_multi_region_smoke having run first, which made this file pass in
+    # the suite and fail when run alone.
+    sys.path.insert(0, str(SKILL_ROOT / "tools"))
+    import multi_region_smoke
     from _jobutil import supported_markets
 
     catalog = set(supported_markets())
@@ -988,6 +994,68 @@ def test_the_market_set_comes_from_the_catalog_not_from_five_copies():
     assert catalog == set(candidate_contract.SUPPORTED_MARKETS)
     assert catalog == set(render_html.SUPPORTED_MARKETS)
     assert catalog == set(multi_region_smoke.SUPPORTED_MARKETS)
+
+
+def test_a_family_the_cv_already_targets_is_not_a_generalization_of_it(resources):
+    """A generalization the round is already searching is not a widening.
+
+    The backend family generalizes to applied_ai, so a CV naming both an AI and
+    a Python backend role reported `Applied AI Engineer` as a generalization of
+    the second -- a title already in `target_roles`. The queries were deduped
+    downstream, so nothing was searched twice, but the plan claimed a widening
+    it had not made, and in `_variants_for_role` the duplicate still cost the
+    backend role a variant slot that another target role was covering anyway.
+    """
+    markets, taxonomy = resources
+    profile = {
+        "preferred_roles": ["AI Engineer", "Python Backend Engineer"],
+        "skills": ["Python", "FastAPI", "PostgreSQL", "Docker", "SQL", "PyTorch"],
+        "seniority": "mid",
+        "current_location": "Dublin, Ireland",
+    }
+
+    plan = market_plan.build_market_plan(
+        {"cv_profile": profile, "user_intent": {"markets": ["ie"], "locations": ["Dublin"]}},
+        markets=markets,
+        taxonomy=taxonomy,
+    )
+
+    # Families, not spellings: applied_ai is already searched as "AI Engineer",
+    # so its lead title "Applied AI Engineer" is not a widening of the backend
+    # role even though that exact string is absent from `target_roles`.
+    occupied = {
+        market_plan.resolve_role_family(role, taxonomy)
+        for role in plan["target_roles"]
+    }
+    assert "applied_ai" in occupied
+    assert "Applied AI Engineer" not in plan["generalized_roles"]
+    assert not occupied & {
+        market_plan.resolve_role_family(role, taxonomy)
+        for role in plan["generalized_roles"]
+    }
+    titles = {row["role"].casefold() for row in plan["role_plan"]}
+    assert len(titles) == len(plan["role_plan"])
+
+
+def test_dropping_an_occupied_family_frees_the_slot_for_another(resources):
+    """The exclusion happens before the cap, so the CV keeps two widenings."""
+    _, taxonomy = resources
+    skills = {"python", "fastapi", "postgresql", "docker", "sql", "pytorch", "spark"}
+    without = market_plan._generalized_families(
+        "Python Backend Engineer", taxonomy, skills
+    )
+    with_occupied = market_plan._generalized_families(
+        "Python Backend Engineer",
+        taxonomy,
+        skills,
+        market_plan._occupied_families(["AI Engineer"], taxonomy),
+    )
+
+    assert "applied_ai" in without
+    assert "applied_ai" not in with_occupied
+    assert len(with_occupied) == min(
+        len(without), market_plan.MAX_GENERALIZED_FAMILIES
+    )
 
 
 def test_a_market_catalog_naming_one_market_is_accepted(resources):

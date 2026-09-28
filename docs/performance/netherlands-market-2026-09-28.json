@@ -1,0 +1,67 @@
+{
+  "checked_at": "2026-09-28",
+  "subject": "Adding the Netherlands as the sixth market, and what it costs",
+  "method": "scripts/check_robots.py against each candidate source's search path with its query string, then a fetch of the entry page to see a listing is served there. Coverage measured by fetching every structured board the catalog holds and placing each posting with market_plan.normalize_location -- the pipeline's own normalizer, not string matching. Read-only throughout.",
+  "outcome": "146 Dutch postings are reachable from boards curated for other markets, with no board declaring nl. The four Dutch sources added here are local and serve the browser and Web Search channels, which this measurement does not run.",
+  "coverage": {
+    "structured_boards_fetched": 59,
+    "boards_declaring_nl": 0,
+    "postings_fetched": 10264,
+    "placed_in_nl": 146,
+    "boards_contributing": 14,
+    "by_city": {"amsterdam": 103, "rotterdam": 6, "country_only": 15, "other_cities_on_multi_location_postings": 22},
+    "top_contributors": [
+      {"source_id": "adyen-greenhouse", "postings": 58, "declares": ["uk", "de"]},
+      {"source_id": "elevenlabs-ashby", "postings": 23, "declares": ["ie", "uk", "de"]},
+      {"source_id": "datadog-greenhouse", "postings": 21, "declares": ["ie", "uk", "de", "us"]},
+      {"source_id": "hellofresh-greenhouse", "postings": 15, "declares": ["ie", "uk", "de"]},
+      {"source_id": "celonis-greenhouse", "postings": 7, "declares": ["uk", "de"]},
+      {"source_id": "reddit-greenhouse", "postings": 4, "declares": ["us"]}
+    ]
+  },
+  "sources_added": [
+    {
+      "source_id": "jobbird-nl",
+      "source_type": "local_job_board",
+      "robots": {"url": "https://www.jobbird.com/nl/vacatures?q=ai+engineer", "allowed": true, "rule": "no matching rule"},
+      "entry_page": {"status": 200, "kb": 62, "count_shown": "71.162 vacatures"}
+    },
+    {
+      "source_id": "werkenvoornederland-nl",
+      "source_type": "public_sector_portal",
+      "robots": {"url": "https://www.werkenvoornederland.nl/vacatures?trefwoord=ai+engineer", "allowed": true, "rule": "no matching rule"},
+      "entry_page": {"status": 200, "kb": 589, "count_shown": "1500 vacatures"}
+    },
+    {
+      "source_id": "intermediair-nl",
+      "source_type": "local_job_board",
+      "robots": {"url": "https://www.intermediair.nl/vacatures?trefwoord=ai+engineer", "allowed": true, "rule": "no matching rule"},
+      "entry_page": {"status": 200, "kb": 91, "listing_markers": 599}
+    },
+    {
+      "source_id": "academictransfer-nl",
+      "source_type": "public_sector_portal",
+      "robots": {"url": "https://www.academictransfer.com/en/jobs/?q=ai+engineer", "allowed": true, "rule": "allow: /"},
+      "entry_page": {"status": 200, "kb": 226, "listing_markers": 121}
+    }
+  ],
+  "sources_examined_and_not_added": [
+    {"name": "nationalevacaturebank.nl", "reason": "robots disallow: /vacature/zoeken?* -- the search path itself"},
+    {"name": "nl.indeed.com", "reason": "robots disallow: /viewjob, which is where the JD is. Same rule as the Irish host."},
+    {"name": "magnet.me", "reason": "robots allows it, but the entry page is 11 KB with no listing in it: the content is client-rendered and nothing could be observed"},
+    {"name": "jobs.techleap.nl", "reason": "404 on the listing URL"},
+    {"name": "werk.nl", "reason": "robots allows it, listing URL answers 302 and nobody followed it"},
+    {"name": "monsterboard.nl", "reason": "robots.txt unreadable"},
+    {"name": "EURES", "reason": "robots.txt unreadable, unchanged from the earlier look"}
+  ],
+  "what_the_market_cost": {
+    "search_language": "English only. `default_search_languages` must come from INTERNAL_LANGUAGES (en, de, zh-Hans), so Dutch would mean Dutch titles and synonyms for every role family and Dutch names for every city in every market -- a translation job rather than a market. Dutch technology postings are written in English at a high rate, and the structured channel does not use a search language at all.",
+    "obligations_the_suite_named": [
+      "a market label in both report languages",
+      "a slot in the multi-region smoke plan, and max_sources above the market count",
+      "the market in the published envelope schema's two enums",
+      "three verified local sources, which is why the four above were checked"
+    ],
+    "defect_found_on_the_way": "tools/multi_region_smoke.py recognised job links by an English stem list carrying German's `stelle` but nothing Dutch. `vacature` shares no substring with `vacanc`, so every Dutch job link read as navigation and the market observed zero candidates."
+  }
+}

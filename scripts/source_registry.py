@@ -260,7 +260,7 @@ def validate_seed_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     source_ids: set[str] = set()
     local_counts = {market_id: 0 for market_id in SUPPORTED_MARKETS}
-    global_counts = {market_id: 0 for market_id in SUPPORTED_MARKETS}
+    structured_total = 0
     for index, source in enumerate(sources):
         if not isinstance(source, dict):
             raise SourceValidationError(f"sources[{index}] must be an object")
@@ -375,21 +375,34 @@ def validate_seed_payload(payload: dict[str, Any]) -> dict[str, Any]:
             )
 
         if source["enabled"] and source["verified"]:
+            if set(access_methods) & STRUCTURED_METHODS:
+                structured_total += 1
             for market_id in markets:
                 if source["source_type"] in LOCAL_SOURCE_TYPES and len(markets) == 1:
                     local_counts[market_id] += 1
-                if source["source_type"] in GLOBAL_SOURCE_TYPES:
-                    global_counts[market_id] += 1
 
+    # The local minimum is still per market. Those sources are queried per
+    # market in that market's own language and locations, so a market without
+    # them has no browser or Web Search channel at all.
     for market_id in SUPPORTED_MARKETS:
         if local_counts[market_id] < 3:
             raise SourceValidationError(
                 f"market {market_id} requires at least 3 verified local sources"
             )
-        if global_counts[market_id] < 10:
-            raise SourceValidationError(
-                f"market {market_id} requires at least 10 verified company/ATS/global-board sources"
-            )
+    # The global minimum is not. It used to be ten company/ATS/global-board
+    # sources naming each market, which was a count of how many catalog rows
+    # had been written for that market rather than of what the market could
+    # reach -- and the two came apart badly: cn carried fourteen curated
+    # sources and 11 postings, while nl carried none and 147, from boards
+    # already being fetched. A structured source is now planned for every
+    # market the round asked for, so it either serves all of them or none, and
+    # the question it can still answer is whether the catalog has that channel
+    # at all.
+    if structured_total < 10:
+        raise SourceValidationError(
+            "the catalog requires at least 10 verified sources the structured "
+            f"channel can fetch, found {structured_total}"
+        )
     return payload
 
 

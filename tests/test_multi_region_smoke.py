@@ -84,6 +84,10 @@ def _successful_responses() -> dict[str, multi_region_smoke.FetchResult]:
         "reed-uk": ("Machine Learning Engineer London", "/jobs/ml-engineer-london-202"),
         "arbeitsagentur-de": ("KI-Ingenieur Berlin", "/jobsuche/jobdetail/ki-303"),
         "builtin-us": ("AI Engineer New York", "/job/ai-engineer-new-york-404"),
+        "werkenvoornederland-nl": (
+            "AI Engineer Amsterdam",
+            "/vacatures/ai-engineer-amsterdam-505",
+        ),
     }
     responses: dict[str, multi_region_smoke.FetchResult] = {}
     for source_id, (label, detail_path) in cases.items():
@@ -127,8 +131,12 @@ def test_versioned_plan_is_bounded_and_covers_every_supported_market() -> None:
     assert [item["market_id"] for item in resolved] == list(
         multi_region_smoke.SUPPORTED_MARKETS
     )
-    assert plan["limits"] == {
-        "max_sources": 5,
+    # `max_sources` has to leave room for the markets, so it is pinned to them
+    # rather than to a number that a sixth market turns stale.
+    assert plan["limits"]["max_sources"] >= len(multi_region_smoke.SUPPORTED_MARKETS)
+    assert {
+        key: value for key, value in plan["limits"].items() if key != "max_sources"
+    } == {
         "max_requests_per_source": 2,
         "max_response_bytes": 524288,
         "timeout_seconds": 8,

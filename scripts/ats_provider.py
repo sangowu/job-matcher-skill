@@ -11,7 +11,7 @@ from gzip import GzipFile
 from html import unescape
 from html.parser import HTMLParser
 from io import BytesIO
-from typing import Any, Protocol
+from typing import Any, Callable, NamedTuple, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -31,14 +31,19 @@ ATS_JD_MAX_CHARS = 50_000
 # The three applicant tracking systems. `amazon_jobs` is fetched by the same
 # machinery and is not one of them, and the distinction matters wherever a
 # rule is about ATS boards rather than about anything this module can fetch.
-ATS_PROVIDERS = ("ashby", "greenhouse", "lever")
+ATS_PROVIDERS = ("ashby", "greenhouse", "lever", "workday")
 PROVIDERS = ("amazon_jobs", *ATS_PROVIDERS)
 # Providers whose listing can be read without the job descriptions, so the
 # descriptions can be fetched per posting after the round has decided which
-# postings it wants. Greenhouse is the only one: `?content=true` is a flag,
-# while Ashby, Lever and `amazon.jobs` embed the description in the only
-# listing they serve and offer no way to ask for less.
-CONTENT_DEFERRABLE_PROVIDERS = frozenset({"greenhouse"})
+# postings it wants. Ashby, Lever and `amazon.jobs` embed the description in
+# the only listing they serve and offer no way to ask for less.
+#
+# Greenhouse and Workday are here for opposite reasons. Greenhouse *can* leave
+# them out: `?content=true` is a flag. Workday cannot include them: its listing
+# has no description field at any setting, so a Workday posting has no
+# description until `fetch_job_content` fetches one. Both are read the same way
+# by the round, which is why they share the set.
+CONTENT_DEFERRABLE_PROVIDERS = frozenset({"greenhouse", "workday"})
 AMAZON_JOBS_HOST = "https://www.amazon.jobs"
 # ISO-3166 alpha-3, which is what the endpoint's country filter takes.
 _AMAZON_COUNTRY = re.compile(r"[A-Z]{3}\Z")
@@ -54,6 +59,19 @@ _MONTHS = {
     )
 }
 _BOARD_TOKEN = re.compile(r"[A-Za-z0-9_-]{1,100}\Z")
+# Workday identifies a board by three things, all of them in the URL a person
+# would open: the tenant, the data centre it is hosted in, and the career site.
+# None can be dropped or derived -- measured 2026-09-28: no site segment answers
+# 400, the wrong data centre answers 422, and the bare `<tenant>.myworkdayjobs.com`
+# does not resolve.
+_WORKDAY_DATA_CENTRE = re.compile(r"wd[0-9]{1,3}\Z")
+_WORKDAY_SITE = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
+# The listing gives a posting's path rather than an id, and that path is what
+# the detail endpoint takes. It goes into a URL, so it is checked before it gets
+# there rather than trusted because the listing it came from was ours.
+_WORKDAY_PATH = re.compile(r"/job/[A-Za-z0-9._~%!$&'()*+,;=:@/-]{1,300}\Z")
+# The endpoint refuses a larger page: 20 is 200, 50 is 400 (measured).
+WORKDAY_PAGE_SIZE = 20
 # A posting id goes into a URL path, so it is checked before it gets there
 # rather than trusted because the listing it came from was ours.
 _BOARD_JOB_ID = re.compile(r"[0-9]{1,32}\Z")
@@ -142,16 +160,30 @@ class AtsProviderError(RuntimeError):
 
 
 class AtsProvider(Protocol):
-    def fetch_json(self, url: str, timeout_seconds: float) -> tuple[Any, int, float]: ...
+    def fetch_json(
+        self, url: str, timeout_seconds: float, *, json_body: Any = None
+    ) -> tuple[Any, int, float]: ...
 
 
 class HttpAtsProvider:
-    """Production transport: public HTTPS GET only, with a bounded response."""
+    """Production transport: a public HTTPS read, with a bounded response.
+
+    `json_body` makes the request a POST carrying that JSON. This was GET only,
+    and the restriction was worth something: a GET cannot be mistaken for a
+    write. Workday's search endpoint refuses GET outright -- 400 on the bare
+    path and on every query-string spelling of the same arguments, measured
+    2026-09-28 -- so reaching it at all means posting the search. What is posted
+    is built in this module from a page offset and a limit; no caller supplies
+    it, nothing from a CV or a profile goes into it, and the response is a
+    listing. The verb is the endpoint's requirement, not a change of intent.
+    """
 
     def __init__(self, *, accept_compression: bool = True) -> None:
         self.accept_compression = accept_compression
 
-    def fetch_json(self, url: str, timeout_seconds: float) -> tuple[Any, int, float]:
+    def fetch_json(
+        self, url: str, timeout_seconds: float, *, json_body: Any = None
+    ) -> tuple[Any, int, float]:
         headers = {
             "Accept": "application/json",
             "User-Agent": (
@@ -160,10 +192,15 @@ class HttpAtsProvider:
         }
         if self.accept_compression:
             headers["Accept-Encoding"] = "gzip"
+        data: bytes | None = None
+        if json_body is not None:
+            data = json.dumps(json_body, ensure_ascii=False).encode("utf-8")
+            headers["Content-Type"] = "application/json"
         request = Request(
             url,
+            data=data,
             headers=headers,
-            method="GET",
+            method="POST" if data is not None else "GET",
         )
         started = time.perf_counter()
         try:
@@ -213,11 +250,15 @@ class FakeAtsProvider:
             marker: deque(values) for marker, values in responses.items()
         } if isinstance(responses, dict) else {}
         self.calls: list[str] = []
+        self.bodies: list[Any] = []
         self._lock = threading.Lock()
 
-    def fetch_json(self, url: str, _timeout_seconds: float) -> tuple[Any, int, float]:
+    def fetch_json(
+        self, url: str, _timeout_seconds: float, *, json_body: Any = None
+    ) -> tuple[Any, int, float]:
         with self._lock:
             self.calls.append(url)
+            self.bodies.append(json_body)
             queue = self._responses
             if self._routes:
                 queue = next((values for marker, values in self._routes.items() if marker in url), None)
@@ -265,7 +306,25 @@ def validate_board(board: dict[str, Any]) -> tuple[str, str, str]:
         # Here the token is which country's listing to read, so a board token
         # shaped like an ATS slug would silently fetch the global listing.
         raise AtsProviderError("invalid_board_token")
+    if provider == "workday":
+        # Checked here so a board missing one of the three fails before any
+        # request rather than as a 400 from the other end.
+        workday_identity(board)
     return provider, company, token
+
+
+def workday_identity(board: dict[str, Any]) -> tuple[str, str, str]:
+    """`(tenant, data_centre, site)`, or a refusal if any of them is unusable."""
+    tenant = str(board.get("board_token", "")).strip()
+    data_centre = str(board.get("instance", "")).strip().lower()
+    site = str(board.get("site", "")).strip()
+    if (
+        not _BOARD_TOKEN.fullmatch(tenant)
+        or not _WORKDAY_DATA_CENTRE.fullmatch(data_centre)
+        or not _WORKDAY_SITE.fullmatch(site)
+    ):
+        raise AtsProviderError("invalid_board_token")
+    return tenant, data_centre, site
 
 
 def greenhouse_url(token: str, *, include_content: bool = True) -> str:
@@ -275,6 +334,36 @@ def greenhouse_url(token: str, *, include_content: bool = True) -> str:
 
 def greenhouse_job_url(token: str, job_id: str) -> str:
     return f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs/{job_id}"
+
+
+def workday_host(tenant: str, data_centre: str) -> str:
+    return f"https://{tenant}.{data_centre}.myworkdayjobs.com"
+
+
+def workday_url(tenant: str, data_centre: str, site: str) -> str:
+    return f"{workday_host(tenant, data_centre)}/wday/cxs/{tenant}/{site}/jobs"
+
+
+def workday_body(*, offset: int, limit: int) -> dict[str, Any]:
+    """The search this module posts: one page, no search terms.
+
+    `searchText` is empty and `appliedFacets` is empty on purpose. A board is
+    fetched whole and filtered locally, which is what makes the result
+    reproducible; sending terms here would give this one source a different and
+    unrepeatable basis from every other, the same reason `amazon_jobs_url` takes
+    no query.
+    """
+    return {"appliedFacets": {}, "limit": limit, "offset": offset, "searchText": ""}
+
+
+def workday_job_url(tenant: str, data_centre: str, site: str, path: str) -> str:
+    """The detail endpoint, which is the only place a description exists."""
+    return f"{workday_host(tenant, data_centre)}/wday/cxs/{tenant}/{site}{path}"
+
+
+def workday_apply_url(tenant: str, data_centre: str, site: str, path: str) -> str:
+    """The page a person opens, which is what a candidate row should link to."""
+    return f"{workday_host(tenant, data_centre)}/{site}{path}"
 
 
 def ashby_url(token: str) -> str:
@@ -438,6 +527,41 @@ def ashby_job(company: str, job: dict[str, Any]) -> dict[str, Any] | None:
     )
 
 
+def workday_job(
+    company: str,
+    job: dict[str, Any],
+    *,
+    tenant: str,
+    data_centre: str,
+    site: str,
+) -> dict[str, Any] | None:
+    """One listing row. Rows without a path or a title are not postings.
+
+    Measured 2026-09-28 on NVIDIA's board: one row in the first twenty carried
+    `bulletFields` and nothing else. `_candidate` already refuses a row with no
+    title, url or id, so such a row is counted as unlisted rather than dropped
+    silently.
+
+    `date_posted` is left empty although the row has `postedOn`, because that
+    field holds text like "Posted 30+ Days Ago" -- a description of when, not a
+    date, and turning it into one would be inventing precision.
+    """
+    path = str(job.get("externalPath") or "").strip()
+    if not _WORKDAY_PATH.fullmatch(path) or ".." in path:
+        return None
+    return _candidate(
+        provider="workday",
+        # The path is the board's own identifier for the posting and the only
+        # thing the detail endpoint takes; there is no numeric id in the row.
+        provider_id=path,
+        company=company,
+        title=str(job.get("title") or "").strip(),
+        location=str(job.get("locationsText") or "").strip(),
+        url=workday_apply_url(tenant, data_centre, site, path),
+        description="",
+    )
+
+
 def lever_job(company: str, job: dict[str, Any]) -> dict[str, Any] | None:
     categories = job.get("categories")
     locations: list[str] = []
@@ -533,13 +657,13 @@ def fetch_board(
     }
     normalized: list[dict[str, Any]] = []
 
-    def fetch(url: str) -> Any:
+    def fetch(url: str, body: Any = None) -> Any:
         if request_budget is not None:
             request_budget.reserve()
         metrics["requests"] += 1
         metrics["pages_requested"] += 1
         try:
-            payload, size, _ = client.fetch_json(url, timeout_seconds)
+            payload, size, _ = client.fetch_json(url, timeout_seconds, json_body=body)
         except AtsProviderError as error:
             metrics["response_bytes"] += error.response_bytes
             raise
@@ -574,6 +698,54 @@ def fetch_board(
                 raise AtsProviderError("invalid_payload")
             raw_jobs = payload["jobs"]
             converter = ashby_job
+        elif provider == "workday":
+            metrics["pagination"] = "offset_limit"
+            # Not a choice: the listing carries no descriptions at any setting,
+            # so every Workday posting arrives without one and the round fills
+            # the ones it keeps through `fetch_job_content`.
+            metrics["content_deferred"] = True
+            tenant, data_centre, site = workday_identity(board)
+            url = workday_url(tenant, data_centre, site)
+            page_limit = min(page_size, WORKDAY_PAGE_SIZE)
+            total: int | None = None
+            exhausted = False
+            for page in range(max_pages):
+                payload = fetch(
+                    url, workday_body(offset=page * page_limit, limit=page_limit)
+                )
+                if not isinstance(payload, dict) or not isinstance(
+                    payload.get("jobPostings"), list
+                ):
+                    raise AtsProviderError("invalid_payload")
+                rows = payload["jobPostings"]
+                if page == 0 and isinstance(payload.get("total"), int):
+                    total = payload["total"]
+                raw_jobs.extend(rows)
+                # `total` is what ends this loop, and a short page is only a
+                # fallback. An offset past the end does not return an empty
+                # page here -- it returns the first page again, identically
+                # (measured 2026-09-28 on a board of 2,000: offset 2000 and
+                # offset 4000 both gave offset 0's twenty rows). Stopping only
+                # on a short page would collect the same rows once per
+                # remaining page and call the duplicates new postings. `total`
+                # is also only reported on the first page, and reads 0 after
+                # it, which is why it is captured once.
+                if (total is not None and len(raw_jobs) >= total) or len(rows) < page_limit:
+                    exhausted = True
+                    break
+            metrics["truncated"] = not exhausted
+
+            def converter(
+                company_name: str,
+                raw: dict[str, Any],
+                _tenant: str = tenant,
+                _data_centre: str = data_centre,
+                _site: str = site,
+            ) -> dict[str, Any] | None:
+                return workday_job(
+                    company_name, raw, tenant=_tenant, data_centre=_data_centre, site=_site
+                )
+
         elif provider == "amazon_jobs":
             metrics["pagination"] = "offset_limit"
             exhausted = False
@@ -638,6 +810,46 @@ def fetch_board(
     return metrics, normalized
 
 
+class _DeferredJd(NamedTuple):
+    """How one provider answers "the description for this posting"."""
+
+    url: Callable[[str], str | None]
+    description: Callable[[dict[str, Any]], Any]
+
+
+def _deferred_jd_reader(
+    provider: str, token: str, board: dict[str, Any]
+) -> _DeferredJd:
+    """The per-provider half of a deferred description fetch.
+
+    Both providers here defer, and neither identifies a posting the same way.
+    Greenhouse gives a numeric id and returns `content`; Workday gives the
+    posting's own path and returns `jobPostingInfo.jobDescription`. A provider
+    that does not defer never reaches this: `fetch_job_content` returns before
+    calling it.
+    """
+    if provider == "workday":
+        tenant, data_centre, site = workday_identity(board)
+
+        def workday_jd_url(path: str) -> str | None:
+            if not path or ".." in path or not _WORKDAY_PATH.fullmatch(path):
+                return None
+            return workday_job_url(tenant, data_centre, site, path)
+
+        def workday_description(payload: dict[str, Any]) -> Any:
+            info = payload.get("jobPostingInfo")
+            return info.get("jobDescription") if isinstance(info, dict) else None
+
+        return _DeferredJd(workday_jd_url, workday_description)
+
+    def greenhouse_jd_url(job_id: str) -> str | None:
+        if not job_id or not _BOARD_JOB_ID.fullmatch(job_id):
+            return None
+        return greenhouse_job_url(token, job_id)
+
+    return _DeferredJd(greenhouse_jd_url, lambda payload: payload.get("content"))
+
+
 def fetch_job_content(
     board: dict[str, Any],
     jobs: list[dict[str, Any]],
@@ -677,6 +889,7 @@ def fetch_job_content(
     }
     try:
         provider, _company, token = validate_board(board)
+        jd_request = _deferred_jd_reader(provider, token, board)
     except AtsProviderError as error:
         metrics["failure_kind"] = error.kind
         metrics["jobs_skipped"] = len(jobs)
@@ -692,17 +905,15 @@ def fetch_job_content(
 
     metrics["ok"] = True
     for index, job in enumerate(jobs):
-        job_id = str(job.get("provider_job_id") or "").strip()
-        if not job_id or not _BOARD_JOB_ID.fullmatch(job_id):
+        url = jd_request.url(str(job.get("provider_job_id") or "").strip())
+        if url is None:
             metrics["jobs_skipped"] += 1
             continue
         try:
             if request_budget is not None:
                 request_budget.reserve()
             metrics["requests"] += 1
-            payload, size, _ = client.fetch_json(
-                greenhouse_job_url(token, job_id), timeout_seconds
-            )
+            payload, size, _ = client.fetch_json(url, timeout_seconds)
             metrics["response_bytes"] += size
         except AtsProviderError as error:
             metrics["response_bytes"] += error.response_bytes
@@ -720,7 +931,9 @@ def fetch_job_content(
             if not metrics["failure_kind"]:
                 metrics["failure_kind"] = "invalid_payload"
             continue
-        jd_text, truncated = _normalize_jd_text(payload.get("content"), is_html=True)
+        jd_text, truncated = _normalize_jd_text(
+            jd_request.description(payload), is_html=True
+        )
         if not jd_text:
             metrics["jobs_failed"] += 1
             continue

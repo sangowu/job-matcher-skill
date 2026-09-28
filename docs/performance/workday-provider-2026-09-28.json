@@ -1,0 +1,74 @@
+{
+  "checked_at": "2026-09-28",
+  "subject": "Whether the Workday CXS shape is worth an adapter, and what it does when pushed",
+  "method": "Raw probes first to learn the shape, then every figure below re-measured through scripts/ats_provider.py itself -- fetch_board and fetch_job_content -- so what is recorded is what a round gets. robots checked with check_robots.py against the endpoint the adapter calls. Read-only: nothing written to the jobs table or the registry.",
+  "why_this_provider": "One code path reaches many tenants. Workday hosts the careers site of a large share of enterprises, and every one of them answers the same URL shape with the same JSON. The five boards added here return 999 postings between them under the current page budget.",
+  "shape": {
+    "listing": "POST https://{tenant}.{data_centre}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs",
+    "detail": "GET  https://{tenant}.{data_centre}.myworkdayjobs.com/wday/cxs/{tenant}/{site}{externalPath}",
+    "tenants_probed": 7,
+    "tenants_answering": 5,
+    "identical_top_level_keys": ["facets", "jobPostings", "total", "userAuthenticated"],
+    "identical_posting_keys": ["bulletFields", "externalPath", "locationsText", "postedOn", "title"],
+    "note": "One tenant additionally returned `remoteType`. The two that did not answer returned 422 on a guessed site id, which is a wrong argument rather than a different shape.",
+    "detail_keys": ["hiringOrganization", "jobPostingInfo", "similarJobs", "userAuthenticated"],
+    "jd_field": "jobPostingInfo.jobDescription, HTML, 3,257-13,041 characters across the postings sampled"
+  },
+  "three_identifiers_none_of_them_optional": {
+    "no_site_segment": "400",
+    "wrong_data_centre": "422 (ebay.wd1 for a wd5 tenant; salesforce.wd5 for a wd12 tenant)",
+    "bare_tenant_host": "DNS does not resolve for <tenant>.myworkdayjobs.com",
+    "consequence": "A catalog row carries board_token (tenant), instance (data centre) and a new `site` field. All three are in the URL a person opens, and a single job URL yields all three by regex -- which is what a later harvest path would work from."
+  },
+  "traps_found_by_pushing_the_endpoint": [
+    {
+      "trap": "An offset past the end returns the first page again, not an empty page",
+      "evidence": "On a board reporting total 2000: offset 2000 and offset 4000 each returned offset 0's twenty rows, identically (list equality). offset 1980 returned the real last page, sharing nothing with them.",
+      "consequence": "A paginator stopping only on a short page collects the first page once per remaining page and counts the duplicates as new postings.",
+      "handling": "Pagination is bounded by `total`, captured on the first page. A short page remains a fallback."
+    },
+    {
+      "trap": "`total` is reported on the first page only",
+      "evidence": "offset 0 gives total 2000; offset 20, 1980 and 4000 all give total 0.",
+      "handling": "Captured once, on page 0."
+    },
+    {
+      "trap": "A listing row can carry no title and no path",
+      "evidence": "One row in NVIDIA's first twenty was {\"bulletFields\": [...]} and nothing else.",
+      "handling": "Counted as invalid_or_unlisted rather than dropped silently."
+    },
+    {
+      "trap": "The page size is capped below the other providers'",
+      "evidence": "limit 20 is 200; limit 50, 100 and 200 are each 400.",
+      "handling": "The adapter lowers a larger page_size rather than sending it."
+    }
+  ],
+  "the_post": {
+    "why": "The endpoint answers 400 to GET on the bare path and to every query-string spelling of the same arguments, so reaching it at all means posting the search.",
+    "what_is_posted": "{\"appliedFacets\": {}, \"limit\": n, \"offset\": k, \"searchText\": \"\"} -- built in ats_provider from a page offset and a limit. No caller supplies it and nothing from a CV or a profile enters it. `searchText` stays empty for the same reason amazon_jobs_url takes no query: a board is fetched whole and filtered locally, which is what makes the result reproducible.",
+    "cost": "HttpAtsProvider was documented as GET only, and that was worth something -- a GET cannot be mistaken for a write. It now accepts a body and posts it when given one. This is a real widening and is recorded as such."
+  },
+  "boards_added": [
+    {"source_id": "ebay-workday", "robots_allowed": true, "fetched": 200, "markets_measured": {"us": 14, "ie": 12, "nl": 12, "uk": 2}},
+    {"source_id": "nvidia-workday", "robots_allowed": true, "fetched": 199, "markets_measured": {"us": 76, "cn": 5, "de": 1}},
+    {"source_id": "salesforce-workday", "robots_allowed": true, "fetched": 199, "markets_measured": {"ie": 20, "us": 19, "uk": 6, "nl": 3, "de": 2}},
+    {"source_id": "workday-workday", "robots_allowed": true, "fetched": 200, "markets_measured": {"us": 35, "ie": 11, "uk": 5, "nl": 1}},
+    {"source_id": "adobe-workday", "robots_allowed": true, "fetched": 200, "markets_measured": {"us": 21, "uk": 5, "de": 1}}
+  ],
+  "end_to_end": {
+    "boards": 5,
+    "postings": 999,
+    "duplicate_ids": 0,
+    "wall_clock_seconds": 79,
+    "requests": 50,
+    "jd_fill_sampled": "10 of 10 postings filled, 3,257-10,087 characters",
+    "placed_by_the_pipeline": {"us": 165, "ie": 44, "uk": 18, "nl": 16, "cn": 5, "de": 4},
+    "note": "cn had no structured channel at any point before this. Its fourteen curated sources are browser and Web Search only, and `per_market.cn.structured` read `unavailable_in_market`."
+  },
+  "known_limit": {
+    "what": "Every board above came back `truncated: true`. The page is capped at 20 and `ats_max_pages` is bounded at 10 in ats_pipeline, so a Workday board yields at most 200 postings per round however large it is -- NVIDIA's holds 2,000.",
+    "why_it_is_not_arbitrary": "The default sort is newest first, measured by reading `postedOn` down the offsets: offset 0 is 'Posted Today', offset 100 'Posted 5 Days Ago', offset 600 'Posted 17 Days Ago', offset 1200 and beyond 'Posted 30+ Days Ago'. The 200 reached are the 200 most recent, roughly a six-day window on a board that size.",
+    "follow_up": "A budget counted in postings rather than pages would serve a provider with a small page better. Raising ats_max_pages alone would multiply requests for every other provider too, so it is not done here."
+  },
+  "not_in_this_change": "Runtime board discovery. `_jobutil.extract_board` returns (provider, board_token), and Workday needs three identifiers, so board_harvest and seed_promotion cannot yet learn a Workday board from a job URL. The regex that does it is written and measured above; widening that return type is its own change."
+}

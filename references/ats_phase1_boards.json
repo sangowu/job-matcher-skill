@@ -38,6 +38,22 @@
       "board_token": "swordhealth",
       "instance": "global",
       "region_focus": ["united_states", "europe"]
+    },
+    {
+      "provider": "workday",
+      "company": "eBay",
+      "board_token": "ebay",
+      "instance": "wd5",
+      "site": "apply",
+      "region_focus": ["united_states", "europe"]
+    },
+    {
+      "provider": "workday",
+      "company": "NVIDIA",
+      "board_token": "nvidia",
+      "instance": "wd5",
+      "site": "NVIDIAExternalCareerSite",
+      "region_focus": ["united_states", "china"]
     }
   ]
 }

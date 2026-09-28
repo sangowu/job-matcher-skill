@@ -237,5 +237,5 @@ def test_phase1_reference_has_two_boards_per_provider_and_region_coverage():
     }
     regions = {region for board in boards for region in board["region_focus"]}
 
-    assert counts == {"ashby": 2, "greenhouse": 2, "lever": 2}
+    assert counts == {"ashby": 2, "greenhouse": 2, "lever": 2, "workday": 2}
     assert {"china", "united_states", "europe"} <= regions

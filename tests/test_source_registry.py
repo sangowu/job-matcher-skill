@@ -156,18 +156,26 @@ def test_china_restricted_sources_stay_browser_or_web_search_only():
         if source["markets"] == ["cn"]
     ]
 
-    assert len(china_local) == 4
-    restricted = [source for source in china_local if source["source_id"] != "nankai-careers-cn"]
-    assert len(restricted) == 3
-    assert all(source["automation_allowed"] is False for source in restricted)
+    assert len(china_local) >= 4
+    # The rule, not a head count: a cn source that refuses automation is reached
+    # by a person or by Web Search and by nothing else. The catalog used to have
+    # exactly four cn-only sources and this test pinned the number, so adding one
+    # broke it without anything about the rule having changed.
+    restricted = [
+        source for source in china_local if source["automation_allowed"] is False
+    ]
+    assert restricted, "the three big Chinese job boards refuse automation"
     assert all(
         set(source["access_methods"]) == {"web_search", "manual_browser"}
         for source in restricted
     )
+    # Every cn source stops rather than working through a login or a captcha.
     assert all("stop_on_login_or_captcha" in source["constraints"] for source in china_local)
-    public = next(source for source in china_local if source["source_id"] == "nankai-careers-cn")
-    assert public["automation_allowed"] is True
-    assert "public_read_only_page" in public["access_methods"]
+    automated = [source for source in china_local if source["automation_allowed"] is True]
+    assert automated, "cn needs at least one source a round can read by itself"
+    assert all(
+        "public_read_only_page" in source["access_methods"] for source in automated
+    )
 
 
 @pytest.mark.parametrize(

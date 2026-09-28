@@ -149,8 +149,10 @@ def test_plan_builds_bounded_cross_channel_waves():
     # browser sources fall outside the budget.
     # Four: accenture-careers lost `public_read_only_page` because its robots.txt
     # forbids every search query, and amazon-careers lost it because the same
-    # listings are fetched as JSON instead.
-    assert plan["omitted_by_wave_budget"]["browser"] == 4
+    # listings are fetched as JSON instead. Five: jobs.ie was opened to the
+    # browser after its robots.txt turned out to assert nothing, so one more
+    # eligible source queues behind the budget.
+    assert plan["omitted_by_wave_budget"]["browser"] == 5
 
 
 def test_browser_tasks_are_semantic_bounded_and_contain_no_selectors():
@@ -194,10 +196,29 @@ def test_panel_cookie_policy_overrides_repository_default():
     )
 
 
+def _refused_ie_source(seeds: dict) -> str:
+    """A source the catalog refuses automation for, whichever one that is.
+
+    Naming one here couples the rule to the catalog's content: this test used to
+    say `jobs-ie`, and checking that site's robots.txt and enabling it broke a
+    test about something else entirely.
+    """
+    for source in seeds["sources"]:
+        if "ie" in source.get("markets", []) and source.get("automation_allowed") is False:
+            return source["source_id"]
+    raise AssertionError("no refused ie source in the catalog")
+
+
 def test_non_automatable_source_is_excluded_from_browser_but_kept_as_web_hint():
     seeds = source_registry.load_seeds()
+    refused = _refused_ie_source(seeds)
+    # Hints are ranked by priority and capped, so the cap is lifted here: the
+    # rule under test is that a refused source stays reachable through Web
+    # Search, not that it happens to rank inside the default six.
     plan = discovery_plan.build_discovery_plan(
-        _request(seeds), seeds=seeds, config=_config()
+        _request(seeds),
+        seeds=seeds,
+        config={**_config(), "web_source_hints_per_task": 20},
     )
 
     browser_ids = {task["source_id"] for task in plan["tasks"]["browser"]}
@@ -206,9 +227,9 @@ def test_non_automatable_source_is_excluded_from_browser_but_kept_as_web_hint():
         for task in plan["tasks"]["web_search"]
         for hint in task["source_hints"]
     }
-    assert "jobs-ie" not in browser_ids
-    assert "jobs-ie" in plan["excluded"]["browser_policy"]
-    assert "jobs-ie" in hint_ids
+    assert refused not in browser_ids
+    assert refused in plan["excluded"]["browser_policy"]
+    assert refused in hint_ids
 
 
 def test_explicit_route_restrictions_are_preserved():
@@ -446,16 +467,17 @@ def test_a_risk_gated_source_reaches_the_browser_channel_only_once_acknowledged(
 
 
 def test_an_acknowledgement_does_not_waive_the_direct_access_requirement():
-    # `jobs-ie` disables automation without declaring a direct access method, so
-    # it is refused for a reason the acknowledgement has nothing to say about.
-    # Naming it locally must not be a way around that.
+    # A refused source declares no direct access method, so it is refused for a
+    # reason the acknowledgement has nothing to say about. Naming it locally
+    # must not be a way around that.
     seeds = source_registry.load_seeds()
+    refused = _refused_ie_source(seeds)
     plan = discovery_plan.build_discovery_plan(
-        _acknowledged_request(seeds, "jobs-ie"), seeds=seeds, config=_wide_config()
+        _acknowledged_request(seeds, refused), seeds=seeds, config=_wide_config()
     )
 
-    assert "jobs-ie" not in {task["source_id"] for task in plan["tasks"]["browser"]}
-    assert "jobs-ie" in plan["excluded"]["browser_policy"]
+    assert refused not in {task["source_id"] for task in plan["tasks"]["browser"]}
+    assert refused in plan["excluded"]["browser_policy"]
 
 
 def test_an_ordinary_browser_task_says_it_needed_no_acknowledgement():

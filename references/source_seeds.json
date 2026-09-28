@@ -28,13 +28,12 @@
       "search_languages": ["en"],
       "enabled": true,
       "verified": true,
-      "verification_method": "public_search_page",
-      "verified_at": "2026-09-17T00:00:00Z",
+      "verification_method": "entry_url_and_robots_checked",
+      "verified_at": "2026-09-28T00:00:00Z",
       "verification_ttl_days": 30,
       "priority": 85,
-      "access_methods": ["web_search", "manual_browser"],
-      "automation_allowed": false,
-      "constraints": ["respect_site_access_controls"]
+      "access_methods": ["web_search", "manual_browser", "public_read_only_page"],
+      "automation_allowed": true
     },
     {
       "source_id": "publicjobs-ie",

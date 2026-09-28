@@ -791,14 +791,30 @@ def _role_variants(role: str, language: str, taxonomy: dict[str, Any]) -> list[s
     return _dedupe_strings([*family["titles"][language], *family["synonyms"][language]])
 
 
+def _occupied_families(roles: list[str], taxonomy: dict[str, Any]) -> frozenset[str]:
+    """The families the CV's own target roles already cover."""
+    resolved = (resolve_role_family(role, taxonomy) for role in roles)
+    return frozenset(family_id for family_id in resolved if family_id)
+
+
 def _generalized_families(
-    role: str, taxonomy: dict[str, Any], skills: set[str]
+    role: str,
+    taxonomy: dict[str, Any],
+    skills: set[str],
+    occupied: frozenset[str] = frozenset(),
 ) -> list[str]:
     """The adjacent families this CV's skills actually support, best first.
 
     Ordered by how many of the target's gate skills the CV carries, so a CV
     with a whole backend stack and one stray SQL line generalizes to backend
     first. Ties keep the catalog's own order, which is the author's ranking.
+
+    A family another target role already occupies is not adjacent -- it is the
+    CV. "AI Engineer, Applied AI Engineer, Python Backend Engineer" reported
+    `Applied AI Engineer` as a generalization of the backend role, a title the
+    round was already searching, and it was dropped before the cap here rather
+    than after, so the slot goes to a family the CV has not reached yet instead
+    of being spent on one it already names.
     """
     family_id = resolve_role_family(role, taxonomy)
     if family_id is None or not skills:
@@ -806,15 +822,22 @@ def _generalized_families(
     targets = _family_by_id(family_id, taxonomy).get("generalizes_to") or []
     scored: list[tuple[int, int, str]] = []
     for position, target in enumerate(targets):
+        target_id = target["role_family_id"]
+        if target_id in occupied:
+            continue
         hits = len({_normalize_text(skill) for skill in target["skills"]} & skills)
         if hits:
-            scored.append((-hits, position, target["role_family_id"]))
+            scored.append((-hits, position, target_id))
     scored.sort()
     return [target_id for _, _, target_id in scored[:MAX_GENERALIZED_FAMILIES]]
 
 
 def _variants_for_role(
-    role: str, language: str, taxonomy: dict[str, Any], skills: set[str]
+    role: str,
+    language: str,
+    taxonomy: dict[str, Any],
+    skills: set[str],
+    occupied: frozenset[str] = frozenset(),
 ) -> list[tuple[str, str | None]]:
     """The titles this role is searched under, as `(title, role_family_id)`.
 
@@ -828,7 +851,7 @@ def _variants_for_role(
     own = [(title, own_family_id) for title in _role_variants(role, language, taxonomy)]
     generalized = [
         (_family_by_id(target_id, taxonomy)["titles"][language][0], target_id)
-        for target_id in _generalized_families(role, taxonomy, skills)
+        for target_id in _generalized_families(role, taxonomy, skills, occupied)
     ]
     own_slots = max(1, MAX_ROLE_VARIANTS - len(generalized))
     merged: list[tuple[str, str | None]] = []
@@ -912,6 +935,7 @@ def _query_candidates(
     browser channel reads the whole thing.
     """
     templates = {item["language"]: item for item in market["query_templates"]}
+    occupied = _occupied_families(roles, taxonomy)
     result: list[dict[str, Any]] = []
     seen_queries: set[str] = set()
     for variant_index in range(MAX_ROLE_VARIANTS):
@@ -921,7 +945,9 @@ def _query_candidates(
                 locations, market["market_id"], language, market
             )
             for role in roles:
-                variants = _variants_for_role(role, language, taxonomy, skills)
+                variants = _variants_for_role(
+                    role, language, taxonomy, skills, occupied
+                )
                 if variant_index >= len(variants):
                     continue
                 title, family_id = variants[variant_index]
@@ -980,10 +1006,11 @@ def build_market_plan(
     # The CV's own stack decides which adjacent roles it is generalized to, so
     # two candidates who both write "AI Engineer" are not searched the same way.
     skills = {_normalize_text(skill) for skill in _dedupe_strings(cv_profile.get("skills"))}
+    occupied_families = _occupied_families(roles, taxonomy)
     generalized_roles = _dedupe_strings([
         _family_by_id(family_id, taxonomy)["titles"]["en"][0]
         for role in roles
-        for family_id in _generalized_families(role, taxonomy, skills)
+        for family_id in _generalized_families(role, taxonomy, skills, occupied_families)
     ])
 
     explicit_locations = "locations" in user_intent

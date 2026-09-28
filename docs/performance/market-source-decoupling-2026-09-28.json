@@ -1,0 +1,41 @@
+{
+  "checked_at": "2026-09-28",
+  "subject": "What a round fetches once a structured board is no longer filtered by the markets its catalog entry declares",
+  "method": "scripts/ats_provider.py fetch_board against every enabled, verified, automation-allowed board seed carrying a board_token, with defer_content. Read-only: nothing written to the jobs table or the registry. Locations placed by market_plan.normalize_location for the ie figures; the country census below matches the location strings the boards themselves publish, and is a census of the data rather than the placement the pipeline does.",
+  "board_counts": {
+    "declared_ie": 23,
+    "all_structured": 59,
+    "fetch_failures": 0,
+    "wall_clock_seconds": 14
+  },
+  "ie_round": {
+    "postings_fetched_before": 4143,
+    "postings_fetched_after": 10265,
+    "placed_in_ie_before": 551,
+    "placed_in_ie_after": 583,
+    "note": "+32 postings, +5.8%. Small, and expected: ie already carries 38 curated sources, so the boards it was missing are the ones that barely serve it. 7 of the 36 newly admitted boards had any ie posting at all -- toast (19), pinterest (5), reddit (2), coinbase (2), airbnb (2), synthesia (1), block (1)."
+  },
+  "country_census": {
+    "note": "The same 10,264 postings by the country their location names. This is what the change is actually for: a market that does not exist yet costs nothing on the source side, because the postings are already being fetched.",
+    "supported_markets": {"us": 2856, "uk": 999, "ie": 587, "de": 571, "cn": 11},
+    "unsupported_markets": {
+      "ca": 498, "fr": 298, "in": 256, "es": 203, "sg": 158, "jp": 150,
+      "nl": 147, "pl": 140, "au": 131, "it": 107, "se": 101, "mx": 93,
+      "br": 84, "pt": 54, "il": 46, "kr": 42, "ch": 35, "ae": 33, "za": 3
+    },
+    "totals": {
+      "in_supported_markets": 5024,
+      "in_unsupported_markets": 2579,
+      "no_country_matched": 2661
+    }
+  },
+  "bearing_on_the_first_release": {
+    "markets": ["cn", "ie", "us", "uk", "de", "nl"],
+    "netherlands": "147 postings are in hand and discarded, from boards already fetched. Adding nl needs a geography entry, not a source hunt: the ≥3 local / ≥10 global seed minimum was the reason a new market cost roughly 13 curated entries, and it is the structured half of that which no longer applies.",
+    "caveat": "The census counts what the boards write, not what the pipeline can place. `normalize_location` still resolves only the cities and country aliases the market catalog lists, so a market has to exist before any of these postings can be attributed to it."
+  },
+  "what_was_removed": {
+    "markets_json_source_ids": "171 entries, a per-market mirror of the `markets` each source declares in source_seeds.json, checked for equality and separately fed to discovery_plan as a third gate on the same fact.",
+    "seed_promotion_link_markets": "21 lines of text surgery that inserted a promoted source id into each market's block of that mirror."
+  }
+}

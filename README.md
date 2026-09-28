@@ -75,7 +75,7 @@ job-matcher/
 │   ├── markets.json          # ie/uk/cn/de 地点、语言与 query 模板
 │   ├── role_taxonomy.json    # 中英德稳定角色族、同义词与技能门槛泛化边
 │   ├── model_tiers.json      # 型号 ↔ 档位映射，供子代理按 min_tier 选型
-│   ├── source_seeds.json     # 五市场（ie/uk/cn/de/us）已验证公开来源种子（不含凭据）
+│   ├── source_seeds.json     # 已验证的公开来源种子（不含凭据）；市场由 markets.json 决定
 │   ├── multi_region_smoke_plan.json # Phase D2 固定来源与请求硬上限
 │   ├── shadow_run.schema.json # Phase E 计数型 shadow 证据契约
 │   ├── shadow_compare.schema.json # Phase E 临时候选对照输入契约
@@ -127,7 +127,7 @@ job-matcher/
 
 多地区 Phase A/B/C 目前仍是显式入口：`python scripts/market_plan.py validate`
 校验版本化市场/角色配置，`python scripts/market_plan.py plan` 从 stdin 接收
-`{cv_profile,user_intent}` 并生成 Ireland、UK、China、Germany 的市场、语言、地点与
+`{cv_profile,user_intent}` 并生成 `markets.json` 所列市场的市场、语言、地点与
 Web query 计划，同时报告 `target_roles` 与 `roles_source`；
 `python scripts/market_plan.py effective-profile` 吃同一份输入，输出把已解析角色写入
 `roles` 键的 profile——确定性初筛读的就是这一份，不经过它就会出现「按用户意图去搜、

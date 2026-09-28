@@ -111,6 +111,18 @@ def test_public_source_seeds_validate_locked_market_coverage():
     seeds = source_registry.load_seeds()
     markets, _ = market_plan.load_resources()
     assert len(seeds["sources"]) >= 41, "the reviewed catalog must not shrink"
+    # The company/ATS minimum is no longer per market. It counted the rows
+    # written for a market rather than what the market could reach, and a
+    # structured source now serves every market or none -- so what is left to
+    # require is that the catalog has that channel at all.
+    structured = [
+        source
+        for source in seeds["sources"]
+        if source["enabled"]
+        and source["verified"]
+        and set(source["access_methods"]) & source_registry.STRUCTURED_METHODS
+    ]
+    assert len(structured) >= 10
     # A market names no sources; the seed catalog is where that is written.
     assert all("source_ids" not in market for market in markets["markets"])
     for market_id in source_registry.SUPPORTED_MARKETS:
@@ -124,12 +136,7 @@ def test_public_source_seeds_validate_locked_market_coverage():
             if source["source_type"] in source_registry.LOCAL_SOURCE_TYPES
             and source["markets"] == [market_id]
         ]
-        company = [
-            source for source in eligible
-            if source["source_type"] in source_registry.GLOBAL_SOURCE_TYPES
-        ]
         assert len(local) >= 3
-        assert len(company) >= 10
         # The market exists in the market catalog, which is all that file has to
         # say about it: the sources are the seed catalog's business.
         assert any(item["market_id"] == market_id for item in markets["markets"])

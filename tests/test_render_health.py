@@ -39,7 +39,8 @@ def _configure_renderer(monkeypatch, tmp_path: Path) -> tuple[Path, Path]:
 def _render(monkeypatch, tmp_path: Path, capsys) -> tuple[dict, str, dict]:
     render_html.main()
     result = json.loads(capsys.readouterr().out)
-    html = Path(result["report_path"]).read_text(encoding="utf-8")
+    data = Path(result["report_data_path"]).read_text(encoding="utf-8")
+    html = Path(result["report_path"]).read_text(encoding="utf-8") + data
     match = re.search(r"const HEALTH = (.*);\nlet LANG", html)
     assert match is not None
     return result, html, json.loads(match.group(1))

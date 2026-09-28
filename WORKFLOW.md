@@ -58,7 +58,7 @@
 | `verify_jobs.py` | `python scripts/verify_jobs.py`（stdin） | URL 数组 | `{results:[{url, alive, reason, final_url}]}`；按 host 分组，跨站并发、同站串行，结果顺序与输入一致 |
 | `fetch_rendered.py` | `python scripts/fetch_rendered.py <url>` | 单 URL | `{ok, text, browser_used}` 或 `{ok:false, error}` |
 | `cp_hash.py` | `python scripts/cp_hash.py`（stdin） | candidate_profile JSON | `{ok, cp_hash}`（规范化后稳定 hash） |
-| `render_html.py` | `… --cv-hash H --cp-hash H [--meta-file F]` | jobs_table + meta + PII-safe metrics | `{ok, report_path, job_count, health_status, health_breaches}` |
+| `render_html.py` | `… --cv-hash H --cp-hash H [--meta-file F]` | jobs_table + meta + PII-safe metrics | `{ok, report_path, report_data_path, job_count, health_status, health_breaches}`；页面固定在 `data/reports/report.html`，每轮只重写同目录的 `report_data.js` |
 | `round_timer.py` | `… start` / `… finish --round-id R --orchestration serial\|overlapped` | 整轮起止 | `{ok, round_id}` / `{ok, round_duration_ms, metrics_recorded}` |
 | `subagent_metrics.py` | `… profile --role R [--available-models a,b,c]` / `… record …` | 角色档位下限 + 你自报的可用型号 / 实际执行计数 | 满足下限的最便宜型号与 `model_source`、`unresolved_models`；或写入一次 PII-safe 子代理指标 |
 | `version_check.py` | `python scripts/version_check.py [--force]` | 本地版本/Git 元数据 + 只读 GitHub public API | `{status, local_version, remote_version, local_revision, remote_revision, cache_hit}`；失败不阻断 |
@@ -151,7 +151,7 @@
 - **浏览器通道结果依赖登录态**：计划里每个浏览器 task 带 `reproducibility: session_dependent`，报告对这些行标「登录态结果」并在顶部给出条数。`[R6-07]`
 - **Phase D2 smoke 与 Phase E shadow 门只在显式要求时运行**，都不得把候选写进正式报告或改变排序，产物只能是 count-only。约束见 [`docs/shadow-and-smoke.md`](docs/shadow-and-smoke.md)。
 - ⚠ 每轮**只在这里 render 一次**；返回的 `opened: true` 表示报告已自动打开，**不要再手动打开**（os.startfile / 浏览器 / 重复 render 都不要）。
-- 把 `report_path` 告诉用户。
+- 把 `report_path` 告诉用户。它每轮都是同一个路径（`data/reports/report.html`），可以收藏；页面已打开时刷新即可看到本轮数据。
 
 ### 7. 收尾
 - `round_timer.py finish --round-id <R> --orchestration overlapped|serial --batches N --evaluations N --jobs-reported N [--expect search] [--expect subagent] [--expect ats] [--expect browser]`。`overlapped` 只在真的把「第 N 批评估」与「第 N+1 批搜索」并行发出过时填。**只为本轮实际派发过的可选管道加 `--expect`**：`search` 也要显式声明——读本轮 DiscoveryPlan 的 waves，只要实际派发过的 wave 里有 web_search task 才加。默认检查 `run_start/merge/round`，有评估时自动检查 `update`；缺事件时返回 `metrics_status: incomplete`，健康状态只能是 `unknown`。**如实填写**：这是唯一能实测重叠编排收益的数据来源。`[R7-01]`

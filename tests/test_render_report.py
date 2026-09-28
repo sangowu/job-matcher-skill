@@ -12,7 +12,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import render_html  # noqa: E402
-from _jobutil import make_dedup_key  # noqa: E402
+from _jobutil import make_dedup_key, supported_markets  # noqa: E402
 
 
 CV_HASH = "cv-a"
@@ -68,10 +68,112 @@ def _configure(
 def _render(monkeypatch, capsys) -> tuple[str, list[dict]]:
     render_html.main()
     result = json.loads(capsys.readouterr().out)
-    html = Path(result["report_path"]).read_text(encoding="utf-8")
+    data = Path(result["report_data_path"]).read_text(encoding="utf-8")
+    page = Path(result["report_path"]).read_text(encoding="utf-8")
+    html = page + data
     match = re.search(r"const JOBS = (.*);\n", html)
     assert match is not None
     return html, json.loads(match.group(1))
+
+
+def _simple_job(key: str) -> dict:
+    return {
+        "dedup_key": f"acme|{key}",
+        "title": f"AI Engineer {key}",
+        "company": "Acme",
+        "url": f"https://example.com/jobs/{key}",
+        "raw_sources": [
+            {
+                "source": "acme-greenhouse",
+                "source_type": "ats_board",
+                "discovery_route": "ats_expansion",
+                "link_verification_status": "alive",
+                "url": f"https://example.com/jobs/{key}",
+            }
+        ],
+        "match_scores": {MK: _score()},
+    }
+
+
+def test_the_page_keeps_one_path_and_the_round_rewrites_only_its_data(
+    monkeypatch, tmp_path, capsys
+):
+    """One bookmark, one page, and a data file that changes under it.
+
+    Every round used to write `report_<timestamp>.html` with the data baked in,
+    so the link changed each time and the files accumulated -- eighteen of them,
+    3.3 MB, on the machine this was measured on. The page is now a fixed asset
+    and carries no data of its own.
+    """
+    _configure(monkeypatch, tmp_path, [_simple_job("a")])
+    render_html.main()
+    first = json.loads(capsys.readouterr().out)
+    page = Path(first["report_path"])
+    data = Path(first["report_data_path"])
+    stamp = page.stat().st_mtime_ns
+
+    assert page.name == "report.html"
+    assert data.name == "report_data.js"
+    assert page.read_text(encoding="utf-8") == (
+        render_html.TEMPLATE_PATH.read_text(encoding="utf-8")
+    )
+    assert first["job_count"] == 1
+
+    # Only the table changes; the renderer is invoked exactly as before.
+    (tmp_path / "data" / "jobs_table.json").write_text(
+        json.dumps({"jobs": [_simple_job("a"), _simple_job("b")]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    render_html.main()
+    second = json.loads(capsys.readouterr().out)
+
+    assert second["report_path"] == first["report_path"]
+    assert second["report_data_path"] == first["report_data_path"]
+    assert second["job_count"] == 2
+    # The template did not change, so the page itself was not rewritten.
+    assert page.stat().st_mtime_ns == stamp
+    jobs = json.loads(
+        re.search(
+            r"const JOBS = (.*);" + "\n" + "const META",
+            data.read_text(encoding="utf-8"),
+        ).group(1)
+    )
+    assert len(jobs) == 2
+
+
+def test_the_page_carries_no_job_text_at_all(monkeypatch, tmp_path, capsys):
+    """The page is a template, so nothing a job says can reach it.
+
+    Inlining put externally sourced titles and snippets inside the page, which
+    is why `_embed_json` escapes `</`. The data now has its own file and the
+    page holds none of it; the escaping stays, because that file is still
+    JavaScript and keeping it costs nothing.
+    """
+    hostile = _simple_job("x")
+    hostile["title"] = 'Engineer</script><img src=x onerror="alert(1)">'
+    _configure(monkeypatch, tmp_path, [hostile])
+    render_html.main()
+    result = json.loads(capsys.readouterr().out)
+
+    page = Path(result["report_path"]).read_text(encoding="utf-8")
+    data = Path(result["report_data_path"]).read_text(encoding="utf-8")
+
+    assert "onerror" not in page
+    assert "Engineer" not in page
+    assert "onerror" in data
+    assert "</script><img" not in data
+
+
+def test_every_supported_market_has_a_label_in_both_languages():
+    """The template kept its own list of markets, and the fifth one missed it.
+
+    A us row rendered its filter option as the raw key `market_us`, seen in a
+    browser. Same shape as the schema enum that still said four markets: a
+    hand-kept copy of the market set with nothing comparing it to the catalog.
+    """
+    template = render_html.TEMPLATE_PATH.read_text(encoding="utf-8")
+    for market_id in supported_markets():
+        assert template.count(f"market_{market_id}: ") == 2, market_id
 
 
 def test_external_markup_cannot_break_out_of_inline_script(monkeypatch, tmp_path, capsys):

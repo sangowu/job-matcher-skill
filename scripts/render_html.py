@@ -30,6 +30,8 @@ DATA_DIR = SKILL_ROOT / "data"
 TABLE_PATH = DATA_DIR / "jobs_table.json"
 TEMPLATE_PATH = SKILL_ROOT / "assets" / "template.html"
 REPORTS_DIR = DATA_DIR / "reports"
+REPORT_NAME = "report.html"
+REPORT_DATA_NAME = "report_data.js"
 METRICS_PATH = DATA_DIR / "metrics.jsonl"
 EVAL_RUNS_DIR = DATA_DIR / "eval_runs"
 SUPPORTED_MARKETS = set(supported_markets())
@@ -459,24 +461,40 @@ def main() -> None:
     meta["session_dependent_count"] = sum(job["session_dependent"] for job in jobs)
     health = build_health_payload()
 
-    template = TEMPLATE_PATH.read_text(encoding="utf-8")
-    html = (template
-            .replace("__JOBS_JSON__", _embed_json(jobs))
-            .replace("__META_JSON__", _embed_json(meta))
-            .replace("__HEALTH_JSON__", _embed_json(health))
-            .replace("__LANG__", lang))
+    # The page and the round's data are two files. Every round used to write a
+    # whole new `report_<timestamp>.html`, so the link changed each time and the
+    # old ones accumulated -- eighteen files and 3.3 MB on the machine this was
+    # measured on, with no way to bookmark "the report". The page now lives at
+    # one path and carries no data of its own; the round rewrites the data file
+    # beside it, and the page is touched only when the template itself changed.
+    #
+    # The data is JS rather than JSON because the page is opened as a file://
+    # URL: `fetch` of a sibling file is blocked there (opaque origin), a script
+    # tag is not. Measured in a browser before this was written.
+    html = TEMPLATE_PATH.read_text(encoding="utf-8")
+    data = f"""// Written by render_html.py. The page beside this file does not change.
+const JOBS = {_embed_json(jobs)};
+const META = {_embed_json(meta)};
+const HEALTH = {_embed_json(health)};
+let LANG = {json.dumps(lang)};
+"""
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out = REPORTS_DIR / f"report_{ts}.html"
-    out.write_text(html, encoding="utf-8")
+    out = REPORTS_DIR / REPORT_NAME
+    data_path = REPORTS_DIR / REPORT_DATA_NAME
+    data_path.write_text(data, encoding="utf-8")
+    # Rewriting an identical page would move its mtime for nothing, and a page
+    # already open in a tab is still the right page.
+    if not out.exists() or out.read_text(encoding="utf-8") != html:
+        out.write_text(html, encoding="utf-8")
 
     # 运行日志（每轮留痕，便于诊断 cp_hash 分裂、无分职位等问题）
     jobs_all = table.get("jobs", [])
     run_log = {
         "ts": datetime.now().isoformat(timespec="seconds"),
         "cv_hash": args.cv_hash, "cp_hash": args.cp_hash,
-        "report_path": str(out), "job_count": len(jobs),
+        "report_path": str(out), "report_data_path": str(data_path),
+        "job_count": len(jobs),
         "with_current_mk": sum(1 for j in jobs_all if (j.get("match_scores") or {}).get(mk)),
         "with_any_score": sum(1 for j in jobs_all if j.get("match_scores")),
         "no_score": sum(1 for j in jobs_all if not j.get("match_scores")),
@@ -492,7 +510,8 @@ def main() -> None:
         open_file(out)
 
     current_health = health["7d"]
-    print(json.dumps({"ok": True, "report_path": str(out), "job_count": len(jobs),
+    print(json.dumps({"ok": True, "report_path": str(out),
+                      "report_data_path": str(data_path), "job_count": len(jobs),
                       "opened": not args.no_open,
                       "health_status": current_health["status"],
                       "health_breaches": len(current_health["breaches"])}))

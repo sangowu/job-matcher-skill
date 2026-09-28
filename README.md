@@ -36,7 +36,7 @@ CV + query
    │ [主agent] 融合 query       → search_plan + candidate_profile
    │ [发现计划] 浏览器平台+模型/Web+可选ATS → [脚本] merge_jobs(去重/聚合/缓存+评估快照)
    │ [并行 subagent] 粗排→精排抓JD+5维打分 + 失效验证 → [脚本] 条件化回写
-   │ [脚本] render_html         → report_*.html（自动打开）
+   │ [脚本] render_html         → report.html + report_data.js（自动打开）
    ▼
 可交互 HTML 报告
 ```
@@ -121,7 +121,7 @@ job-matcher/
 │   ├── _jobutil.py           # 共享：归一化/去重键/URL 规范化
 │   ├── _filelock.py          # 共享：跨进程独占文件锁（所有本地存储）
 │   └── _stdio.py             # 共享：stdout/stderr 钉成 UTF-8；stdin 读取有上限，不会无限等待
-├── assets/template.html  # 静态报告模板（Tailwind + 纯 JS）
+├── assets/template.html  # 静态报告模板（Tailwind + 纯 JS），原样复制为 report.html
 └── data/                 # 运行时数据（.gitignore，含 PII）
 ```
 

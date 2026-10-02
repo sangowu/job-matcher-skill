@@ -874,3 +874,30 @@ def test_the_catalog_carries_where_publicjobs_keeps_its_vacancies():
     source = next(s for s in seeds["sources"] if s["source_id"] == "publicjobs-ie")
 
     assert source["listing_hosts"] == ["publicjobs.tal.net"]
+
+
+def test_a_registry_behind_the_catalog_is_reported_not_silently_planned_short(
+    tmp_path, monkeypatch, capsys
+):
+    seeds = source_registry.load_seeds()
+    registry = _seeded_registry()
+    dropped = registry["sources"].pop()["source_id"]
+    path = tmp_path / "registry.json"
+    path.write_text(json.dumps(registry), encoding="utf-8")
+
+    assert source_registry.seeds_missing_from_registry(registry, seeds) == [dropped]
+    assert source_registry.seeds_missing_from_registry(_seeded_registry(), seeds) == []
+
+    monkeypatch.setattr(
+        sys, "argv", ["source_registry.py", "plan", "--registry", str(path), "--markets", "ie"]
+    )
+    assert source_registry.main() == 0
+    behind = json.loads(capsys.readouterr().out)
+    assert behind["seeds_not_in_registry"] == [dropped]
+    assert "init" in behind["warnings"][0]
+    assert "seeds_not_in_registry" not in behind["plan"]
+
+    path.write_text(json.dumps(_seeded_registry()), encoding="utf-8")
+    assert source_registry.main() == 0
+    current = json.loads(capsys.readouterr().out)
+    assert "warnings" not in current and "seeds_not_in_registry" not in current

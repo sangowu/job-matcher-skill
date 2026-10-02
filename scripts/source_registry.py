@@ -1459,6 +1459,22 @@ def rollback_legacy_migration(
     return {"removed": before - len(registry["sources"]), "changed": True}
 
 
+def seeds_missing_from_registry(
+    registry: dict[str, Any], seeds: dict[str, Any]
+) -> list[str]:
+    """Catalog sources the local registry has never been given.
+
+    The registry is a gitignored copy made by `init`, and nothing refreshes it
+    when a pull adds sources to the catalog. A plan built from it simply lacks
+    them. On 2026-10-02 the local registry was 23 sources behind, including the
+    three Workday boards `ie` should have fetched, and no round said so.
+    """
+    known = {source["source_id"] for source in registry["sources"]}
+    return sorted(
+        source["source_id"] for source in seeds["sources"] if source["source_id"] not in known
+    )
+
+
 def _emit(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
 
@@ -1520,16 +1536,24 @@ def main() -> int:
             )
         elif args.command == "plan":
             registry = load_registry(args.registry)
-            _emit(
-                {
-                    "ok": True,
-                    "plan": build_source_plan(
-                        registry,
-                        args.markets,
-                        risk_acknowledged=_risk_acknowledged_sources(),
-                    ),
-                }
-            )
+            payload = {
+                "ok": True,
+                "plan": build_source_plan(
+                    registry,
+                    args.markets,
+                    risk_acknowledged=_risk_acknowledged_sources(),
+                ),
+            }
+            behind = seeds_missing_from_registry(registry, seeds)
+            if behind:
+                # Outside "plan": discovery_plan reads that object and must not
+                # see a field it does not know.
+                payload["warnings"] = [
+                    f"registry is missing {len(behind)} catalog sources; "
+                    "run `source_registry.py init`"
+                ]
+                payload["seeds_not_in_registry"] = behind
+            _emit(payload)
         elif args.command == "rollback-legacy":
             _emit(
                 {

@@ -185,13 +185,41 @@ def _location_matches(location: str, locations: list[str]) -> bool:
     )
 
 
-def _seniority_matches(title: str, blocked_levels: list[str]) -> bool:
+def _detected_levels(title: str) -> set[str]:
     normalized = f"{_normalized_text(title)} "
-    detected = {
+    return {
         level for level, terms in _LEVEL_TERMS.items()
         if any(term in normalized for term in terms)
     }
-    return not (detected & {str(level) for level in blocked_levels})
+
+
+def _seniority_matches(title: str, blocked_levels: list[str]) -> bool:
+    return not (_detected_levels(title) & {str(level) for level in blocked_levels})
+
+
+def level_tier(title: str, profile: dict[str, Any]) -> int:
+    """How well a title's level fits the CV: 0 eligible, 1 stretch, 2 neither.
+
+    The prefilter only drops `blocked_levels`, and for a junior CV that is
+    `lead` alone -- a senior posting is neither eligible nor a stretch, yet
+    passes. That is deliberate: it can still be worth reading. But when the
+    candidate cap is filled in board order, those postings take the slots
+    first; on 2026-10-03 an ie round's twenty candidates were mostly senior,
+    and the wave stopped there. This ranks them instead of dropping them.
+
+    A title naming no level is 0: most postings do not say. A profile without
+    `eligible_levels` ranks everything 0, which is the old behaviour.
+    """
+    eligible = {str(level) for level in (profile.get("eligible_levels") or [])}
+    if not eligible:
+        return 0
+    detected = _detected_levels(title)
+    if detected <= eligible:
+        return 0
+    stretch = {str(level) for level in (profile.get("stretch_levels") or [])}
+    if detected <= eligible | stretch:
+        return 1
+    return 2
 
 
 def prefilter_jobs(jobs: list[dict[str, Any]], profile: dict[str, Any]) -> list[dict[str, Any]]:

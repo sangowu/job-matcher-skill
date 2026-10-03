@@ -803,3 +803,72 @@ def test_a_board_with_fewer_postings_than_its_share_does_not_hold_a_slot_back(
     )
 
     assert len(result["candidates"]) == 5
+
+
+def junior_profile():
+    return {
+        **profile(),
+        "eligible_levels": ["new_grad", "junior", "mid"],
+        "stretch_levels": ["mid"],
+        "blocked_levels": ["lead"],
+    }
+
+
+def test_postings_the_cv_is_eligible_for_take_the_cap_before_senior_ones(isolated_ats):
+    """2026-10-03: an ie round's twenty candidates were mostly senior roles for
+    a junior CV, and the wave stopped there. The prefilter lets a senior posting
+    through on purpose; it must not take a slot ahead of an eligible one just
+    because its board came first."""
+    senior_board = board(token="seniorco")
+    plain_board = board(token="plainco")
+    provider = FakeAtsProvider({
+        "boards/seniorco/jobs": [greenhouse_listing(
+            *((index, "Senior AI Engineer", "Dublin") for index in range(100, 104))
+        )],
+        "boards/plainco/jobs": [greenhouse_listing(
+            (900, "AI Engineer", "Dublin"),
+            (901, "AI Engineer, New Grad", "Dublin"),
+        )],
+    })
+
+    result = ats_pipeline.sync_registry(
+        registry(senior_board, plain_board), junior_profile(),
+        config=config(top_n=3, precise_buffer=0, ats_defer_jd=False),
+        provider_client=provider,
+    )
+
+    titles = [candidate["title"] for candidate in result["candidates"]]
+    assert sorted(titles[:2]) == ["AI Engineer", "AI Engineer, New Grad"]
+    # Senior is ranked, not dropped: it fills the slot that is left.
+    assert titles[2] == "Senior AI Engineer"
+
+
+def test_a_stretch_level_comes_after_eligible_and_before_the_rest(isolated_ats):
+    provider = FakeAtsProvider({"boards/acme/jobs": [greenhouse_listing(
+        (100, "Senior AI Engineer", "Dublin"),
+        (101, "Mid-level AI Engineer", "Dublin"),
+        (102, "Junior AI Engineer", "Dublin"),
+    )]})
+    profile_values = {**junior_profile(), "eligible_levels": ["new_grad", "junior"]}
+
+    result = ats_pipeline.sync_registry(
+        registry(board()), profile_values,
+        config=config(ats_defer_jd=False), provider_client=provider,
+    )
+
+    assert [candidate["title"] for candidate in result["candidates"]] == [
+        "Junior AI Engineer", "Mid-level AI Engineer", "Senior AI Engineer",
+    ]
+
+
+def test_level_tier_reads_the_title_against_the_cv_levels():
+    junior = junior_profile()
+    assert ats_pipeline.level_tier("AI Engineer", junior) == 0, "most titles name no level"
+    assert ats_pipeline.level_tier("Junior AI Engineer", junior) == 0
+    assert ats_pipeline.level_tier("Senior AI Engineer", junior) == 2
+    assert ats_pipeline.level_tier("Software Engineering Intern", junior) == 2
+    assert ats_pipeline.level_tier(
+        "Mid-level AI Engineer", {**junior, "eligible_levels": ["junior"]}
+    ) == 1
+    # Without levels the profile cannot rank, and nothing changes.
+    assert ats_pipeline.level_tier("Senior AI Engineer", profile()) == 0

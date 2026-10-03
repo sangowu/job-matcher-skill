@@ -646,6 +646,44 @@ def test_a_company_endpoint_reaches_the_board_view_too(tmp_path):
     assert source["access_methods"] == ["public_read_only_endpoint"]
 
 
+def test_a_workday_board_reaches_the_view_with_its_site(tmp_path):
+    """2026-10-03: all five Workday boards in an ie round failed as
+    `invalid_board_token` before any request. Workday needs tenant, data centre
+    and site together, and the view carried the first two and dropped `site`."""
+    import ats_provider
+
+    registry_path, _, lock_path = _initialize(tmp_path)
+    registry = source_registry.load_registry(registry_path)
+    workday = {
+        source["source_id"]: source
+        for source in registry["sources"]
+        if source["provider"] == "workday"
+    }
+    assert workday, "the catalog must publish Workday boards"
+
+    view = source_registry.ats_view_from_registry(registry)
+    boards = {board["board_id"]: board for board in view["boards"]}
+    for source_id, source in workday.items():
+        board = boards[source_id]
+        assert board["site"] == source["site"]
+        assert ats_provider.validate_board(board)[0] == "workday"
+    # A board without a site does not grow an empty one.
+    assert all("site" not in board for board in view["boards"]
+               if board["provider"] != "workday")
+
+    # Writing health back must not cost the registry the field either.
+    source_registry.commit_ats_view(
+        {"schema_version": 1, "boards": [boards[source_id] for source_id in workday]},
+        registry_path=registry_path,
+        lock_path=lock_path,
+    )
+    after = source_registry.load_registry(registry_path)
+    assert all(
+        source["site"] == workday[source["source_id"]]["site"]
+        for source in after["sources"] if source["source_id"] in workday
+    )
+
+
 def test_recording_a_fetch_does_not_relabel_the_source_it_read(tmp_path):
     """`commit_ats_view` writes health back. Rebuilding a whole record from the
     board view would turn a seeded `company_careers` endpoint into an

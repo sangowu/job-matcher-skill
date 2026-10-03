@@ -994,6 +994,10 @@ def ats_view_from_registry(registry: dict[str, Any]) -> dict[str, Any]:
                 "provider": source["provider"],
                 "board_token": source["board_token"],
                 "instance": source.get("instance", "global"),
+                # Workday needs tenant, data centre and site together; without
+                # `site` every Workday board was refused as `invalid_board_token`
+                # before a request was made.
+                **({"site": source["site"]} if "site" in source else {}),
                 # Candidate boards may be probed for verification. This does not
                 # enable them in the deterministic regional source plan.
                 "enabled": source["enabled"] or status == "candidate",

@@ -1496,7 +1496,7 @@ def main() -> int:
     apply_parser = commands.add_parser("apply")
     _add_paths(apply_parser)
     plan_parser = commands.add_parser("plan")
-    _add_paths(plan_parser)
+    _add_paths(plan_parser, include_legacy=True)
     plan_parser.add_argument("--markets", nargs="+", required=True)
     rollback_parser = commands.add_parser("rollback-legacy")
     _add_paths(rollback_parser)
@@ -1536,6 +1536,25 @@ def main() -> int:
             )
         elif args.command == "plan":
             registry = load_registry(args.registry)
+            behind = seeds_missing_from_registry(registry, seeds)
+            caught_up: list[str] = []
+            if behind:
+                # `init` only adds what the registry lacks and never edits a
+                # source it already holds, so a pull that grew the catalog is
+                # caught up here instead of waiting for someone to read a
+                # warning and run it by hand.
+                try:
+                    initialize_registry(
+                        registry_path=args.registry,
+                        seeds_path=args.seeds,
+                        legacy_path=args.legacy_ats,
+                    )
+                except SourceRegistryError:
+                    pass
+                registry = load_registry(args.registry)
+                still_behind = seeds_missing_from_registry(registry, seeds)
+                caught_up = sorted(set(behind) - set(still_behind))
+                behind = still_behind
             payload = {
                 "ok": True,
                 "plan": build_source_plan(
@@ -1544,13 +1563,14 @@ def main() -> int:
                     risk_acknowledged=_risk_acknowledged_sources(),
                 ),
             }
-            behind = seeds_missing_from_registry(registry, seeds)
+            # Both outside "plan": discovery_plan reads that object and must not
+            # see a field it does not know.
+            if caught_up:
+                payload["seeds_added_to_registry"] = caught_up
             if behind:
-                # Outside "plan": discovery_plan reads that object and must not
-                # see a field it does not know.
                 payload["warnings"] = [
-                    f"registry is missing {len(behind)} catalog sources; "
-                    "run `source_registry.py init`"
+                    f"registry is missing {len(behind)} catalog sources and "
+                    "`source_registry.py init` could not add them"
                 ]
                 payload["seeds_not_in_registry"] = behind
             _emit(payload)

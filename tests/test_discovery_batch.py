@@ -919,3 +919,122 @@ def test_a_broken_mark_store_costs_the_count_and_not_the_round(stores, monkeypat
     assert result["ok"] is True
     assert result["task_summary"]["refusals_recorded"] is False
     assert result["task_summary"]["candidates_validated"] == 2
+
+
+# --- ATS boards behind reported links are harvested by the batch itself -------
+
+import functools  # noqa: E402
+
+import ats_provider  # noqa: E402
+import board_harvest  # noqa: E402
+
+
+def _ats_on(stores) -> None:
+    stores["config"].write_text(
+        json.dumps({"stop_threshold": 12, "consecutive_empty_stop": 2, "ats_enabled": True}),
+        encoding="utf-8",
+    )
+
+
+def _with_board_link(value: dict) -> dict:
+    """The browser candidate now links to a Greenhouse job, as a real one would."""
+    candidate = value["task_results"][0]["candidates"][0]
+    candidate["url"] = "https://boards.greenhouse.io/newco/jobs/1000"
+    return value
+
+
+def _dublin_board() -> ats_provider.FakeAtsProvider:
+    return ats_provider.FakeAtsProvider([{
+        "jobs": [{
+            "id": 1000,
+            "title": "AI Engineer",
+            "absolute_url": "https://boards.greenhouse.io/newco/jobs/1000",
+            "location": {"name": "Dublin, Ireland"},
+            "content": "role description",
+        }]
+    }])
+
+
+def _recording_harvester(calls: list):
+    def harvester(candidates, **kwargs):
+        calls.append({"urls": [c["url"] for c in candidates], **kwargs})
+        return {"boards_seen": 1, "boards_proposed": 0, "applied": False}
+    return harvester
+
+
+def test_a_reported_ats_link_registers_its_board_without_a_separate_step(stores):
+    """2026-10-03: a Dublin round found three Lever/Greenhouse boards and
+    registered none, because registering was a step the orchestrator had to
+    remember. The batch that commits the link now registers the board."""
+    _ats_on(stores)
+    harvester = functools.partial(board_harvest.harvest, provider_client=_dublin_board())
+
+    result = run_batch(stores, _with_board_link(payload()), board_harvester=harvester)
+
+    assert result["board_harvest"]["status"] == "succeeded"
+    assert result["board_harvest"]["boards_proposed"] == 1
+    assert result["board_harvest"]["applied"] is True
+    registry = source_registry.load_registry(stores["registry"])
+    board = next(
+        s for s in registry["sources"]
+        if s["source_id"] == source_registry.board_source_id("greenhouse", "newco")
+    )
+    assert board["status"] == "verified" and board["enabled"] is True
+    assert board["markets"] == ["ie"]
+    # Counts only: no link, title or token reaches the batch result.
+    assert "newco" not in json.dumps(result)
+
+
+def test_harvest_reads_only_the_candidates_the_wave_reported(stores):
+    _ats_on(stores)
+    calls: list = []
+
+    run_batch(stores, _with_board_link(payload()),
+              board_harvester=_recording_harvester(calls))
+
+    assert len(calls) == 1
+    assert calls[0]["urls"] == [
+        "https://boards.greenhouse.io/newco/jobs/1000",
+        "https://example.com/jobs/456",
+    ]
+    assert calls[0]["registry_path"] == stores["registry"]
+    assert calls[0]["batch_id"].startswith("harvest:")
+
+
+def test_no_harvest_when_the_structured_channel_is_off(stores):
+    """Turning ATS off means no ATS requests, and verifying a board is one."""
+    calls: list = []
+
+    result = run_batch(stores, _with_board_link(payload()),
+                       board_harvester=_recording_harvester(calls))
+
+    assert calls == []
+    assert result["board_harvest"] == {"status": "route_off"}
+
+
+def test_a_failed_harvest_does_not_cost_the_committed_wave(stores):
+    _ats_on(stores)
+
+    def broken(candidates, **kwargs):
+        raise RuntimeError("provider exploded")
+
+    result = run_batch(stores, _with_board_link(payload()), board_harvester=broken)
+
+    assert result["ok"] is True
+    assert result["merge"]["stats"]["new"] == 2
+    assert result["board_harvest"] == {
+        "status": "failed", "failure_kind": "board_harvest_failed"
+    }
+
+
+def test_a_replayed_batch_does_not_harvest_twice(stores):
+    _ats_on(stores)
+    calls: list = []
+    value = _with_board_link(payload())
+
+    first = run_batch(stores, value, board_harvester=_recording_harvester(calls))
+    second = run_batch(stores, value, board_harvester=_recording_harvester(calls))
+
+    assert len(calls) == 1
+    assert second["idempotent"] is True
+    assert second["board_harvest"] == first["board_harvest"]

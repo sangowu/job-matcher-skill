@@ -876,9 +876,14 @@ def test_the_catalog_carries_where_publicjobs_keeps_its_vacancies():
     assert source["listing_hosts"] == ["publicjobs.tal.net"]
 
 
-def test_a_registry_behind_the_catalog_is_reported_not_silently_planned_short(
+def test_a_registry_behind_the_catalog_is_caught_up_by_plan(
     tmp_path, monkeypatch, capsys
 ):
+    """A pull that grows the catalog reaches the next plan without a manual init.
+
+    On 2026-10-02 the local registry was 23 sources behind and only a warning
+    said so; `init` only adds, so there was nothing for a person to decide.
+    """
     seeds = source_registry.load_seeds()
     registry = _seeded_registry()
     dropped = registry["sources"].pop()["source_id"]
@@ -888,16 +893,40 @@ def test_a_registry_behind_the_catalog_is_reported_not_silently_planned_short(
     assert source_registry.seeds_missing_from_registry(registry, seeds) == [dropped]
     assert source_registry.seeds_missing_from_registry(_seeded_registry(), seeds) == []
 
+    argv = [
+        "source_registry.py", "plan", "--registry", str(path),
+        "--legacy-ats", str(tmp_path / "ats_companies.json"), "--markets", "ie",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    assert source_registry.main() == 0
+    caught_up = json.loads(capsys.readouterr().out)
+    assert caught_up["seeds_added_to_registry"] == [dropped]
+    assert "warnings" not in caught_up and "seeds_not_in_registry" not in caught_up
+    assert "seeds_added_to_registry" not in caught_up["plan"]
+    on_disk = source_registry.load_registry(path)
+    assert source_registry.seeds_missing_from_registry(on_disk, seeds) == []
+
+    assert source_registry.main() == 0
+    current = json.loads(capsys.readouterr().out)
+    assert "seeds_added_to_registry" not in current and "warnings" not in current
+
+
+def test_a_registry_plan_cannot_catch_up_still_says_so(tmp_path, monkeypatch, capsys):
+    registry = _seeded_registry()
+    dropped = registry["sources"].pop()["source_id"]
+    path = tmp_path / "registry.json"
+    path.write_text(json.dumps(registry), encoding="utf-8")
+
+    def refuse(**kwargs):
+        raise source_registry.SourceValidationError("seed collides with an agent source")
+
+    monkeypatch.setattr(source_registry, "initialize_registry", refuse)
     monkeypatch.setattr(
         sys, "argv", ["source_registry.py", "plan", "--registry", str(path), "--markets", "ie"]
     )
     assert source_registry.main() == 0
     behind = json.loads(capsys.readouterr().out)
     assert behind["seeds_not_in_registry"] == [dropped]
-    assert "init" in behind["warnings"][0]
+    assert "could not add" in behind["warnings"][0]
+    assert "seeds_added_to_registry" not in behind
     assert "seeds_not_in_registry" not in behind["plan"]
-
-    path.write_text(json.dumps(_seeded_registry()), encoding="utf-8")
-    assert source_registry.main() == 0
-    current = json.loads(capsys.readouterr().out)
-    assert "warnings" not in current and "seeds_not_in_registry" not in current

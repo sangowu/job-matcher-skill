@@ -66,7 +66,7 @@ CV + 求职条件
 
 ## 独立预算
 
-ATS 调用不计入 `max_websearch_calls`，也不复用浏览器的 3 页上限。生产路由由 `ats_enabled: false` 默认关闭；显式启用后仍受以下硬上限约束：
+ATS 调用不计入 `max_websearch_calls`，也不复用浏览器的 3 页上限。仓库默认 `ats_enabled: true`，是否真的派发 structured 任务由本轮市场在来源目录里有没有 structured 来源决定（`discovery_plan.py` 的 `per_market.<market>.structured`）；`false` 只是用户/本地配置的关闭开关。开启时仍受以下硬上限约束（下表为 Phase 2 初值，当前值见 `config.json`）：
 
 | 预算 | Phase 2 初值 |
 |---|---:|

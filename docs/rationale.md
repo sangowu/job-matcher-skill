@@ -101,7 +101,7 @@
 
 ### [R4-03] board_harvest 如何从候选 URL 反推 board
 
-- 一轮候选合并之后，可以用 `board_harvest.py --candidates <candidates.json>` 从候选 URL 反推公开 ATS board：Ashby/Greenhouse/Lever 的职位 URL 本身带着该公司 board 标识，一个职位即可换来整家公司的后续拉取。脚本只读候选的 `url` 字段，绝不把 URL、职位名、JD 或 CV 写入注册表。每个新 board 必须实拉复验一次才标 `verified`，市场归属由实际职位地点决定，不按公司总部推断；未应答、无职位或在受支持市场没有职位的 board 只记计数，不入库。单次运行的复验请求受 `--limit` 上限约束（默认 5），其余 board 留待下一轮。公司把 board 嵌进自家招聘页时，URL 里既没有厂商域名也没有 board token，只有 provider 和 job id（`gh_jid` / `ashby_jid`）：此时 token 由主机名猜出，再用那个 job id 去猜出的 board 上验证——**board 有应答不算数，必须在它返回的职位里找到这个 job id**，否则会把别家公司的 board 记成这家的（建目录时撞到过一次）。猜测每个都要一次请求，所以受独立的 `--hint-limit` 约束（默认 3）。手工策展只负责冷启动，目录靠这条路径增长。
+- `ats_enabled` 为 true 时，`discovery_batch.py` 在每波合并之后自动用 `board_harvest` 从本波 worker 回报的候选 URL 反推公开 ATS board，不再是编排者"可以"做的步骤——2026-10-03 一轮 Dublin 搜索遇到三个 Lever/Greenhouse board，一个都没登记，就因为这一步要靠编排者记得。登记失败不影响已提交的波次；`ats_enabled: false` 时不登记，因为复验本身就是一次 ATS 请求。批次之外的 URL 仍可手动 `board_harvest.py --candidates <candidates.json>`。规则如下：Ashby/Greenhouse/Lever 的职位 URL 本身带着该公司 board 标识，一个职位即可换来整家公司的后续拉取。脚本只读候选的 `url` 字段，绝不把 URL、职位名、JD 或 CV 写入注册表。每个新 board 必须实拉复验一次才标 `verified`，市场归属由实际职位地点决定，不按公司总部推断；未应答、无职位或在受支持市场没有职位的 board 只记计数，不入库。单次运行的复验请求受 `--limit` 上限约束（默认 5），其余 board 留待下一轮。公司把 board 嵌进自家招聘页时，URL 里既没有厂商域名也没有 board token，只有 provider 和 job id（`gh_jid` / `ashby_jid`）：此时 token 由主机名猜出，再用那个 job id 去猜出的 board 上验证——**board 有应答不算数，必须在它返回的职位里找到这个 job id**，否则会把别家公司的 board 记成这家的（建目录时撞到过一次）。猜测每个都要一次请求，所以受独立的 `--hint-limit` 约束（默认 3）。手工策展只负责冷启动，目录靠这条路径增长。
 
 
 ### [R4-06] 波次提交与三通道统一初筛

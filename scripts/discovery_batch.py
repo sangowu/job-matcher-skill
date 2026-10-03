@@ -4,8 +4,11 @@
 The Agent runtime executes browser and Web Search tasks. This script validates
 that every planned task has one terminal result, validates all returned
 CandidateEnvelope records against their task, commits the combined candidates
-through merge_jobs.py exactly once, then applies source-health updates. A
-content-free manifest makes the full handoff idempotent and restart-safe.
+through merge_jobs.py exactly once, then applies source-health updates. When
+the structured channel is on, the ATS boards behind the reported candidates'
+URLs are then harvested into the source registry, so the next round fetches
+those companies whole without anyone running a separate step. A content-free
+manifest makes the full handoff idempotent and restart-safe.
 
 Usage:
   python scripts/discovery_batch.py --cv-hash H --cp-hash H < batch.json
@@ -25,6 +28,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import ats_pipeline
+import board_harvest
 import job_prefilter
 import rejected_log
 import market_plan
@@ -62,6 +66,7 @@ class DiscoveryBatchError(RuntimeError):
 
 MergeRunner = Callable[..., dict[str, Any]]
 SourceApplier = Callable[..., dict[str, Any]]
+BoardHarvester = Callable[..., dict[str, Any]]
 
 
 def _now() -> datetime:
@@ -599,6 +604,11 @@ def _run_structured_channel(
     }
     if not config.get("ats_enabled", False):
         return [], outcomes
+    if not tasks:
+        # Nothing to fetch, and `sync_registry` saves the registry it was handed
+        # even when it fetched no board -- a wave without structured tasks
+        # would rewrite the live registry for nothing.
+        return [], outcomes
     if profile is None:
         raise DiscoveryBatchError(
             "a wave with structured tasks requires --profile to prefilter its jobs"
@@ -946,6 +956,56 @@ def _safe_merge_summary(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _harvest_boards(
+    candidates: list[dict[str, Any]],
+    *,
+    config: dict[str, Any],
+    batch_id: str,
+    registry_path: Path,
+    seeds_path: Path,
+    harvester: BoardHarvester | None,
+) -> dict[str, Any]:
+    """Register the ATS boards behind this wave's reported candidates.
+
+    A Lever or Greenhouse link found by Web Search or the browser names the
+    whole company's board, and one public request next round returns every job
+    on it. That registration used to be a step the orchestrator had to remember
+    -- `board_harvest.py` was documented as something a round "can" run -- and
+    the 2026-10-03 Dublin round found three such boards and registered none.
+
+    Runs only when the structured channel is on: turning ATS off means no ATS
+    requests, and harvesting is one. Never fails the batch -- the merge it
+    follows is already committed, and a board missed now is seen again on the
+    next link to it. Counts only reach the result.
+    """
+    if config.get("ats_enabled") is not True:
+        return {"status": "route_off"}
+    run = harvester or board_harvest.harvest
+    # Deterministic per batch, so a replay re-applies as a no-op, and short
+    # enough for the registry's id pattern whatever the batch id's length.
+    harvest_id = "harvest:" + hashlib.sha256(batch_id.encode("utf-8")).hexdigest()[:32]
+    try:
+        summary = run(
+            candidates,
+            registry_path=registry_path,
+            lock_path=registry_path.with_name("source_registry.lock"),
+            seeds_path=seeds_path,
+            batch_id=harvest_id,
+        )
+    except Exception:  # noqa: BLE001 - discovery must not cost the committed wave
+        return {"status": "failed", "failure_kind": "board_harvest_failed"}
+    return {
+        "status": "succeeded",
+        "boards_seen": int(summary.get("boards_seen", 0)),
+        "boards_already_known": int(summary.get("boards_already_known", 0)),
+        "boards_probed": int(summary.get("boards_probed", 0)),
+        "hints_attempted": int(summary.get("hints_attempted", 0)),
+        "boards_proposed": int(summary.get("boards_proposed", 0)),
+        "boards_deferred_by_limit": int(summary.get("boards_deferred_by_limit", 0)),
+        "applied": bool(summary.get("applied")),
+    }
+
+
 def run_discovery_batch(
     payload: Any,
     cv_hash: str,
@@ -961,6 +1021,7 @@ def run_discovery_batch(
     source_applier: SourceApplier | None = None,
     profile_path: Path | None = None,
     ats_sync: Callable[..., dict[str, Any]] | None = None,
+    board_harvester: BoardHarvester | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
     if not isinstance(payload, dict):
@@ -1035,6 +1096,9 @@ def run_discovery_batch(
             task_summary.pop("search_pages", []), metrics_run_id, METRICS_PATH
         )
 
+    # The worker-reported candidates only: a structured candidate came from a
+    # board the registry already holds.
+    reported_candidates = list(candidates)
     structured_outcomes = manifest.get("structured")
     merge_summary = manifest.get("merge")
     if manifest.get("phase") not in {"merge_committed", "source_registry_committed"}:
@@ -1096,6 +1160,19 @@ def run_discovery_batch(
             _atomic_save(manifest_path, manifest)
             raise DiscoveryBatchError("source registry commit failed") from error
 
+    harvest_summary = manifest.get("board_harvest")
+    if harvest_summary is None:
+        harvest_summary = _harvest_boards(
+            reported_candidates,
+            config=config,
+            batch_id=batch_id,
+            registry_path=registry_path,
+            seeds_path=seeds_path,
+            harvester=board_harvester,
+        )
+        manifest.update(board_harvest=harvest_summary)
+        _atomic_save(manifest_path, manifest)
+
     if structured_outcomes:
         task_summary = _fold_structured_outcomes(task_summary, structured_outcomes)
     continuation = _continuation(merge_summary["stats"], progress, config, wave)
@@ -1104,6 +1181,7 @@ def run_discovery_batch(
         "task_summary": task_summary,
         "merge": merge_summary,
         "source_registry": source_summary,
+        "board_harvest": harvest_summary,
         "continuation": continuation,
         "duration_ms": round((time.monotonic() - started) * 1000, 2),
     }

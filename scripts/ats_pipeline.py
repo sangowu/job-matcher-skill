@@ -35,6 +35,7 @@ from job_prefilter import (  # noqa: F401
     _title_matches,
     prefilter_jobs,
     rejection_reason,
+    level_tier,
 )
 from runtime_metrics import record_metric, validate_run_id
 import market_plan
@@ -621,27 +622,36 @@ def sync_registry(
     # by how many jobs the boards happen to list.
     seen_identities: set[str] = set()
     selected: list[tuple[dict[str, Any], dict[str, Any]]] = []
-    # One posting per board per pass, rather than filling the cap from the first
-    # boards in the list. A board with 1,799 postings used to take every slot it
-    # could reach: measured 2026-09-27, three boards of thirty-two filled all
-    # twenty candidate slots and the other twenty-nine contributed nothing, so
-    # the round's breadth was decided by catalog order. Within one board the
-    # order it returned is kept.
-    queues = [list(jobs) for jobs in filtered_by_board]
-    while len(selected) < candidate_limit and any(queues):
-        progressed = False
-        for board, queue in zip(eligible, queues):
-            if not queue or len(selected) >= candidate_limit:
-                continue
-            job = queue.pop(0)
-            progressed = True
-            identity = str((job.get("identity_keys") or [""])[0])
-            if not identity or identity in seen_identities:
-                continue
-            seen_identities.add(identity)
-            selected.append((board, job))
-        if not progressed:
-            break
+    # Level fit first, then breadth. Every posting the CV is eligible for is
+    # offered before any stretch posting, and those before the rest -- so a
+    # senior role reaches the cap only when slots remain, instead of taking
+    # them because its board came first (see `level_tier`).
+    tiers = [[[], [], []] for _ in filtered_by_board]
+    for board_tiers, jobs in zip(tiers, filtered_by_board):
+        for job in jobs:
+            board_tiers[level_tier(str(job.get("title") or ""), profile)].append(job)
+    # Within a tier, one posting per board per pass, rather than filling the cap
+    # from the first boards in the list. A board with 1,799 postings used to
+    # take every slot it could reach: measured 2026-09-27, three boards of
+    # thirty-two filled all twenty candidate slots and the other twenty-nine
+    # contributed nothing, so the round's breadth was decided by catalog order.
+    # Within one board the order it returned is kept.
+    for tier in range(3):
+        queues = [list(board_tiers[tier]) for board_tiers in tiers]
+        while len(selected) < candidate_limit and any(queues):
+            progressed = False
+            for board, queue in zip(eligible, queues):
+                if not queue or len(selected) >= candidate_limit:
+                    continue
+                job = queue.pop(0)
+                progressed = True
+                identity = str((job.get("identity_keys") or [""])[0])
+                if not identity or identity in seen_identities:
+                    continue
+                seen_identities.add(identity)
+                selected.append((board, job))
+            if not progressed:
+                break
 
     jd_rows_by_board = _fill_deferred_jd(
         selected,

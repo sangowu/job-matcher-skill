@@ -114,6 +114,7 @@ job-matcher/
 │   ├── rejected_log.py       # marks identities the prefilter refused (counts repeats; never skips the filter)
 │   ├── ats_pipeline.py       # ATS registry, sync, and normalization
 │   ├── ats_handoff.py        # in-memory ATS JD handoff to canonical merge
+│   ├── source_reverify.py   # renew lapsed web sources: robots check, one GET of the entry page, registry event
 │   ├── board_harvest.py      # recover ATS boards from job URLs and register verified ones
 │   ├── seed_promotion.py    # promote verified harvested sources into the tracked seed catalog
 │   ├── cp_hash.py            # stable candidate_profile hash
@@ -140,7 +141,7 @@ it a round searches by the user's intent and filters by the CV's. It neither
 searches nor mutates the job table. `python scripts/source_registry.py validate` checks public seeds; `init`
 atomically merges them into `data/source_registry.json` and read-only imports a
 legacy `data/ats_companies.json` when present; `plan --markets ie uk` returns
-only enabled, verified, unexpired sources and emits a global source once. None
+only enabled, verified, unexpired sources (a lapsed structured source stays in, since fetching it renews it; web sources renew through `source_reverify.py`) and emits a global source once. None
 of these commands executes a search, so the existing single-region
 Web Search/ATS/merge/report path stays compatible. In Phase C the orchestrator
 may start `regional_registry` and `agent_web_search` together, wait for both

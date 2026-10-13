@@ -65,7 +65,8 @@ mark a source unavailable; a later `verified` event restores it. `disabled` is
 only entered through the explicit `disable` event.
 
 The deterministic inspection plan selects only enabled, verified, unexpired
-sources. A source covering several requested markets appears once:
+sources, except that a lapsed structured source stays in: fetching it is the
+verification. Lapsed web sources renew through `scripts/source_reverify.py`. A source covering several requested markets appears once:
 
 ```text
 python scripts/source_registry.py plan --markets ie uk

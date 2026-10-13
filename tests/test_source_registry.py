@@ -328,6 +328,48 @@ def test_ttl_expiry_routes_source_to_reverification(tmp_path):
     assert plan["excluded"]["expired"] == 1
 
 
+def test_a_lapsed_structured_source_stays_planned_so_its_fetch_can_renew_it(tmp_path):
+    """Leaving a lapsed board out of the plan meant it was never fetched, and
+    only a fetch renews it: every board dropped out for good once its TTL ran
+    out. A web source still waits for `source_reverify.py`."""
+    registry_path, _, _ = _initialize(tmp_path)
+    registry = source_registry.load_registry(registry_path)
+    late = NOW + timedelta(days=400)
+
+    plan = source_registry.build_source_plan(registry, ["ie"], now=late)
+
+    structured = {
+        source["source_id"]
+        for source in registry["sources"]
+        if set(source["access_methods"]) & source_registry.STRUCTURED_METHODS
+        and source["enabled"]
+        and source["status"] == "verified"
+        and not source.get("requires_risk_ack")
+    }
+    assert structured, "the catalog has structured sources"
+    assert structured <= set(plan["source_ids"])
+    assert structured <= set(plan["due_for_verification"])
+    assert "irishjobs-ie" not in plan["source_ids"]
+    assert plan["excluded"]["expired"] >= 1
+
+
+def test_an_unavailable_structured_source_is_still_left_out(tmp_path):
+    registry_path, _, lock_path = _initialize(tmp_path)
+    for attempt in range(3):
+        _apply(
+            registry_path,
+            lock_path,
+            f"gone-{attempt}",
+            events=[{"source_id": "amazon-jobs-ie", "outcome": "gone"}],
+        )
+    plan = source_registry.build_source_plan(
+        source_registry.load_registry(registry_path), ["ie"], now=NOW + timedelta(days=400)
+    )
+
+    assert "amazon-jobs-ie" not in plan["source_ids"]
+    assert "amazon-jobs-ie" in plan["due_for_verification"]
+
+
 def test_transient_failure_stays_retryable_and_three_definitive_failures_disable_plan(
     tmp_path,
 ):

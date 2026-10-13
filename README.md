@@ -114,6 +114,7 @@ job-matcher/
 │   ├── rejected_log.py       # 被初筛拒过的身份标记（只用于统计重复，从不用来跳过初筛）
 │   ├── ats_pipeline.py       # ATS 标识库、同步与候选归一化
 │   ├── ats_handoff.py        # ATS 正文内存直送统一 merge，避免主上下文暴露
+│   ├── source_reverify.py   # 过期网页来源续期：查 robots 后 GET 入口页一次，经注册表事件写回
 │   ├── board_harvest.py      # 从职位 URL 反推 ATS board，复验后写入来源注册表
 │   ├── seed_promotion.py    # 把已复验的采集来源提升进版本控制的种子目录
 │   ├── cp_hash.py            # 稳定的 candidate_profile hash
@@ -136,7 +137,7 @@ Web query 计划，同时报告 `target_roles` 与 `roles_source`；
 `roles` 键的 profile——确定性初筛读的就是这一份，不经过它就会出现「按用户意图去搜、
 按 CV 角色去筛」的两套答案。`python scripts/source_registry.py validate` 校验公开来源种子；`init` 在
 `data/source_registry.json` 原子合并种子，并在旧 `data/ats_companies.json` 存在时只读迁移；
-`plan --markets ie uk` 只返回 `enabled + verified + TTL 未过期` 的确定性来源，每个全球来源
+`plan --markets ie uk` 只返回 `enabled + verified + TTL 未过期` 的确定性来源（结构化来源过期仍列入，抓取即复验；网页来源由 `source_reverify.py` 续期），每个全球来源
 只出现一次。它们都不执行搜索或修改职位表，因此旧单地区 Web Search/ATS/merge/报告流程
 保持兼容。Phase C 编排者可让 `regional_registry` 与 `agent_web_search` 同时开始，待两条 route
 都回报成功、失败或跳过后，把同一 `batch_id` 的严格 CandidateEnvelope 交给

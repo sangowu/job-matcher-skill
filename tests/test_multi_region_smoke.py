@@ -79,6 +79,10 @@ def _request_urls() -> dict[str, str]:
 
 def _successful_responses() -> dict[str, multi_region_smoke.FetchResult]:
     request_urls = _request_urls()
+    english = (
+        "Responsibilities and requirements include production machine learning "
+        "systems, evaluation, monitoring, Python, communication, and experience. "
+    )
     cases = {
         "publicjobs-ie": ("AI Engineer Dublin", "/en/jobs/ai-engineer-dublin-101"),
         "reed-uk": ("Machine Learning Engineer London", "/jobs/ml-engineer-london-202"),
@@ -88,23 +92,45 @@ def _successful_responses() -> dict[str, multi_region_smoke.FetchResult]:
             "AI Engineer Amsterdam",
             "/vacatures/ai-engineer-amsterdam-505",
         ),
+        "shine-in": ("Software Engineer Bangalore", "/jobs/software-engineer/acme/606"),
+        "jobbank-ca": ("Software Engineer Toronto", "/jobsearch/jobposting/707"),
+        "tokyodev-jp": ("Backend Engineer Tokyo", "/companies/acme/jobs/808"),
+        # Each written as its board writes it: the job link, the description
+        # and the apply button in the market's own language.
+        "tecnoempleo-es": (
+            "Desarrollador Java Madrid",
+            "/ofertas-trabajo/desarrollador-java/rf-909",
+            "Requisitos y funciones del puesto: Java, Spring, microservicios. ",
+            "Inscribirse en la oferta",
+        ),
+        "pracuj-pl": (
+            "Programista Python Warszawa",
+            "/praca/programista-python-warszawa,oferta,1010",
+            "Wymagania i obowiązki: Python, Django, PostgreSQL, testy. ",
+            "Aplikuj teraz",
+        ),
+        "vagas-br": (
+            "Desenvolvedor Java São Paulo",
+            "/vagas/v1111/desenvolvedor-java",
+            "Responsabilidades e atividades, requisitos: Java, Spring, SQL. ",
+            "Candidatar-se",
+        ),
     }
     responses: dict[str, multi_region_smoke.FetchResult] = {}
-    for source_id, (label, detail_path) in cases.items():
+    for source_id, case in cases.items():
+        label, detail_path = case[0], case[1]
+        detail_text = (case[2] if len(case) > 2 else english) * 12
+        apply_text = case[3] if len(case) > 3 else "Apply now"
         request_url = request_urls[source_id]
         detail_url = multi_region_smoke.urllib.parse.urljoin(request_url, detail_path)
         responses[request_url] = _result(
             request_url,
             f'<html><title>Jobs</title><a href="{detail_path}">{label}</a></html>',
         )
-        detail_text = (
-            "Responsibilities and requirements include production machine learning "
-            "systems, evaluation, monitoring, Python, communication, and experience. "
-        ) * 8
         responses[detail_url] = _result(
             detail_url,
             f'<html><title>{label}</title><p>{detail_text}</p>'
-            '<a href="/apply/secret-company-application">Apply now</a></html>',
+            f'<a href="/secret-company-application">{apply_text}</a></html>',
         )
     china_url = request_urls["nankai-careers-cn"]
     china_detail = "https://career.nankai.edu.cn/correcruit/content/id/118533.html"
@@ -127,13 +153,15 @@ def test_versioned_plan_is_bounded_and_covers_every_supported_market() -> None:
     not to this plan makes the tool refuse rather than quietly cover less."""
     plan = _load(PLAN_PATH)
     resolved = multi_region_smoke.validate_plan(plan, _load(SEEDS_PATH))
+    curated = list(multi_region_smoke.SUPPORTED_MARKETS)
 
-    assert [item["market_id"] for item in resolved] == list(
-        multi_region_smoke.SUPPORTED_MARKETS
-    )
+    assert [item["market_id"] for item in resolved][: len(curated)] == curated
+    # Then generic markets whose own boards the tool can read. [R3-18]
+    generic = [item["market_id"] for item in resolved][len(curated):]
+    assert generic == ["in", "ca", "jp", "es", "pl", "br"]
     # `max_sources` has to leave room for the markets, so it is pinned to them
     # rather than to a number that a sixth market turns stale.
-    assert plan["limits"]["max_sources"] >= len(multi_region_smoke.SUPPORTED_MARKETS)
+    assert plan["limits"]["max_sources"] >= len(resolved)
     assert {
         key: value for key, value in plan["limits"].items() if key != "max_sources"
     } == {
@@ -187,7 +215,7 @@ def test_fake_smoke_is_count_only_and_checks_china() -> None:
         _load(PLAN_PATH), _load(SEEDS_PATH), transport, now=NOW
     )
 
-    planned = len(multi_region_smoke.SUPPORTED_MARKETS)
+    planned = len(_load(PLAN_PATH)["markets"])
     assert report["summary"] == {
         "markets_planned": planned,
         "sources_observed": planned,
@@ -214,6 +242,47 @@ def test_fake_smoke_is_count_only_and_checks_china() -> None:
     assert "ai engineer dublin" not in serialized
     assert "https://" not in serialized
     assert report["privacy"]["count_only"] is True
+
+
+def test_a_plan_without_a_curated_market_is_refused() -> None:
+    plan = _load(PLAN_PATH)
+    plan["markets"] = [item for item in plan["markets"] if item["market_id"] != "de"]
+
+    with pytest.raises(multi_region_smoke.SmokeError, match="every curated market"):
+        multi_region_smoke.validate_plan(plan, _load(SEEDS_PATH))
+
+
+def test_a_generic_market_slot_needs_a_source_that_declares_it() -> None:
+    plan = _load(PLAN_PATH)
+    slot = next(item for item in plan["markets"] if item["market_id"] == "pl")
+    slot["source_id"] = "shine-in"
+
+    with pytest.raises(multi_region_smoke.SmokeError, match="cover its market"):
+        multi_region_smoke.validate_plan(plan, _load(SEEDS_PATH))
+
+
+@pytest.mark.parametrize(
+    ("href", "label", "role", "place"),
+    [
+        ("/praca/programista-python-warszawa,oferta,1", "Programista Python Warszawa",
+         "programista", "warszawa"),
+        ("/vagas/v2/desenvolvedor-java", "Desenvolvedor Java São Paulo", "desenvolvedor",
+         "são paulo"),
+        ("/fr/tech-it/job-mission/dev/3", "Développeur Python Paris", "développeur", "paris"),
+        ("/offerte-lavoro/sviluppatore-4", "Sviluppatore Java Milano", "sviluppatore", "milano"),
+    ],
+)
+def test_a_job_link_written_in_the_markets_language_is_a_job_link(
+    href, label, role, place
+) -> None:
+    """These boards' job links read as navigation once: zero postings, a run
+    reporting success. The same defect Dutch "vacature" was."""
+    page = multi_region_smoke._parse_page(f'<a href="{href}">{label}</a>')
+    matches, _ = multi_region_smoke._collect_candidates(
+        page, "https://example.com/search", [role], [place]
+    )
+
+    assert len(matches) == 1
 
 
 def test_china_card_location_does_not_leak_across_jobs_or_match_host_ai() -> None:

@@ -469,6 +469,21 @@ Naukri 35 KB、APSjobs、foundit 只有脚本数据）。84 个候选，收 26 �
 顺带：荷兰在 [R3-17] 加了荷兰语搜索，但 Jobbird、Werken voor Nederland、Intermediair 三个荷兰语站只声明了 `en`，
 荷兰语查询用不上它们；改为 `["nl", "en"]`。
 
+**之后的实测（2026-10-14）**：每个新来源按一轮的方式搜一次（主要城市 + 软件工程师），用 `multi_region_smoke`
+的解析读搜索页和一个详情页。结果和收录时的判断一致，同时查出 smoke 工具本身两处问题：
+
+- **识别词只有英、德、荷**：Pracuj.pl（`,oferta,`）、Vagas（`/vagas/`）、Tecnoempleo（`/oferta-`）的职位链接全被当成导航，
+  数出 0 条；Free-Work、Vagas 的详情页也判成「没有职位描述」。与 #99 的 `vacature` 是同一个缺陷。识别词补上
+  fr/es/pt/pl/it/ja/ko 的职位链接、职位描述、申请按钮词后，Pracuj 56 条、Vagas 2 条、Tecnoempleo 2 条。
+- **只收精选市场**：计划必须恰好是精选市场，新来源没法用仓库工具复测。现在计划必须包含每个精选市场，
+  另外可以加通用市场——来源必须声明该市场，`max_sources` 上限放到 32。加了 in/ca/jp/es/pl/br 六个槽位，
+  首次运行六个都是 `sufficient`（`docs/performance/multi-region-live-smoke-20261014.json`）。
+- **fr、au、sg、it 没有槽位**：Free-Work、Careers.vic 的职位卡片不是列表元素、链接文字里没有地点；Talent.com 的链接是
+  `/view?id=…`，而工具比较链接前去掉查询参数，所有职位并成一条，链接文字只有「Show more」。这些页面上职位是在的
+  （BrowserOS 打开详情页正常），只是一个只读静态页面、只计数的工具确认不了地点。
+- Jobs in Milan 的 `www` 主机 301 到 `http://`，被 HTTPS 校验拒绝；入口改为 `https://jobsinmilan.com/`。
+- ProgramaThor 直接请求某些旧职位地址返回 500，从列表点进去正常；浏览器通道按点击走，不受影响。
+
 ### [R5-06] 复验结论为什么需要独立的写入口
 
 P7 给行加了 `verified_at` 与 `needs_verification`，但 `verified` 的唯一写入路径仍然在**评估结果**里，

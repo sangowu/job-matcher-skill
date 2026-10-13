@@ -262,7 +262,9 @@ def test_the_prefilter_reads_the_catalog_and_carries_no_table_of_its_own():
             *catalog["role_families"],
             *catalog.get("match_only_families", []),
         ]
-        if family.get("match_terms")
+        # A family's titles and synonyms are terms too: what a round searches
+        # under is what it recognizes a posting by.
+        if family.get("match_terms") or family.get("titles") or family.get("synonyms")
     }
     assert set(by_term) == declared
     assert set(by_token) <= declared
@@ -280,7 +282,9 @@ def test_the_prefilter_reads_the_catalog_and_carries_no_table_of_its_own():
         ("Data Engineer", {"data_engineering"}),
         ("Full Stack Developer", {"fullstack"}),
         ("Product Manager", {"product"}),
-        ("Software Engineer", set()),
+        # Its own family now: the family's titles are recognized, not only its
+        # match terms. It used to be the one family nothing could recognize.
+        ("Software Engineer", {"software_engineering"}),
         ("Maintenance Technician", set()),
     ],
 )

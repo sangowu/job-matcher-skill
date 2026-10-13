@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from _jobutil import is_strong_identity_key, known_markets
+from _jobutil import internal_languages, is_strong_identity_key, known_markets
 from _stdio import StdinUnavailable, read_stdin_text
 
 
@@ -20,7 +20,7 @@ SUPPORTED_MARKETS = set(known_markets())
 # One location string naming more countries than this is a list, not a place;
 # the envelope schema carries the same ceiling.
 MAX_MARKET_IDS = 32
-INTERNAL_LANGUAGES = {"en", "de", "zh-Hans"}
+INTERNAL_LANGUAGES = set(internal_languages())
 SOURCE_TYPES = {
     "ats_board",
     "company_careers",

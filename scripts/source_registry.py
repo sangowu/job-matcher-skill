@@ -28,7 +28,7 @@ from typing import Any, Iterable
 from urllib.parse import urlparse
 
 import _filelock
-from _jobutil import known_markets, supported_markets
+from _jobutil import internal_languages, known_markets, supported_markets
 from _stdio import StdinUnavailable, read_stdin_text
 
 
@@ -47,7 +47,7 @@ SUPPORTED_MARKETS = supported_markets()
 # may ask for. The curated set above is what the local-source minimum and the
 # markets.json checks are written against.
 KNOWN_MARKETS = known_markets()
-INTERNAL_LANGUAGES = ("en", "de", "zh-Hans")
+INTERNAL_LANGUAGES = internal_languages()
 SOURCE_TYPES = {
     "ats_board",
     "company_careers",

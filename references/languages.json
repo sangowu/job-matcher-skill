@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "note": "The languages a round can search in. Every module that accepts a language code reads this file, and the role taxonomy must give every family titles in each of them. `query_template` is the Web Search wording a generic market uses; a curated market writes its own in markets.json. `aliases` are what a person or a CV may write for the language, matched case-insensitively.",
+  "languages": [
+    {
+      "code": "en",
+      "name": "English",
+      "aliases": ["en", "en-us", "en-gb", "english", "英文", "英语"],
+      "query_template": "{role} jobs {location}"
+    },
+    {
+      "code": "de",
+      "name": "Deutsch",
+      "aliases": ["de", "de-de", "de-at", "de-ch", "german", "deutsch", "德语"],
+      "query_template": "{role} Stellenangebote {location}"
+    },
+    {
+      "code": "zh-Hans",
+      "name": "简体中文",
+      "aliases": ["zh", "zh-cn", "zh_hans", "zh-hans", "chinese", "simplified chinese", "中文", "简体中文"],
+      "query_template": "{location} {role} 招聘"
+    },
+    {
+      "code": "fr",
+      "name": "Français",
+      "aliases": ["fr", "fr-fr", "fr-ca", "fr-be", "fr-ch", "french", "français", "francais", "法语", "法文"],
+      "query_template": "offre d'emploi {role} {location}"
+    },
+    {
+      "code": "es",
+      "name": "Español",
+      "aliases": ["es", "es-es", "es-mx", "es-419", "spanish", "español", "espanol", "西班牙语", "西班牙文"],
+      "query_template": "ofertas de empleo {role} {location}"
+    },
+    {
+      "code": "pt",
+      "name": "Português",
+      "aliases": ["pt", "pt-br", "pt-pt", "portuguese", "português", "portugues", "葡萄牙语", "葡萄牙文"],
+      "query_template": "vagas {role} {location}"
+    },
+    {
+      "code": "ja",
+      "name": "日本語",
+      "aliases": ["ja", "ja-jp", "jp", "japanese", "日本語", "日语", "日文"],
+      "query_template": "{role} 求人 {location}"
+    }
+  ]
+}

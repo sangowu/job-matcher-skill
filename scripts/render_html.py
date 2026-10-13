@@ -22,7 +22,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from _jobutil import known_markets, load_config, normalize_company
+from _jobutil import internal_languages, known_markets, load_config, normalize_company
 from runtime_metrics import DEFAULT_THRESHOLDS, build_summaries
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -41,7 +41,7 @@ SUPPORTED_MARKETS = set(known_markets())
 # warning -- a fact about how that row was found, which the report would
 # otherwise leave the reader to remember on their own.
 SESSION_DEPENDENT_ROUTES = {"browseros_neo", "user_browser"}
-INTERNAL_LANGUAGES = {"en", "de", "zh-Hans"}
+INTERNAL_LANGUAGES = set(internal_languages())
 COVERAGE_STATUSES = {"executed", "partial", "failed", "skipped", "not_collected", "unknown"}
 # The DiscoveryPlan's per-market channel verdicts, passed through so a market
 # that returned nothing says which of its channels applied at all. Without

@@ -93,6 +93,65 @@ def known_markets() -> tuple[str, ...]:
     return (*supported_markets(), *generic_markets())
 
 
+LANGUAGES_PATH = SKILL_ROOT / "references" / "languages.json"
+_LANGUAGE_CODE = re.compile(r"[a-z]{2}(-[A-Z][a-z]{3})?")
+
+
+@functools.lru_cache(maxsize=1)
+def language_catalog(path: Path | None = None) -> tuple[dict, ...]:
+    """The languages a round can search in, from `references/languages.json`.
+
+    `en`, `de` and `zh-Hans` were written out as a tuple in four modules, so
+    a French market could only be searched in English and a French title was
+    refused by a filter that had never been told French exists. One file now
+    says which languages there are; the role taxonomy is checked against it.
+    """
+    catalog = path or LANGUAGES_PATH
+    try:
+        payload = json.loads(catalog.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise MarketCatalogError(f"cannot read {catalog}: {error}") from error
+    languages = payload.get("languages") if isinstance(payload, dict) else None
+    if not isinstance(languages, list) or not languages:
+        raise MarketCatalogError(f"{catalog} lists no languages")
+    seen_codes: set[str] = set()
+    seen_aliases: set[str] = set()
+    for language in languages:
+        code = language.get("code") if isinstance(language, dict) else None
+        if not isinstance(code, str) or not _LANGUAGE_CODE.fullmatch(code) or code in seen_codes:
+            raise MarketCatalogError(f"{catalog} has an invalid or duplicate code: {code!r}")
+        seen_codes.add(code)
+        template = language.get("query_template")
+        if not isinstance(template, str) or "{role}" not in template or "{location}" not in template:
+            raise MarketCatalogError(f"{code}.query_template needs {{role}} and {{location}}")
+        aliases = language.get("aliases")
+        if not isinstance(aliases, list) or not aliases:
+            raise MarketCatalogError(f"{code} needs aliases")
+        for alias in aliases:
+            key = str(alias).casefold()
+            if key in seen_aliases:
+                raise MarketCatalogError(f"{catalog} alias {alias!r} names two languages")
+            seen_aliases.add(key)
+    if "en" not in seen_codes:
+        raise MarketCatalogError(f"{catalog} must include en")
+    return tuple(languages)
+
+
+def internal_languages() -> tuple[str, ...]:
+    """The language codes a round may search in, in catalog order."""
+    return tuple(language["code"] for language in language_catalog())
+
+
+def language_aliases() -> dict[str, str]:
+    """`{casefolded alias: code}`, every code also an alias of itself."""
+    output: dict[str, str] = {}
+    for language in language_catalog():
+        output[language["code"].casefold()] = language["code"]
+        for alias in language["aliases"]:
+            output[str(alias).casefold()] = language["code"]
+    return output
+
+
 def load_config() -> dict:
     try:
         return json.loads((SKILL_ROOT / "config.json").read_text(encoding="utf-8"))

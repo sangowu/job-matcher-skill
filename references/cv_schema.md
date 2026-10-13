@@ -23,7 +23,7 @@
 | `industries` | string[] | 行业（如 互联网、金融科技） |
 | `education_level` | string | 最高学历（如 本科、硕士） |
 | `current_title` | string | 最近/当前职位头衔 |
-| `cv_language` | string | CV 正文主语言，内部使用 `en` / `de` / `zh-Hans` |
+| `cv_language` | string | CV 正文主语言，代码见 `references/languages.json`（如 `en` / `de` / `zh-Hans` / `fr` / `es` / `pt` / `ja`） |
 | `report_language` | string | 报告语言；未指定时等于 `cv_language` |
 | `search_language` | string | 旧版兼容别名，等于 `cv_language`；不得再作为市场搜索语言来源 |
 | `missing` | string[] | 抽不到的字段名清单 |

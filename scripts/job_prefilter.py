@@ -16,6 +16,7 @@ from __future__ import annotations
 import functools
 import json
 import re
+import unicodedata
 from typing import Any
 
 from pathlib import Path
@@ -26,13 +27,33 @@ ROLE_TAXONOMY_PATH = SKILL_ROOT / "references" / "role_taxonomy.json"
 
 
 _REMOTE_TERMS = ("remote", "anywhere", "distributed", "远程")
+# Matched against the folded, normalized title with a space on each side, so a
+# term written with a leading space is a word start and one with spaces on
+# both sides is a whole word: " stage " is a French internship and not the
+# inside of "backstage". The original English and Chinese terms keep their
+# substring reading. Accents are folded first, which is why "sénior",
+# "sênior" and "júnior" need no entries of their own.
 _LEVEL_TERMS = {
-    "intern": ("intern", "internship", "实习"),
-    "new_grad": ("graduate", "new grad", "entry level", "校招", "应届"),
-    "junior": ("junior", "jr ", "初级"),
-    "mid": ("mid-level", "mid level", "intermediate", "中级"),
-    "senior": ("senior", "sr ", "资深", "高级"),
-    "lead": ("lead", "principal", "staff", "architect", "manager", "主管", "负责人"),
+    "intern": (
+        "intern", "internship", "实习", " trainee", " stage ", " stagiaire",
+        " alternance", " alternant", " practicas ", " becario", " becaria",
+        " estagio", " estagiario", " estagiaria", " praktikum", " praktikant",
+        " werkstudent", "インターン",
+    ),
+    "new_grad": (
+        "graduate", "new grad", "entry level", "校招", "应届", " jeune diplome",
+        " recien graduado", " recem formado", " berufseinsteiger", " absolvent",
+        "新卒",
+    ),
+    "junior": ("junior", "jr ", "初级", "ジュニア"),
+    "mid": ("mid-level", "mid level", "intermediate", "中级", " confirme ", " pleno "),
+    "senior": ("senior", "sr ", "资深", "高级", "シニア"),
+    "lead": (
+        "lead", "principal", "staff", "architect", "manager", "主管", "负责人",
+        " director", " directeur", " directrice", " diretor", " head of ",
+        " responsable ", " jefe ", " jefa ", " lider ", " gerente ", "leiter",
+        "リード", "マネージャー", "マネジャー", "部長", "課長",
+    ),
 }
 class RoleVocabularyError(RuntimeError):
     """The role vocabulary could not be read."""
@@ -78,9 +99,21 @@ def _vocabulary(
         family_id = family.get("role_family_id")
         if not isinstance(family_id, str) or not family_id:
             raise RoleVocabularyError(f"{catalog} has a family without an id")
-        terms = family.get("match_terms")
+        # Every title and synonym the round searches under, in every language,
+        # is also a term it recognizes a posting by. They were two lists: a
+        # French round could search for "Ingénieur Logiciel" and then refuse
+        # every posting titled that, because only `match_terms` -- English and
+        # Chinese -- decided what was kept. "Softwareentwickler" was refused the
+        # same way, with the German title sitting in the same family.
+        searched = [
+            phrase
+            for group in ("titles", "synonyms")
+            for phrases in (family.get(group) or {}).values()
+            for phrase in phrases
+        ]
+        terms = [*(family.get("match_terms") or []), *searched]
         if terms:
-            families[family_id] = tuple(str(term) for term in terms)
+            families[family_id] = tuple(dict.fromkeys(str(term) for term in terms))
         named = family.get("match_tokens")
         if named:
             tokens[family_id] = frozenset(str(item) for item in named)
@@ -94,10 +127,30 @@ _GENERIC_TITLE_TOKENS = {
     "ai", "artificial", "intelligence", "engineer", "engineering", "developer",
     "specialist", "manager", "lead", "senior", "junior", "staff", "principal",
     "工程师", "开发", "经理", "高级", "初级",
+    "ingenieur", "ingeniero", "engenheiro", "developpeur", "desarrollador",
+    "desenvolvedor", "entwickler", "programador", "ia", "ki",
 }
 
+
+def _fold(value: str) -> str:
+    """Drop the accents on Latin letters and nothing else.
+
+    "Développeur" and "Developpeur" are both written in real titles, and so are
+    "Sênior" and "Senior". A blanket NFKD-and-strip would also take the voicing
+    marks off Japanese kana -- "データ" would become "テータ" -- so a combining
+    mark is dropped only when the letter it sits on is Latin.
+    """
+    output: list[str] = []
+    for char in unicodedata.normalize("NFKD", value or ""):
+        if unicodedata.combining(char) and output and output[-1] < "\u0250":
+            continue
+        output.append(char)
+    return unicodedata.normalize("NFKC", "".join(output))
+
+
 def _normalized_text(value: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"[^\w+#.]+", " ", value or "").lower()).strip()
+    folded = _fold(value)
+    return re.sub(r"\s+", " ", re.sub(r"[^\w+#.]+", " ", folded).lower()).strip()
 
 
 def _title_segments(value: str) -> list[str]:
@@ -186,7 +239,7 @@ def _location_matches(location: str, locations: list[str]) -> bool:
 
 
 def _detected_levels(title: str) -> set[str]:
-    normalized = f"{_normalized_text(title)} "
+    normalized = f" {_normalized_text(title)} "
     return {
         level for level, terms in _LEVEL_TERMS.items()
         if any(term in normalized for term in terms)

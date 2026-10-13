@@ -16,12 +16,11 @@ from __future__ import annotations
 import functools
 import json
 import re
-import unicodedata
 from typing import Any
 
 from pathlib import Path
 
-from _jobutil import SKILL_ROOT
+from _jobutil import SKILL_ROOT, fold_latin_accents
 
 ROLE_TAXONOMY_PATH = SKILL_ROOT / "references" / "role_taxonomy.json"
 
@@ -132,20 +131,10 @@ _GENERIC_TITLE_TOKENS = {
 }
 
 
-def _fold(value: str) -> str:
-    """Drop the accents on Latin letters and nothing else.
-
-    "Développeur" and "Developpeur" are both written in real titles, and so are
-    "Sênior" and "Senior". A blanket NFKD-and-strip would also take the voicing
-    marks off Japanese kana -- "データ" would become "テータ" -- so a combining
-    mark is dropped only when the letter it sits on is Latin.
-    """
-    output: list[str] = []
-    for char in unicodedata.normalize("NFKD", value or ""):
-        if unicodedata.combining(char) and output and output[-1] < "\u0250":
-            continue
-        output.append(char)
-    return unicodedata.normalize("NFKC", "".join(output))
+# "Developpeur" with and without its accent are both written in real
+# titles, and so are "Senior" with and without one. Shared with location
+# matching, which has the same problem with "Zurich" and "Zuerich".
+_fold = fold_latin_accents
 
 
 def _normalized_text(value: str) -> str:

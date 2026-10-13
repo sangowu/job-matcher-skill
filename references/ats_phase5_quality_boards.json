@@ -15,8 +15,8 @@
     },
     {
       "provider": "lever",
-      "company": "Sword Health",
-      "board_token": "swordhealth",
+      "company": "Spotify",
+      "board_token": "spotify",
       "instance": "global",
       "region_focus": ["united_states", "europe"]
     }

@@ -4,7 +4,7 @@
   "limits": {
     "max_sources": 6,
     "max_requests_per_source": 2,
-    "max_response_bytes": 524288,
+    "max_response_bytes": 1048576,
     "timeout_seconds": 8,
     "max_redirects": 2
   },

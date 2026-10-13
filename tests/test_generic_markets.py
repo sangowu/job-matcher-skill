@@ -25,6 +25,9 @@ from _jobutil import generic_markets, known_markets, supported_markets  # noqa: 
 NOW = datetime(2026, 9, 17, 12, tzinfo=timezone.utc)
 
 
+FRENCH_LOCAL_SOURCES = {"choisirleservicepublic-fr", "freework-fr", "talent-fr"}
+
+
 @pytest.fixture(scope="module")
 def resources():
     return market_plan.load_resources()
@@ -149,11 +152,11 @@ def test_the_source_plan_gives_a_generic_market_every_structured_board(tmp_path)
     assert structured and structured <= set(plan["source_ids"])
     by_id = {source["source_id"]: source for source in plan["sources"]}
     assert all(by_id[source_id]["markets"] == ["fr"] for source_id in structured)
-    # No curated web source declares fr, so the plan has nothing else.
-    assert set(plan["source_ids"]) == structured
+    # Besides them, only the sources that declare fr: France's own boards.
+    assert set(plan["source_ids"]) - structured == FRENCH_LOCAL_SOURCES
 
 
-def test_a_paris_round_plans_structured_and_web_search_end_to_end(resources, tmp_path):
+def _discovery_plan(resources, tmp_path, location, market):
     registry_path = tmp_path / "source_registry.json"
     source_registry.initialize_registry(
         registry_path=registry_path,
@@ -163,10 +166,10 @@ def test_a_paris_round_plans_structured_and_web_search_end_to_end(resources, tmp
         now=NOW,
     )
     source_plan = source_registry.build_source_plan(
-        source_registry.load_registry(registry_path), ["fr"], now=NOW
+        source_registry.load_registry(registry_path), [market], now=NOW
     )
     request = {
-        "market_plan": _plan(resources, "Paris, France"),
+        "market_plan": _plan(resources, location),
         "source_plan": source_plan,
         "route_plan": {
             "ok": True,
@@ -186,15 +189,38 @@ def test_a_paris_round_plans_structured_and_web_search_end_to_end(resources, tmp
         "ats_boards_per_round": 10,
     }
 
-    plan = discovery_plan.build_discovery_plan(
+    return discovery_plan.build_discovery_plan(
         request, seeds=source_registry.load_seeds(), config=config
     )
+
+
+def test_a_paris_round_plans_every_channel_end_to_end(resources, tmp_path):
+    plan = _discovery_plan(resources, tmp_path, "Paris, France", "fr")
 
     per_market = plan["per_market"]["fr"]
     assert per_market["structured"] == "planned"
     assert per_market["web_search"] in {"planned", "deferred"}
-    # No curated local board serves France, and the plan says so rather than
-    # inventing a site for the browser to try.
+    # France is a generic market, and its own boards are searched all the
+    # same: a channel follows the sources that declare a market, not whether
+    # markets.json curates it. [R3-18]
+    assert per_market["browser"] == "planned"
+    browsed = {task["source_id"] for task in plan["tasks"]["browser"]}
+    assert browsed and browsed <= FRENCH_LOCAL_SOURCES
+    hints = {
+        hint["source_id"]
+        for task in plan["tasks"]["web_search"]
+        for hint in task.get("source_hints", [])
+    }
+    assert hints & FRENCH_LOCAL_SOURCES
+
+
+def test_a_generic_market_without_local_boards_has_no_browser_channel(resources, tmp_path):
+    plan = _discovery_plan(resources, tmp_path, "Ciudad de México", "mx")
+
+    per_market = plan["per_market"]["mx"]
+    assert per_market["structured"] == "planned"
+    # No board declares mx, and the plan says so rather than inventing a site
+    # for the browser to try.
     assert per_market["browser"] == "unavailable_in_market"
 
 

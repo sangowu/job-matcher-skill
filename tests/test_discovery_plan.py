@@ -799,7 +799,7 @@ def test_a_market_plan_without_a_role_plan_keeps_the_search_plan_behaviour():
     ("row", "message"),
     [
         ({"market_id": "uk", "language": "en", "role": "r", "location": "l"}, "invalid market"),
-        ({"market_id": "ie", "language": "ko", "role": "r", "location": "l"}, "invalid language"),
+        ({"market_id": "ie", "language": "sv", "role": "r", "location": "l"}, "invalid language"),
         ({"market_id": "ie", "language": "en", "role": "", "location": "l"}, "incomplete"),
     ],
 )

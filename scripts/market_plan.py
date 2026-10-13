@@ -58,11 +58,16 @@ _LANGUAGE_ALIASES = language_aliases()
 # reads "télétravail", "hibrido" reads "híbrido".
 _REMOTE_TERMS = (
     "remote", "远程", "home office", "homeoffice", "teletravail", "a distance",
-    "remoto", "trabajo a distancia", "リモート", "在宅勤務",
+    "remoto", "trabajo a distancia", "リモート", "在宅勤務", "thuiswerk", "op afstand",
+    "zdaln", "원격", "재택",
 )
-_HYBRID_TERMS = ("hybrid", "混合办公", "hybridarbeit", "hybride", "hibrido", "ハイブリッド")
+_HYBRID_TERMS = (
+    "hybrid", "混合办公", "hybridarbeit", "hybride", "hibrido", "ibrido", "hybryd",
+    "ハイブリッド", "하이브리드",
+)
 _ONSITE_TERMS = (
     "onsite", "on-site", "现场办公", "vor ort", "sur site", "presencial", "出社",
+    "in sede", "op kantoor", "op locatie", "stacjonarn", "사무실 근무", "출근",
 )
 
 
@@ -650,7 +655,9 @@ def _administrative_area_match(catalog, segment: str) -> str | None:
     """The area this one segment of a location names, inside one catalog.
 
     A trailing ZIP ("Dublin, OH 43017") is dropped rather than read, and a name
-    is matched inside the segment so "Massachusetts Area" still counts.
+    is matched inside the segment so "Massachusetts Area" still counts -- as
+    whole words: inside a word, Polish "Korea Południowa" (South Korea) held
+    "Iowa" and was a US posting.
     """
     if not isinstance(catalog, dict):
         return None
@@ -658,7 +665,7 @@ def _administrative_area_match(catalog, segment: str) -> str | None:
     if not text:
         return None
     for name in catalog.get("names", ()):
-        if _alias_matches(str(name), text):
+        if _contains_words(_normalize_text(name), text):
             return _normalize_text(name)
     # A bare two-letter code is only a place where a place belongs. "IN" is
     # Indiana in ", IN" and the English word in "Hybrid work in Dublin", and only

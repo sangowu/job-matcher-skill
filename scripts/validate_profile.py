@@ -123,9 +123,11 @@ _LANG_ALIASES = {
     "de": "de", "german": "de", "德语": "de",
     "fr": "fr", "french": "fr", "法语": "fr",
     "ja": "ja", "japanese": "ja", "日语": "ja", "日本語": "ja",
-    "ko": "ko", "korean": "ko", "韩语": "ko",
+    "ko": "ko", "korean": "ko", "韩语": "ko", "한국어": "ko",
     "pt": "pt", "portuguese": "pt", "葡萄牙语": "pt",
-    "it": "it", "italian": "it", "意大利语": "it",
+    "it": "it", "italian": "it", "意大利语": "it", "italiano": "it",
+    "nl": "nl", "dutch": "nl", "荷兰语": "nl", "nederlands": "nl",
+    "pl": "pl", "polish": "pl", "波兰语": "pl", "polski": "pl",
 }
 
 

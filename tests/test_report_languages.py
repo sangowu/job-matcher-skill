@@ -75,9 +75,10 @@ def test_the_page_carries_no_text_table_of_its_own():
     [
         ("fr", "fr"), ("Français", "fr"), ("pt-BR", "pt"), ("ja", "ja"),
         ("zh", "zh-Hans"), ("zh-CN", "zh-Hans"), ("zh-Hans", "zh-Hans"),
-        ("de", "de"), ("es", "es"), ("en", "en"),
+        ("de", "de"), ("es", "es"), ("en", "en"), ("ko-KR", "ko"), ("Italiano", "it"),
+        ("nl-BE", "nl"), ("polski", "pl"),
         # Not a language the skill has text for: English, as before.
-        ("ko", "en"), ("", "en"), (None, "en"),
+        ("sv", "en"), ("", "en"), (None, "en"),
     ],
 )
 def test_the_report_language_is_read_however_it_was_written(written, code):

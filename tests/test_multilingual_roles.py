@@ -44,7 +44,7 @@ def _plan(resources, location, roles, **intent):
 def test_every_module_reads_the_same_language_set():
     catalog = set(internal_languages())
 
-    assert {"en", "de", "zh-Hans", "fr", "es", "pt", "ja"} <= catalog
+    assert {"en", "de", "zh-Hans", "fr", "es", "pt", "ja", "ko", "it", "nl", "pl"} <= catalog
     assert set(market_plan.INTERNAL_LANGUAGES) == catalog
     assert set(source_registry.INTERNAL_LANGUAGES) == catalog
     assert set(candidate_contract.INTERNAL_LANGUAGES) == catalog
@@ -69,7 +69,8 @@ def test_no_module_writes_the_language_set_out_by_hand():
 @pytest.mark.parametrize(
     ("alias", "code"),
     [("Français", "fr"), ("pt-BR", "pt"), ("español", "es"), ("日本語", "ja"),
-     ("Deutsch", "de"), ("简体中文", "zh-Hans"), ("English", "en")],
+     ("Deutsch", "de"), ("简体中文", "zh-Hans"), ("English", "en"), ("한국어", "ko"),
+     ("ko-KR", "ko"), ("Italiano", "it"), ("nl-BE", "nl"), ("Nederlands", "nl"), ("polski", "pl")],
 )
 def test_a_language_is_recognized_however_a_person_writes_it(alias, code):
     assert language_aliases()[alias.casefold()] == code
@@ -96,6 +97,13 @@ def test_every_role_family_is_titled_in_every_language(resources):
         "ソフトウェアエンジニア（バックエンド）",
         "Softwareentwickler (m/w/d)",
         "Software-Entwickler Java",
+        "Sviluppatore Software",
+        "Ingegnere del Software Senior",
+        "Softwareontwikkelaar",
+        "Inżynier Oprogramowania",
+        "Programista Java",
+        "소프트웨어 엔지니어",
+        "소프트웨어 개발자 (경력)",
     ],
 )
 def test_a_software_title_in_the_markets_language_is_kept(title):
@@ -118,6 +126,19 @@ def test_a_software_title_in_the_markets_language_is_kept(title):
         ("機械学習エンジニア", "Machine Learning Engineer"),
         ("Desarrollador Frontend React", "Frontend Engineer"),
         ("フルスタックエンジニア", "Full Stack Engineer"),
+        ("Sviluppatore Backend Java", "Backend Engineer"),
+        ("Backend-ontwikkelaar", "Backend Engineer"),
+        ("Programista Backend (Python)", "Backend Engineer"),
+        ("백엔드 개발자", "Backend Engineer"),
+        ("Inżynier Danych", "Data Engineer"),
+        ("데이터 엔지니어", "Data Engineer"),
+        ("Ingegnere AI", "AI Engineer"),
+        ("Specjalista ds. sztucznej inteligencji", "AI Engineer"),
+        ("머신러닝 엔지니어", "Machine Learning Engineer"),
+        ("Programista Frontend React", "Frontend Engineer"),
+        ("프론트엔드 개발자", "Frontend Engineer"),
+        ("Webontwikkelaar", "Frontend Engineer"),
+        ("풀스택 개발자", "Full Stack Engineer"),
     ],
 )
 def test_other_families_are_recognized_in_the_markets_language(title, role):
@@ -128,7 +149,8 @@ def test_other_families_are_recognized_in_the_markets_language(title, role):
 
 @pytest.mark.parametrize(
     "title",
-    ["Commercial(e) sédentaire (x/f/m)", "Asesor/a comercial autónomo/a", "営業マネージャー"],
+    ["Commercial(e) sédentaire (x/f/m)", "Asesor/a comercial autónomo/a", "営業マネージャー",
+     "Addetto alle vendite", "Accountmanager", "Przedstawiciel handlowy", "영업 관리자"],
 )
 def test_an_unrelated_title_in_another_language_is_still_refused(title):
     profile = {"roles": ["Software Engineer"]}
@@ -159,6 +181,22 @@ def test_an_unrelated_title_in_another_language_is_still_refused(title):
         ("Teamleiter Softwareentwicklung", "lead"),
         ("Director of Engineering", "lead"),
         ("テックリード", "lead"),
+        ("Stagista Sviluppatore Software", "intern"),
+        ("Tirocinio - Ingegnere del software", "intern"),
+        ("Afstudeerstage Software Engineering", "intern"),
+        ("Stażysta - Programista Java", "intern"),
+        ("백엔드 개발 인턴", "intern"),
+        ("Neolaureato Ingegneria Informatica", "new_grad"),
+        ("신입 백엔드 개발자", "new_grad"),
+        ("Młodszy Programista Java", "junior"),
+        ("Regular Java Developer", "mid"),
+        ("Medior Software Engineer", "mid"),
+        ("Starszy Programista", "senior"),
+        ("시니어 백엔드 엔지니어", "senior"),
+        ("Responsabile Sviluppo Software", "lead"),
+        ("Teamleider Development", "lead"),
+        ("Kierownik Zespołu IT", "lead"),
+        ("개발 팀장", "lead"),
     ],
 )
 def test_seniority_is_read_in_the_markets_language(title, level):
@@ -190,6 +228,9 @@ def test_folding_takes_latin_accents_and_leaves_kana_alone():
         ("São Paulo", "br", "pt", "vagas Engenheiro de Software São Paulo"),
         ("Wien", "at", "de", "Softwareentwickler Stellenangebote Wien"),
         ("Dublin", "ie", "en", "Software Engineer jobs Dublin"),
+        ("서울", "kr", "ko", "서울 소프트웨어 엔지니어 채용"),
+        ("Milano", "it", "it", "offerte di lavoro Ingegnere del software Milano"),
+        ("Warszawa", "pl", "pl", "praca Inżynier oprogramowania Warszawa"),
     ],
 )
 def test_the_first_query_is_in_the_markets_own_language(
@@ -207,6 +248,20 @@ def test_a_bilingual_market_also_searches_in_english(resources):
     plan = _plan(resources, "Paris", ["Software Engineer"])
 
     assert {row["language"] for row in plan["search_plan"]} == {"fr", "en"}
+
+
+@pytest.mark.parametrize(
+    ("location", "languages"),
+    [("Amsterdam", ["en", "nl"]), ("Antwerpen", ["fr", "nl", "en"]), ("Kraków", ["pl", "en"])],
+)
+def test_a_market_searches_every_language_its_postings_are_written_in(
+    resources, location, languages
+):
+    plan = _plan(resources, location, ["Software Engineer"])
+    market = plan["target_markets"][0]
+
+    assert plan["search_languages_by_market"][market] == languages
+    assert {row["language"] for row in plan["search_plan"]} == set(languages)
 
 
 # --- roles the taxonomy does not know ----------------------------------------
@@ -259,7 +314,7 @@ def test_a_role_written_in_the_markets_language_needs_no_translation_there(resou
     ("localized", "message"),
     [
         ({"Someone Else": {"fr": ["X"]}}, "not searching"),
-        ({"Account Executive": {"ko": ["X"]}}, "unsupported language"),
+        ({"Account Executive": {"sv": ["X"]}}, "unsupported language"),
         ({"Account Executive": {"fr": ["a", "b", "c", "d"]}}, "1-3 titles"),
         ({"Account Executive": {"fr": []}}, "1-3 titles"),
         ({"Account Executive": "Commercial"}, "map languages"),

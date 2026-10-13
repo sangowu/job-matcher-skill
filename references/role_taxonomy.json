@@ -38,6 +38,26 @@
           "AIエンジニア",
           "機械学習エンジニア",
           "LLMエンジニア"
+        ],
+        "ko": [
+          "AI 엔지니어",
+          "머신러닝 엔지니어",
+          "LLM 엔지니어"
+        ],
+        "it": [
+          "Ingegnere AI",
+          "Ingegnere Machine Learning",
+          "Sviluppatore AI"
+        ],
+        "nl": [
+          "AI Engineer",
+          "Machine Learning Engineer",
+          "AI-ontwikkelaar"
+        ],
+        "pl": [
+          "Inżynier AI",
+          "Inżynier uczenia maszynowego",
+          "Inżynier LLM"
         ]
       },
       "synonyms": {
@@ -71,6 +91,22 @@
         "ja": [
           "生成AIエンジニア",
           "人工知能エンジニア"
+        ],
+        "ko": [
+          "인공지능 엔지니어",
+          "생성형 AI 엔지니어"
+        ],
+        "it": [
+          "Ingegnere di intelligenza artificiale",
+          "AI Engineer"
+        ],
+        "nl": [
+          "Generatieve AI-engineer",
+          "LLM Engineer"
+        ],
+        "pl": [
+          "Inżynier sztucznej inteligencji",
+          "Programista AI"
         ]
       },
       "generalizes_to": [
@@ -135,7 +171,18 @@
         "cientista de dados",
         "機械学習",
         "人工知能",
-        "データサイエンティスト"
+        "データサイエンティスト",
+        "intelligenza artificiale",
+        "apprendimento automatico",
+        "kunstmatige intelligentie",
+        "sztuczna inteligencja",
+        "sztucznej inteligencji",
+        "uczenie maszynowe",
+        "uczenia maszynowego",
+        "인공지능",
+        "머신러닝",
+        "기계학습",
+        "데이터 사이언티스트"
       ],
       "match_tokens": [
         "ai",
@@ -184,6 +231,26 @@
           "バックエンドエンジニア",
           "サーバーサイドエンジニア",
           "バックエンド開発者"
+        ],
+        "ko": [
+          "백엔드 엔지니어",
+          "백엔드 개발자",
+          "서버 개발자"
+        ],
+        "it": [
+          "Sviluppatore Backend",
+          "Ingegnere Backend",
+          "Backend Developer"
+        ],
+        "nl": [
+          "Backend Developer",
+          "Backend Engineer",
+          "Backend-ontwikkelaar"
+        ],
+        "pl": [
+          "Programista Backend",
+          "Backend Developer",
+          "Inżynier Backend"
         ]
       },
       "synonyms": {
@@ -210,6 +277,22 @@
         ],
         "ja": [
           "APIエンジニア"
+        ],
+        "ko": [
+          "서버 엔지니어",
+          "API 개발자"
+        ],
+        "it": [
+          "Sviluppatore Back-End",
+          "Sviluppatore API"
+        ],
+        "nl": [
+          "Back-end developer",
+          "API-ontwikkelaar"
+        ],
+        "pl": [
+          "Programista Back-end",
+          "Programista API"
         ]
       },
       "generalizes_to": [
@@ -276,7 +359,14 @@
         "nodejs engineer",
         "node.js developer",
         "バックエンド",
-        "サーバーサイド"
+        "サーバーサイド",
+        "백엔드",
+        "서버 개발",
+        "sviluppatore java",
+        "sviluppatore python",
+        "programista java",
+        "programista python",
+        "programista go"
       ]
     },
     {
@@ -309,6 +399,22 @@
         "ja": [
           "データエンジニア",
           "分析エンジニア"
+        ],
+        "ko": [
+          "데이터 엔지니어",
+          "분석 엔지니어"
+        ],
+        "it": [
+          "Data Engineer",
+          "Ingegnere dei dati"
+        ],
+        "nl": [
+          "Data Engineer",
+          "Data-engineer"
+        ],
+        "pl": [
+          "Inżynier danych",
+          "Data Engineer"
         ]
       },
       "synonyms": {
@@ -333,6 +439,21 @@
         ],
         "ja": [
           "データ基盤エンジニア"
+        ],
+        "ko": [
+          "데이터 플랫폼 엔지니어"
+        ],
+        "it": [
+          "Ingegnere Big Data",
+          "Analytics Engineer"
+        ],
+        "nl": [
+          "Big data engineer",
+          "Analytics engineer"
+        ],
+        "pl": [
+          "Inżynier Big Data",
+          "Analytics Engineer"
         ]
       },
       "generalizes_to": [
@@ -367,7 +488,10 @@
         "data engineer",
         "analytics engineer",
         "数据工程",
-        "データエンジニア"
+        "データエンジニア",
+        "데이터 엔지니어",
+        "inżynier danych",
+        "ingegnere dei dati"
       ]
     },
     {
@@ -400,6 +524,22 @@
         "ja": [
           "ソフトウェアエンジニア",
           "ソフトウェア開発者"
+        ],
+        "ko": [
+          "소프트웨어 엔지니어",
+          "소프트웨어 개발자"
+        ],
+        "it": [
+          "Ingegnere del software",
+          "Sviluppatore software"
+        ],
+        "nl": [
+          "Software Engineer",
+          "Softwareontwikkelaar"
+        ],
+        "pl": [
+          "Inżynier oprogramowania",
+          "Programista"
         ]
       },
       "synonyms": {
@@ -429,6 +569,22 @@
         "ja": [
           "アプリケーションエンジニア",
           "プログラマー"
+        ],
+        "ko": [
+          "응용 프로그램 개발자",
+          "프로그래머"
+        ],
+        "it": [
+          "Programmatore",
+          "Software Engineer"
+        ],
+        "nl": [
+          "Software developer",
+          "Programmeur"
+        ],
+        "pl": [
+          "Software Developer",
+          "Programista aplikacji"
         ]
       },
       "generalizes_to": [
@@ -493,6 +649,22 @@
         "ja": [
           "フロントエンドエンジニア",
           "フロントエンド開発者"
+        ],
+        "ko": [
+          "프론트엔드 엔지니어",
+          "프론트엔드 개발자"
+        ],
+        "it": [
+          "Sviluppatore Frontend",
+          "Sviluppatore Front-End"
+        ],
+        "nl": [
+          "Frontend Developer",
+          "Front-end developer"
+        ],
+        "pl": [
+          "Programista Frontend",
+          "Frontend Developer"
         ]
       },
       "synonyms": {
@@ -523,6 +695,22 @@
         "ja": [
           "Webエンジニア",
           "UIエンジニア"
+        ],
+        "ko": [
+          "웹 개발자",
+          "UI 개발자"
+        ],
+        "it": [
+          "Sviluppatore Web",
+          "Frontend Developer"
+        ],
+        "nl": [
+          "Webontwikkelaar",
+          "Frontend-ontwikkelaar"
+        ],
+        "pl": [
+          "Programista Front-end",
+          "Programista stron internetowych"
         ]
       },
       "generalizes_to": [
@@ -544,7 +732,9 @@
         "frontend",
         "front-end",
         "前端",
-        "フロントエンド"
+        "フロントエンド",
+        "프론트엔드",
+        "프런트엔드"
       ]
     },
     {
@@ -577,6 +767,22 @@
         "ja": [
           "フルスタックエンジニア",
           "フルスタック開発者"
+        ],
+        "ko": [
+          "풀스택 엔지니어",
+          "풀스택 개발자"
+        ],
+        "it": [
+          "Sviluppatore Full Stack",
+          "Ingegnere Full Stack"
+        ],
+        "nl": [
+          "Full Stack Developer",
+          "Fullstack-ontwikkelaar"
+        ],
+        "pl": [
+          "Programista Full Stack",
+          "Full Stack Developer"
         ]
       },
       "synonyms": {
@@ -600,6 +806,18 @@
         ],
         "ja": [
           "フルスタックWebエンジニア"
+        ],
+        "ko": [
+          "풀스택 웹 개발자"
+        ],
+        "it": [
+          "Sviluppatore Fullstack"
+        ],
+        "nl": [
+          "Full-stack developer"
+        ],
+        "pl": [
+          "Programista Fullstack"
         ]
       },
       "generalizes_to": [
@@ -638,7 +856,8 @@
         "full-stack",
         "全栈",
         "fullstack",
-        "フルスタック"
+        "フルスタック",
+        "풀스택"
       ]
     }
   ],
@@ -655,7 +874,12 @@
         "ingeniero cloud",
         "engenheiro de cloud",
         "インフラエンジニア",
-        "クラウドエンジニア"
+        "クラウドエンジニア",
+        "데브옵스",
+        "클라우드 엔지니어",
+        "인프라 엔지니어",
+        "ingegnere cloud",
+        "inżynier chmury"
       ]
     },
     {
@@ -668,7 +892,13 @@
         "gerente de producto",
         "gerente de produto",
         "produktmanager",
-        "プロダクトマネージャー"
+        "プロダクトマネージャー",
+        "프로덕트 매니저",
+        "프로덕트 오너",
+        "responsabile di prodotto",
+        "productmanager",
+        "menedżer produktu",
+        "kierownik produktu"
       ]
     }
   ]

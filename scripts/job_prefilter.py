@@ -37,21 +37,27 @@ _LEVEL_TERMS = {
         "intern", "internship", "实习", " trainee", " stage ", " stagiaire",
         " alternance", " alternant", " practicas ", " becario", " becaria",
         " estagio", " estagiario", " estagiaria", " praktikum", " praktikant",
-        " werkstudent", "インターン",
+        " werkstudent", "インターン", " stagista", " tirocinio", " tirocinante",
+        " stagiair", " afstudeer", " stazysta", " staz ", " praktykant", "인턴",
     ),
     "new_grad": (
         "graduate", "new grad", "entry level", "校招", "应届", " jeune diplome",
         " recien graduado", " recem formado", " berufseinsteiger", " absolvent",
-        "新卒",
+        "新卒", " neolaureat", " absolwent", " starter ", "신입",
     ),
-    "junior": ("junior", "jr ", "初级", "ジュニア"),
-    "mid": ("mid-level", "mid level", "intermediate", "中级", " confirme ", " pleno "),
-    "senior": ("senior", "sr ", "资深", "高级", "シニア"),
+    "junior": ("junior", "jr ", "初级", "ジュニア", " młodszy", "주니어"),
+    "mid": (
+        "mid-level", "mid level", "intermediate", "中级", " confirme ", " pleno ",
+        " regular ", " medior",
+    ),
+    "senior": ("senior", "sr ", "资深", "高级", "シニア", " starszy", "시니어"),
     "lead": (
         "lead", "principal", "staff", "architect", "manager", "主管", "负责人",
         " director", " directeur", " directrice", " diretor", " head of ",
         " responsable ", " jefe ", " jefa ", " lider ", " gerente ", "leiter",
-        "リード", "マネージャー", "マネジャー", "部長", "課長",
+        "リード", "マネージャー", "マネジャー", "部長", "課長", " responsabile ",
+        " direttore", "leider", " hoofd ", " kierownik", " dyrektor", "팀장", "리드",
+        "매니저",
     ),
 }
 class RoleVocabularyError(RuntimeError):

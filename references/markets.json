@@ -11,7 +11,11 @@
         "fr": "Irlande",
         "es": "Irlanda",
         "pt": "Irlanda",
-        "ja": "アイルランド"
+        "ja": "アイルランド",
+        "ko": "아일랜드",
+        "it": "Irlanda",
+        "nl": "Ierland",
+        "pl": "Irlandia"
       },
       "country_aliases": [
         "Ireland",
@@ -32,7 +36,9 @@
             "de": "Dublin",
             "zh-Hans": "都柏林",
             "es": "Dublín",
-            "ja": "ダブリン"
+            "ja": "ダブリン",
+            "ko": "더블린",
+            "it": "Dublino"
           },
           "aliases": [
             "Dublin",
@@ -53,7 +59,8 @@
             "en": "Cork",
             "de": "Cork",
             "zh-Hans": "科克",
-            "ja": "コーク"
+            "ja": "コーク",
+            "ko": "코크"
           },
           "aliases": [
             "Cork",
@@ -73,7 +80,8 @@
             "en": "Galway",
             "de": "Galway",
             "zh-Hans": "戈尔韦",
-            "ja": "ゴールウェイ"
+            "ja": "ゴールウェイ",
+            "ko": "골웨이"
           },
           "aliases": [
             "Galway",
@@ -93,7 +101,8 @@
             "en": "Limerick",
             "de": "Limerick",
             "zh-Hans": "利默里克",
-            "ja": "リムリック"
+            "ja": "リムリック",
+            "ko": "리머릭"
           },
           "aliases": [
             "Limerick",
@@ -127,7 +136,11 @@
         "fr": "Royaume-Uni",
         "es": "Reino Unido",
         "pt": "Reino Unido",
-        "ja": "イギリス"
+        "ja": "イギリス",
+        "ko": "영국",
+        "it": "Regno Unito",
+        "nl": "Verenigd Koninkrijk",
+        "pl": "Wielka Brytania"
       },
       "country_aliases": [
         "United Kingdom",
@@ -156,7 +169,21 @@
         "スコットランド",
         "Angleterre",
         "Inglaterra",
-        "イングランド"
+        "イングランド",
+        "Irlanda del Nord",
+        "Noord-Ierland",
+        "Irlandia Północna",
+        "북아일랜드",
+        "Gran Bretagna",
+        "Groot-Brittannië",
+        "Scozia",
+        "Schotland",
+        "Szkocja",
+        "스코틀랜드",
+        "Inghilterra",
+        "Engeland",
+        "Anglia",
+        "잉글랜드"
       ],
       "default_search_languages": [
         "en"
@@ -172,7 +199,11 @@
             "fr": "Londres",
             "es": "Londres",
             "pt": "Londres",
-            "ja": "ロンドン"
+            "ja": "ロンドン",
+            "ko": "런던",
+            "it": "Londra",
+            "nl": "Londen",
+            "pl": "Londyn"
           },
           "aliases": [
             "London",
@@ -193,7 +224,8 @@
             "de": "Manchester",
             "zh-Hans": "曼彻斯特",
             "es": "Mánchester",
-            "ja": "マンチェスター"
+            "ja": "マンチェスター",
+            "ko": "맨체스터"
           },
           "aliases": [
             "Manchester",
@@ -215,7 +247,10 @@
             "fr": "Édimbourg",
             "es": "Edimburgo",
             "pt": "Edimburgo",
-            "ja": "エディンバラ"
+            "ja": "エディンバラ",
+            "ko": "에든버러",
+            "it": "Edimburgo",
+            "pl": "Edynburg"
           },
           "aliases": [
             "Edinburgh",
@@ -233,7 +268,8 @@
             "en": "Belfast",
             "de": "Belfast",
             "zh-Hans": "贝尔法斯特",
-            "ja": "ベルファスト"
+            "ja": "ベルファスト",
+            "ko": "벨파스트"
           },
           "aliases": [
             "Belfast",
@@ -251,7 +287,8 @@
             "en": "Bristol",
             "de": "Bristol",
             "zh-Hans": "布里斯托尔",
-            "ja": "ブリストル"
+            "ja": "ブリストル",
+            "ko": "브리스톨"
           },
           "aliases": [
             "Bristol",
@@ -281,7 +318,8 @@
             "en": "Glasgow",
             "de": "Glasgow",
             "zh-Hans": "格拉斯哥",
-            "ja": "グラスゴー"
+            "ja": "グラスゴー",
+            "ko": "글래스고"
           },
           "aliases": [
             "Glasgow",
@@ -310,7 +348,11 @@
         "fr": "Chine",
         "es": "China",
         "pt": "China",
-        "ja": "中国"
+        "ja": "中国",
+        "ko": "중국",
+        "it": "Cina",
+        "nl": "China",
+        "pl": "Chiny"
       },
       "country_aliases": [
         "China",
@@ -336,7 +378,11 @@
             "fr": "Pékin",
             "es": "Pekín",
             "pt": "Pequim",
-            "ja": "北京"
+            "ja": "北京",
+            "ko": "베이징",
+            "it": "Pechino",
+            "nl": "Peking",
+            "pl": "Pekin"
           },
           "aliases": [
             "Beijing",
@@ -358,7 +404,9 @@
             "zh-Hans": "上海",
             "es": "Shanghái",
             "pt": "Xangai",
-            "ja": "上海"
+            "ja": "上海",
+            "ko": "상하이",
+            "pl": "Szanghaj"
           },
           "aliases": [
             "Shanghai",
@@ -377,7 +425,8 @@
             "en": "Shenzhen",
             "de": "Shenzhen",
             "zh-Hans": "深圳",
-            "ja": "深セン"
+            "ja": "深セン",
+            "ko": "선전"
           },
           "aliases": [
             "Shenzhen",
@@ -396,7 +445,8 @@
             "en": "Guangzhou",
             "de": "Guangzhou",
             "zh-Hans": "广州",
-            "ja": "広州"
+            "ja": "広州",
+            "ko": "광저우"
           },
           "aliases": [
             "Guangzhou",
@@ -416,7 +466,8 @@
             "en": "Hangzhou",
             "de": "Hangzhou",
             "zh-Hans": "杭州",
-            "ja": "杭州"
+            "ja": "杭州",
+            "ko": "항저우"
           },
           "aliases": [
             "Hangzhou",
@@ -435,7 +486,8 @@
             "en": "Chengdu",
             "de": "Chengdu",
             "zh-Hans": "成都",
-            "ja": "成都"
+            "ja": "成都",
+            "ko": "청두"
           },
           "aliases": [
             "Chengdu",
@@ -475,7 +527,11 @@
         "fr": "Allemagne",
         "es": "Alemania",
         "pt": "Alemanha",
-        "ja": "ドイツ"
+        "ja": "ドイツ",
+        "ko": "독일",
+        "it": "Germania",
+        "nl": "Duitsland",
+        "pl": "Niemcy"
       },
       "country_aliases": [
         "Germany",
@@ -497,7 +553,9 @@
             "zh-Hans": "柏林",
             "es": "Berlín",
             "pt": "Berlim",
-            "ja": "ベルリン"
+            "ja": "ベルリン",
+            "ko": "베를린",
+            "it": "Berlino"
           },
           "aliases": [
             "Berlin",
@@ -518,7 +576,11 @@
             "zh-Hans": "慕尼黑",
             "es": "Múnich",
             "pt": "Munique",
-            "ja": "ミュンヘン"
+            "ja": "ミュンヘン",
+            "ko": "뮌헨",
+            "it": "Monaco di Baviera",
+            "nl": "München",
+            "pl": "Monachium"
           },
           "aliases": [
             "Munich",
@@ -541,7 +603,9 @@
             "fr": "Hambourg",
             "es": "Hamburgo",
             "pt": "Hamburgo",
-            "ja": "ハンブルク"
+            "ja": "ハンブルク",
+            "ko": "함부르크",
+            "it": "Amburgo"
           },
           "aliases": [
             "Hamburg",
@@ -560,7 +624,9 @@
             "zh-Hans": "法兰克福",
             "fr": "Francfort",
             "es": "Fráncfort",
-            "ja": "フランクフルト"
+            "ja": "フランクフルト",
+            "ko": "프랑크푸르트",
+            "it": "Francoforte"
           },
           "aliases": [
             "Frankfurt",
@@ -579,7 +645,9 @@
             "en": "Cologne",
             "de": "Köln",
             "zh-Hans": "科隆",
-            "ja": "ケルン"
+            "ja": "ケルン",
+            "ko": "쾰른",
+            "nl": "Keulen"
           },
           "aliases": [
             "Cologne",
@@ -599,7 +667,8 @@
             "en": "Düsseldorf",
             "de": "Düsseldorf",
             "zh-Hans": "杜塞尔多夫",
-            "ja": "デュッセルドルフ"
+            "ja": "デュッセルドルフ",
+            "ko": "뒤셀도르프"
           },
           "aliases": [
             "Düsseldorf",
@@ -616,7 +685,9 @@
             "en": "Stuttgart",
             "de": "Stuttgart",
             "zh-Hans": "斯图加特",
-            "ja": "シュトゥットガルト"
+            "ja": "シュトゥットガルト",
+            "ko": "슈투트가르트",
+            "it": "Stoccarda"
           },
           "aliases": [
             "Stuttgart",
@@ -633,7 +704,11 @@
             "zh-Hans": "汉诺威",
             "fr": "Hanovre",
             "pt": "Hanôver",
-            "ja": "ハノーファー"
+            "ja": "ハノーファー",
+            "ko": "하노버",
+            "it": "Hannover",
+            "nl": "Hannover",
+            "pl": "Hanower"
           },
           "aliases": [
             "Hanover",
@@ -649,7 +724,10 @@
             "en": "Leipzig",
             "de": "Leipzig",
             "zh-Hans": "莱比锡",
-            "ja": "ライプツィヒ"
+            "ja": "ライプツィヒ",
+            "ko": "라이프치히",
+            "it": "Lipsia",
+            "pl": "Lipsk"
           },
           "aliases": [
             "Leipzig",
@@ -666,7 +744,10 @@
             "zh-Hans": "德累斯顿",
             "fr": "Dresde",
             "es": "Dresde",
-            "ja": "ドレスデン"
+            "ja": "ドレスデン",
+            "ko": "드레스덴",
+            "it": "Dresda",
+            "pl": "Drezno"
           },
           "aliases": [
             "Dresden",
@@ -683,7 +764,11 @@
             "zh-Hans": "纽伦堡",
             "es": "Núremberg",
             "pt": "Nuremberga",
-            "ja": "ニュルンベルク"
+            "ja": "ニュルンベルク",
+            "ko": "뉘른베르크",
+            "it": "Norimberga",
+            "nl": "Neurenberg",
+            "pl": "Norymberga"
           },
           "aliases": [
             "Nuremberg",
@@ -721,7 +806,11 @@
         "fr": "États-Unis",
         "es": "Estados Unidos",
         "pt": "Estados Unidos",
-        "ja": "アメリカ合衆国"
+        "ja": "アメリカ合衆国",
+        "ko": "미국",
+        "it": "Stati Uniti",
+        "nl": "Verenigde Staten",
+        "pl": "Stany Zjednoczone"
       },
       "country_aliases": [
         "United States",
@@ -735,7 +824,12 @@
         "EEUU",
         "ニューメキシコ",
         "ニュージャージー",
-        "ジョージア州"
+        "ジョージア州",
+        "Nuovo Messico",
+        "Nowy Meksyk",
+        "뉴멕시코",
+        "뉴저지",
+        "조지아주"
       ],
       "default_search_languages": [
         "en"
@@ -750,7 +844,9 @@
             "zh-Hans": "纽约",
             "es": "Nueva York",
             "pt": "Nova Iorque",
-            "ja": "ニューヨーク"
+            "ja": "ニューヨーク",
+            "ko": "뉴욕",
+            "pl": "Nowy Jork"
           },
           "aliases": [
             "New York",
@@ -769,7 +865,8 @@
             "en": "San Francisco",
             "de": "San Francisco",
             "zh-Hans": "旧金山",
-            "ja": "サンフランシスコ"
+            "ja": "サンフランシスコ",
+            "ko": "샌프란시스코"
           },
           "aliases": [
             "San Francisco",
@@ -787,7 +884,8 @@
             "en": "Seattle",
             "de": "Seattle",
             "zh-Hans": "西雅图",
-            "ja": "シアトル"
+            "ja": "シアトル",
+            "ko": "시애틀"
           },
           "aliases": [
             "Seattle",
@@ -804,7 +902,8 @@
             "en": "Austin",
             "de": "Austin",
             "zh-Hans": "奥斯汀",
-            "ja": "オースティン"
+            "ja": "オースティン",
+            "ko": "오스틴"
           },
           "aliases": [
             "Austin",
@@ -819,7 +918,8 @@
             "en": "Boston",
             "de": "Boston",
             "zh-Hans": "波士顿",
-            "ja": "ボストン"
+            "ja": "ボストン",
+            "ko": "보스턴"
           },
           "aliases": [
             "Boston",
@@ -835,7 +935,8 @@
             "en": "Chicago",
             "de": "Chicago",
             "zh-Hans": "芝加哥",
-            "ja": "シカゴ"
+            "ja": "シカゴ",
+            "ko": "시카고"
           },
           "aliases": [
             "Chicago",
@@ -850,7 +951,8 @@
             "en": "Jersey City",
             "de": "Jersey City",
             "zh-Hans": "泽西城",
-            "ja": "ジャージーシティ"
+            "ja": "ジャージーシティ",
+            "ko": "저지시티"
           },
           "aliases": [
             "Jersey City",
@@ -987,7 +1089,11 @@
         "fr": "Pays-Bas",
         "es": "Países Bajos",
         "pt": "Países Baixos",
-        "ja": "オランダ"
+        "ja": "オランダ",
+        "ko": "네덜란드",
+        "it": "Paesi Bassi",
+        "nl": "Nederland",
+        "pl": "Holandia"
       },
       "country_aliases": [
         "Netherlands",
@@ -998,7 +1104,8 @@
         "荷兰"
       ],
       "default_search_languages": [
-        "en"
+        "en",
+        "nl"
       ],
       "cities": [
         {
@@ -1010,7 +1117,8 @@
             "zh-Hans": "阿姆斯特丹",
             "es": "Ámsterdam",
             "pt": "Amsterdã",
-            "ja": "アムステルダム"
+            "ja": "アムステルダム",
+            "ko": "암스테르담"
           },
           "aliases": [
             "Amsterdam",
@@ -1031,7 +1139,8 @@
             "de": "Rotterdam",
             "zh-Hans": "鹿特丹",
             "es": "Róterdam",
-            "ja": "ロッテルダム"
+            "ja": "ロッテルダム",
+            "ko": "로테르담"
           },
           "aliases": [
             "Rotterdam",
@@ -1053,7 +1162,11 @@
             "fr": "La Haye",
             "es": "La Haya",
             "pt": "Haia",
-            "ja": "ハーグ"
+            "ja": "ハーグ",
+            "ko": "헤이그",
+            "it": "L'Aia",
+            "nl": "Den Haag",
+            "pl": "Haga"
           },
           "aliases": [
             "The Hague",
@@ -1073,7 +1186,8 @@
             "en": "Utrecht",
             "de": "Utrecht",
             "zh-Hans": "乌得勒支",
-            "ja": "ユトレヒト"
+            "ja": "ユトレヒト",
+            "ko": "위트레흐트"
           },
           "aliases": [
             "Utrecht",
@@ -1092,7 +1206,8 @@
             "en": "Eindhoven",
             "de": "Eindhoven",
             "zh-Hans": "埃因霍温",
-            "ja": "アイントホーフェン"
+            "ja": "アイントホーフェン",
+            "ko": "에인트호번"
           },
           "aliases": [
             "Eindhoven",
@@ -1112,6 +1227,13 @@
           "source_type": "open_web",
           "discovery_route": "agent_web_search",
           "template": "{role} jobs {location}"
+        },
+        {
+          "template_id": "nl-generic-nl",
+          "language": "nl",
+          "source_type": "open_web",
+          "discovery_route": "agent_web_search",
+          "template": "vacatures {role} {location}"
         }
       ]
     }

@@ -56,6 +56,26 @@ def _place(markets, text):
         ("Suiza", "ch", None),
         ("Inde", "in", None),
         ("Corée du Sud", "kr", None),
+        # Korean, Italian, Dutch and Polish.
+        ("서울", "kr", "kr-seoul"),
+        ("판교", "kr", "kr-pangyo"),
+        ("독일 뮌헨", "de", "munich"),
+        ("런던", "uk", "london"),
+        ("Varsavia", "pl", "pl-warsaw"),
+        ("Monaco di Baviera", "de", "munich"),
+        ("Città del Messico", "mx", "mx-mexico-city"),
+        ("Parijs", "fr", "fr-paris"),
+        ("Keulen", "de", "cologne"),
+        ("Mediolan", "it", "it-milan"),
+        ("Nowy Jork", "us", "new-york"),
+        ("Kopenhaga", "dk", "dk-copenhagen"),
+        ("대한민국", "kr", None),
+        ("한국", "kr", None),
+        ("호주", "au", None),
+        ("Germania", "de", None),
+        ("Duitsland", "de", None),
+        ("Niemcy", "de", None),
+        ("Korea Południowa", "kr", None),
     ],
 )
 def test_a_place_written_in_another_language_is_recognized(markets, text, market, city):
@@ -92,6 +112,11 @@ def test_a_name_with_or_without_its_accents_is_the_same_place(markets, text, mar
         ("罗马尼亚", "ro"),
         ("伯利兹", "bz"),
         ("Porto Rico", "pr"),
+        ("Irlanda del Nord", "uk"),
+        ("Noord-Ierland", "uk"),
+        ("북아일랜드", "uk"),
+        ("Nuovo Messico", "us"),
+        ("뉴멕시코", "us"),
     ],
 )
 def test_a_name_inside_a_longer_name_is_the_longer_name(markets, text, market):
@@ -114,6 +139,10 @@ def test_a_name_inside_a_longer_name_is_the_longer_name(markets, text, market):
         ("アルバイト", []),  # holds アルバ, Aruba
         ("machine learning", []),  # holds "Chine"
         ("Quebec", ["ca"]),  # the province; French "Québec" is also the city
+        ("비즈니스 센터", []),  # holds 니스, Nice
+        ("시리즈", []),  # holds 리즈, Leeds
+        ("뉴저지", ["us"]),  # holds 저지, Jersey
+        ("Monaco", ["mc"]),  # Italian for Munich is "Monaco di Baviera"
     ],
 )
 def test_a_name_that_is_another_place_or_word_is_not_read_as_one(markets, text, expected):
@@ -149,7 +178,9 @@ def test_every_name_in_the_catalog_finds_its_own_place(markets):
 @pytest.mark.parametrize(
     ("code", "language", "name"),
     [("IS", "de", "Island"), ("GD", "es", "Granada"), ("MU", "fr", "Maurice"),
-     ("TH", "ja", "タイ"), ("AW", "ja", "アルバ"), ("JE", "ja", "ジャージー")],
+     ("TH", "ja", "タイ"), ("AW", "ja", "アルバ"), ("JE", "ja", "ジャージー"),
+     ("SD", "ko", "수단"), ("OM", "ko", "오만"), ("JE", "ko", "저지"), ("HT", "ko", "아이티"),
+     ("CU", "pl", "Kuba"), ("RE", "it", "Riunione")],
 )
 def test_a_name_that_collides_is_left_out_of_the_catalog(code, language, name):
     payload = json.loads(
@@ -168,6 +199,15 @@ def test_a_name_that_collides_is_left_out_of_the_catalog(code, language, name):
         ("Híbrido - Madrid", "hybrid"),
         ("Hybride, Paris", "hybrid"),
         ("Presencial Lisboa", "onsite"),
+        ("Lavoro da remoto", "remote"),
+        ("Praca zdalna", "remote"),
+        ("Thuiswerken", "remote"),
+        ("재택근무", "remote"),
+        ("Hybrydowo, Kraków", "hybrid"),
+        ("Ibrido - Milano", "hybrid"),
+        ("하이브리드 서울", "hybrid"),
+        ("In sede - Milano", "onsite"),
+        ("Op kantoor Amsterdam", "onsite"),
     ],
 )
 def test_the_work_mode_is_read_in_the_markets_language(markets, text, mode):
@@ -177,10 +217,13 @@ def test_the_work_mode_is_read_in_the_markets_language(markets, text, mode):
 @pytest.mark.parametrize(
     ("location", "market", "query"),
     [
-        ("Varsovie", "pl", "Software Engineer jobs Warsaw"),
+        ("Varsovie", "pl", "praca Inżynier oprogramowania Warszawa"),
         ("Múnich", "de", "Softwareentwickler Stellenangebote München"),
         ("ロンドン", "uk", "Software Engineer jobs London"),
         ("Tóquio", "jp", "ソフトウェアエンジニア 求人 東京"),
+        ("Varsavia", "pl", "praca Inżynier oprogramowania Warszawa"),
+        ("밀라노", "it", "offerte di lavoro Ingegnere del software Milano"),
+        ("Seul", "kr", "서울 소프트웨어 엔지니어 채용"),
     ],
 )
 def test_a_round_aimed_at_a_place_in_the_users_language_searches_there(

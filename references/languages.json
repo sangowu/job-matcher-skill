@@ -50,6 +50,34 @@
       "name": "日本語",
       "aliases": ["ja", "ja-jp", "jp", "japanese", "日本語", "日语", "日文"],
       "query_template": "{role} 求人 {location}"
+    },
+    {
+      "code": "ko",
+      "locale": "ko-KR",
+      "name": "한국어",
+      "aliases": ["ko", "ko-kr", "korean", "한국어", "韩语", "韩文", "朝鲜语"],
+      "query_template": "{location} {role} 채용"
+    },
+    {
+      "code": "it",
+      "locale": "it-IT",
+      "name": "Italiano",
+      "aliases": ["it", "it-it", "it-ch", "italian", "italiano", "意大利语", "意大利文"],
+      "query_template": "offerte di lavoro {role} {location}"
+    },
+    {
+      "code": "nl",
+      "locale": "nl-NL",
+      "name": "Nederlands",
+      "aliases": ["nl", "nl-nl", "nl-be", "dutch", "flemish", "nederlands", "vlaams", "荷兰语", "荷兰文"],
+      "query_template": "vacatures {role} {location}"
+    },
+    {
+      "code": "pl",
+      "locale": "pl-PL",
+      "name": "Polski",
+      "aliases": ["pl", "pl-pl", "polish", "polski", "język polski", "波兰语", "波兰文"],
+      "query_template": "praca {role} {location}"
     }
   ]
 }

@@ -39,7 +39,7 @@ locations : 用户本轮明确地点 > CV.target_locations > CV.preferred_locati
 - `query_string`：加 `jobs / hiring / careers` 等词，提升招聘页命中、利于解析出 company+title。
 - `report_language` 与搜索语言分离。搜索 slot 的 `language` 来自目标市场：Ireland/UK=`en`，
   China=`zh-Hans`,`en`，Germany=`de`,`en`。双语分别生成 query，不拼在同一条中。
-- 内部语言代码以 `references/languages.json` 为准（当前 en/de/zh-Hans/fr/es/pt/ja）；`zh`/`zh-CN`、`pt-BR` 等只在输入边界出现。
+- 内部语言代码以 `references/languages.json` 为准（当前 en/de/zh-Hans/fr/es/pt/ja/ko/it/nl/pl）；`zh`/`zh-CN`、`pt-BR` 等只在输入边界出现。
 - 全局仍最多 6 条 Web Search。多市场先各分配一条通用 slot，再按用户市场顺序和市场语言
   顺序 round-robin；预算不足覆盖每个市场时先请用户缩小范围。
 

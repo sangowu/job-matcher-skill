@@ -2440,7 +2440,7 @@
       "display_name": "Jobs in Milan",
       "source_type": "local_job_board",
       "provider": "web",
-      "entry_url": "https://www.jobsinmilan.com/",
+      "entry_url": "https://jobsinmilan.com/",
       "markets": ["it"],
       "search_languages": ["en"],
       "enabled": true,

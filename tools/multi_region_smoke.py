@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import _bootstrap  # noqa: F401 - puts the skill's scripts/ on the path
-from _jobutil import supported_markets
+from _jobutil import known_markets, supported_markets
 from _stdio import use_utf8_stdout
 
 
@@ -34,6 +34,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PLAN = REPO_ROOT / "references" / "multi_region_smoke_plan.json"
 DEFAULT_SEEDS = REPO_ROOT / "references" / "source_seeds.json"
 SUPPORTED_MARKETS = supported_markets()
+# A plan covers every curated market, and may add a generic market that a local
+# source declares: since [R3-18] generic markets have their own boards too.
+KNOWN_MARKETS = known_markets()
 ALLOWED_MODES = {"public_get", "policy_skip"}
 JOB_LINK_MARKERS = (
     "job",
@@ -46,6 +49,22 @@ JOB_LINK_MARKERS = (
     # substring with "vacanc", so every Dutch job link read as navigation.
     "vacature",
     "recruit",
+    # The same defect, met again in the generic markets' boards: Pracuj.pl
+    # (",oferta,"), Vagas ("/vagas/"), Tecnoempleo ("/oferta-") and Free-Work
+    # ("/job-mission/") read as zero postings with the stems above.
+    "offre",
+    "emploi",
+    "mission",
+    "vaga",
+    "oferta",
+    "empleo",
+    "trabajo",
+    "praca",
+    "lavoro",
+    "offerta",
+    "annunc",
+    "求人",
+    "채용",
 )
 CAPTCHA_MARKERS = (
     "captcha",
@@ -61,6 +80,16 @@ APPLY_MARKERS = (
     "bewerben",
     "jetzt bewerben",
     "申请",
+    "postuler",
+    "candidater",
+    "candidatura",
+    "candidatar",
+    "inscribirse",
+    "aplikuj",
+    "candidati",
+    "solliciteer",
+    "応募",
+    "지원하기",
 )
 JD_MARKERS = (
     "responsibilit",
@@ -71,6 +100,23 @@ JD_MARKERS = (
     "anforderungen",
     "任职要求",
     "岗位职责",
+    "missions",
+    "profil recherché",
+    "compétences",
+    "requisitos",
+    "responsabilidades",
+    "funciones",
+    "atividades",
+    "wymagania",
+    "obowiązki",
+    "requisiti",
+    "responsabilità",
+    "mansioni",
+    "functie-eisen",
+    "仕事内容",
+    "応募資格",
+    "자격요건",
+    "주요업무",
 )
 
 
@@ -406,16 +452,13 @@ def validate_plan(plan: dict[str, Any], seeds: dict[str, Any]) -> list[dict[str,
     markets = plan.get("markets")
     if not isinstance(limits, dict) or not isinstance(markets, list):
         raise SmokeError("smoke plan must define limits and markets")
-    _positive_int(limits.get("max_sources"), "max_sources", 8)
+    _positive_int(limits.get("max_sources"), "max_sources", 32)
     _positive_int(limits.get("max_requests_per_source"), "max_requests_per_source", 3)
     _positive_int(limits.get("max_response_bytes"), "max_response_bytes", 1_048_576)
     _positive_int(limits.get("timeout_seconds"), "timeout_seconds", 20)
     _positive_int(limits.get("max_redirects"), "max_redirects", 3)
-    if len(markets) != len(SUPPORTED_MARKETS) or len(markets) > limits["max_sources"]:
-        raise SmokeError(
-            "smoke plan must contain exactly the supported markets, within "
-            "max_sources"
-        )
+    if len(markets) > limits["max_sources"]:
+        raise SmokeError("smoke plan has more markets than max_sources")
 
     source_rows = seeds.get("sources")
     if not isinstance(source_rows, list):
@@ -435,8 +478,8 @@ def validate_plan(plan: dict[str, Any], seeds: dict[str, Any]) -> list[dict[str,
         slot = item.get("source_slot")
         source_id = item.get("source_id")
         mode = item.get("mode")
-        if market_id not in SUPPORTED_MARKETS or market_id in seen_markets:
-            raise SmokeError("market ids must be unique and limited to ie, uk, cn, de")
+        if market_id not in KNOWN_MARKETS or market_id in seen_markets:
+            raise SmokeError("market ids must be unique and known markets")
         if not isinstance(slot, str) or not re.fullmatch(r"[a-z]{2}-[a-z]+-\d+", slot):
             raise SmokeError("source_slot must be a stable opaque identifier")
         if slot in seen_slots:
@@ -481,8 +524,8 @@ def validate_plan(plan: dict[str, Any], seeds: dict[str, Any]) -> list[dict[str,
         seen_markets.add(market_id)
         seen_slots.add(slot)
         resolved.append({**item, "source": source})
-    if seen_markets != set(SUPPORTED_MARKETS):
-        raise SmokeError("all four supported markets must be present")
+    if not set(SUPPORTED_MARKETS) <= seen_markets:
+        raise SmokeError("every curated market must be present")
     return resolved
 
 

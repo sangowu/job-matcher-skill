@@ -1399,9 +1399,18 @@ def build_source_plan(
             due.append(source["source_id"])
             continue
         if _expired(source, current_time):
-            excluded["expired"] += 1
             due.append(source["source_id"])
-            continue
+            # A structured source is re-verified by being fetched: the sync
+            # that reads it records the success that renews it, and three
+            # definitive failures mark it `unavailable`. Leaving it out of the
+            # plan meant it was never fetched, so it never renewed -- every
+            # board dropped out for good once its TTL lapsed, and nothing read
+            # `due_for_verification`. Measured 2026-10-13: 25 of the boards an
+            # Irish round would read had lapsed, NVIDIA and eBay among them,
+            # both answering normally when fetched.
+            if not structured:
+                excluded["expired"] += 1
+                continue
         if source.get("requires_risk_ack"):
             if source["source_id"] not in acknowledged:
                 excluded["risk_not_acknowledged"] += 1

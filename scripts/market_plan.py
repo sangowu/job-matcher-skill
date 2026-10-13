@@ -17,7 +17,13 @@ import unicodedata
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
-from _jobutil import generic_markets, supported_markets
+from _jobutil import (
+    generic_markets,
+    internal_languages,
+    language_aliases,
+    language_catalog,
+    supported_markets,
+)
 from _stdio import StdinUnavailable, read_stdin_text
 
 
@@ -29,40 +35,24 @@ CONFIG_PATH = SKILL_ROOT / "config.json"
 
 SCHEMA_VERSION = 1
 SUPPORTED_MARKETS = supported_markets()
-INTERNAL_LANGUAGES = ("en", "de", "zh-Hans")
+# Read from references/languages.json; see `_jobutil.language_catalog`.
+INTERNAL_LANGUAGES = internal_languages()
+# The languages a curated market and a city must be named in. Names in the other
+# languages are optional, and a query in one of them falls back to English.
+LABEL_LANGUAGES = ("en", "de", "zh-Hans")
 DISCOVERY_ROUTES = {"agent_web_search"}
 SOURCE_TYPES = {"open_web"}
 # A generic market's queries, one per language it searches in. The curated
-# markets write their own in markets.json; these are the same wording.
+# markets write their own in markets.json.
 GENERIC_QUERY_TEMPLATES = {
-    "en": "{role} jobs {location}",
-    "de": "{role} Stellenangebote {location}",
-    "zh-Hans": "{location} {role} 招聘",
+    language["code"]: language["query_template"] for language in language_catalog()
 }
 # Titles one CV role is searched under, and how many of them a generalization
 # may claim. Three is the ceiling the whole expansion is held to, so a role
 # that generalizes twice keeps one own-family title, not none.
 MAX_ROLE_VARIANTS = 3
 MAX_GENERALIZED_FAMILIES = 2
-_LANGUAGE_ALIASES = {
-    "en": "en",
-    "english": "en",
-    "英文": "en",
-    "英语": "en",
-    "de": "de",
-    "de-de": "de",
-    "german": "de",
-    "deutsch": "de",
-    "德语": "de",
-    "zh": "zh-Hans",
-    "zh-cn": "zh-Hans",
-    "zh_hans": "zh-Hans",
-    "zh-hans": "zh-Hans",
-    "chinese": "zh-Hans",
-    "simplified chinese": "zh-Hans",
-    "中文": "zh-Hans",
-    "简体中文": "zh-Hans",
-}
+_LANGUAGE_ALIASES = language_aliases()
 _REMOTE_TERMS = ("remote", "远程", "home office", "homeoffice")
 _HYBRID_TERMS = ("hybrid", "混合办公", "hybridarbeit")
 _ONSITE_TERMS = ("onsite", "on-site", "现场办公", "vor ort")
@@ -198,7 +188,7 @@ def validate_markets(
         country_names = market.get("country_names")
         if not isinstance(country_names, dict):
             raise MarketPlanError(f"{market_id}.country_names must be an object")
-        for language in INTERNAL_LANGUAGES:
+        for language in LABEL_LANGUAGES:
             if not isinstance(country_names.get(language), str) or not country_names[language]:
                 raise MarketPlanError(f"{market_id}.country_names.{language} is required")
         languages = _strings(
@@ -231,7 +221,7 @@ def validate_markets(
             names = city.get("names")
             if not isinstance(names, dict):
                 raise MarketPlanError(f"{city_id}.names must be an object")
-            for language in INTERNAL_LANGUAGES:
+            for language in LABEL_LANGUAGES:
                 if not isinstance(names.get(language), str) or not names[language]:
                     raise MarketPlanError(f"{city_id}.names.{language} is required")
 
@@ -295,7 +285,8 @@ def validate_role_taxonomy(payload: dict[str, Any]) -> dict[str, Any]:
             groups = family.get(group_name)
             if not isinstance(groups, dict) or set(groups) != set(INTERNAL_LANGUAGES):
                 raise MarketPlanError(
-                    f"{family_id}.{group_name} must define en, de, and zh-Hans"
+                    f"{family_id}.{group_name} must define every language in "
+                    f"languages.json: {', '.join(INTERNAL_LANGUAGES)}"
                 )
             for language, values in groups.items():
                 phrases = _strings(values, f"{family_id}.{group_name}.{language}")
@@ -436,10 +427,22 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", folded.casefold()).strip("-")
 
 
-def _localized(name: str, aliases: list[str]) -> dict[str, str]:
-    """English and German both read the English name; Chinese reads its alias."""
+def _localized(
+    name: str, aliases: list[str], names: Any = None, where: str = ""
+) -> dict[str, str]:
+    """English and German read the English name, Chinese its alias, unless
+    the entry names itself in a language -- "日本", "España", "São Paulo"."""
     chinese = next((alias for alias in aliases if _has_cjk(alias)), name)
-    return {"en": name, "de": name, "zh-Hans": chinese}
+    output = {"en": name, "de": name, "zh-Hans": chinese}
+    if names is None:
+        return output
+    if not isinstance(names, dict):
+        raise MarketPlanError(f"{where}.names must be an object")
+    for language, value in names.items():
+        if language not in INTERNAL_LANGUAGES or not isinstance(value, str) or not value:
+            raise MarketPlanError(f"{where}.names.{language} is invalid")
+        output[language] = value
+    return output
 
 
 def generic_market_entries(
@@ -488,7 +491,9 @@ def generic_market_entries(
             cities.append({
                 "city_id": f"{market_id}-{_slug(city['name'])}",
                 "name": city["name"],
-                "names": _localized(city["name"], city_aliases),
+                "names": _localized(
+                    city["name"], city_aliases, city.get("names"), f"{market_id}.{city['name']}"
+                ),
                 "aliases": city_aliases,
                 "administrative_areas": [],
             })
@@ -504,7 +509,7 @@ def generic_market_entries(
             "market_id": market_id,
             "coverage": "generic",
             "country": name,
-            "country_names": _localized(name, aliases),
+            "country_names": _localized(name, aliases, country.get("names"), market_id),
             "country_aliases": aliases,
             "default_search_languages": languages,
             "cities": cities,
@@ -1083,6 +1088,7 @@ def _variants_for_role(
     taxonomy: dict[str, Any],
     skills: set[str],
     occupied: frozenset[str] = frozenset(),
+    localized: dict[str, dict[str, list[str]]] | None = None,
 ) -> list[tuple[str, str | None]]:
     """The titles this role is searched under, as `(title, role_family_id)`.
 
@@ -1093,7 +1099,9 @@ def _variants_for_role(
     is not allowed to be crowded out by the answer to "what else could it be".
     """
     own_family_id = resolve_role_family(role, taxonomy)
-    own = [(title, own_family_id) for title in _role_variants(role, language, taxonomy)]
+    supplied = (localized or {}).get(_normalize_text(role), {}).get(language)
+    titles = supplied if supplied else _role_variants(role, language, taxonomy)
+    own = [(title, own_family_id) for title in titles]
     generalized = [
         (_family_by_id(target_id, taxonomy)["titles"][language][0], target_id)
         for target_id in _generalized_families(role, taxonomy, skills, occupied)
@@ -1108,6 +1116,82 @@ def _variants_for_role(
         seen.add(key)
         merged.append((title, family_id))
     return merged[:MAX_ROLE_VARIANTS]
+
+
+MAX_LOCALIZED_TITLE_LENGTH = 100
+
+
+def _localized_roles(
+    value: Any, roles: list[str]
+) -> dict[str, dict[str, list[str]]]:
+    """`user_intent.localized_roles`, checked: `{role: {language: [titles]}}`.
+
+    The taxonomy names six role families in every language, and a CV names
+    whatever it names. A role outside the families -- "Comptable", "Account
+    Executive", "看護師" -- used to be searched in every language under its own
+    spelling and kept only when a posting repeated that spelling. The agent
+    running the round translates it instead; this is where the translation is
+    held to the same shape as the taxonomy's own titles.
+    """
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise MarketPlanError("user_intent.localized_roles must be an object")
+    known = {_normalize_text(role): role for role in roles}
+    output: dict[str, dict[str, list[str]]] = {}
+    for role, by_language in value.items():
+        key = _normalize_text(role)
+        if key not in known:
+            raise MarketPlanError(
+                f"localized_roles names a role the round is not searching: {role}"
+            )
+        if not isinstance(by_language, dict) or not by_language:
+            raise MarketPlanError(f"localized_roles.{role} must map languages to titles")
+        for language, titles in by_language.items():
+            if language not in INTERNAL_LANGUAGES:
+                raise MarketPlanError(
+                    f"localized_roles.{role} uses an unsupported language: {language}"
+                )
+            cleaned = _dedupe_strings(titles)
+            if not cleaned or len(cleaned) > MAX_ROLE_VARIANTS or any(
+                len(title) > MAX_LOCALIZED_TITLE_LENGTH for title in cleaned
+            ):
+                raise MarketPlanError(
+                    f"localized_roles.{role}.{language} must hold 1-{MAX_ROLE_VARIANTS} "
+                    f"titles of at most {MAX_LOCALIZED_TITLE_LENGTH} characters"
+                )
+            output.setdefault(key, {})[language] = cleaned
+    return output
+
+
+def _roles_needing_translation(
+    roles: list[str],
+    role_language: str,
+    languages_by_market: dict[str, list[str]],
+    taxonomy: dict[str, Any],
+    localized: dict[str, dict[str, list[str]]],
+) -> list[dict[str, Any]]:
+    """Roles the taxonomy cannot translate, and the languages they lack.
+
+    A role in a known family is translated by the family. Any other role is
+    searched in its own spelling, which is right only in the language it was
+    written in.
+    """
+    wanted = list(dict.fromkeys(
+        language for languages in languages_by_market.values() for language in languages
+    ))
+    output: list[dict[str, Any]] = []
+    for role in roles:
+        if resolve_role_family(role, taxonomy) is not None:
+            continue
+        have = localized.get(_normalize_text(role), {})
+        missing = [
+            language for language in wanted
+            if language != role_language and language not in have
+        ]
+        if missing:
+            output.append({"role": role, "languages": missing})
+    return output
 
 
 def _market_map(markets: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -1172,6 +1256,7 @@ def _query_candidates(
     locations: list[dict[str, Any]],
     taxonomy: dict[str, Any],
     skills: set[str],
+    localized: dict[str, dict[str, list[str]]] | None = None,
 ) -> list[dict[str, Any]]:
     """Every query this market is worth running, the first variants first.
 
@@ -1191,7 +1276,7 @@ def _query_candidates(
             )
             for role in roles:
                 variants = _variants_for_role(
-                    role, language, taxonomy, skills, occupied
+                    role, language, taxonomy, skills, occupied, localized
                 )
                 if variant_index >= len(variants):
                     continue
@@ -1251,6 +1336,16 @@ def build_market_plan(
     # The CV's own stack decides which adjacent roles it is generalized to, so
     # two candidates who both write "AI Engineer" are not searched the same way.
     skills = {_normalize_text(skill) for skill in _dedupe_strings(cv_profile.get("skills"))}
+    localized = _localized_roles(user_intent.get("localized_roles"), roles)
+    # The language the roles are written in, which needs no translation. The
+    # person's own wording is the intent; a CV's language is the next best guess.
+    role_language = normalize_language(
+        user_intent.get("role_language")
+        or (cv_profile.get("cv_language") if roles_source != "user_intent" else None)
+        or user_intent.get("report_language")
+        or cv_profile.get("cv_language")
+        or "en"
+    ) or "en"
     occupied_families = _occupied_families(roles, taxonomy)
     generalized_roles = _dedupe_strings([
         _family_by_id(family_id, taxonomy)["titles"]["en"][0]
@@ -1328,6 +1423,7 @@ def build_market_plan(
                 recognized,
                 taxonomy,
                 skills,
+                localized,
             )
             for market_id in target_markets
         }
@@ -1353,6 +1449,14 @@ def build_market_plan(
         for row in expanded
     ]
 
+    roles_needing_translation = _roles_needing_translation(
+        roles, role_language, languages_by_market, taxonomy, localized
+    )
+    for row in roles_needing_translation:
+        warnings.append(
+            f"role {row['role']!r} has no titles in {', '.join(row['languages'])}; "
+            "supply user_intent.localized_roles"
+        )
     all_languages: list[str] = []
     for market_id in target_markets:
         for language in languages_by_market.get(market_id, []):
@@ -1382,6 +1486,13 @@ def build_market_plan(
         "search_languages_by_market": languages_by_market,
         "search_plan": search_plan,
         "role_plan": role_plan,
+        "role_language": role_language,
+        "localized_roles": {
+            role: localized[_normalize_text(role)]
+            for role in roles
+            if _normalize_text(role) in localized
+        },
+        "roles_needing_translation": roles_needing_translation,
         "max_websearch_calls": budget,
         "needs_user_input": needs_user_input,
         "warnings": warnings,
@@ -1425,9 +1536,19 @@ def build_effective_profile(
     # round that searches for Backend Engineer and then filters on the CV's
     # "AI Engineer" alone drops every generalized result on `role`, which is
     # the searches paying for a widening the filter never heard about.
+    # The translations too: a round that searches for "Comptable" and filters
+    # on "Accountant" alone drops every French result on `role`.
+    translated = [
+        title
+        for by_language in plan["localized_roles"].values()
+        for titles in by_language.values()
+        for title in titles
+    ]
     return {
         **cv_profile,
-        "roles": _dedupe_strings([*plan["target_roles"], *plan["generalized_roles"]]),
+        "roles": _dedupe_strings(
+            [*plan["target_roles"], *plan["generalized_roles"], *translated]
+        ),
     }
 
 

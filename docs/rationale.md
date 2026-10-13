@@ -330,6 +330,34 @@
 `tools/global_coverage_smoke.py --live`。通用市场没有本地招聘站，浏览器通道在这些市场是
 `unavailable_in_market`；要让某个国家达到精选深度，仍是按 [R3-11] 加一个精选市场。
 
+### [R3-14] 为什么按市场语言搜索与初筛，以及谁来翻译角色
+
+全球市场上线后，法国、日本的职位能被归到对应市场，但两处仍只认英、德、中：
+
+- **搜索**：语言集写死为 `en/de/zh-Hans`，法国只能搜 "Software Engineer jobs Paris"。
+- **初筛**：只有 `match_terms` 决定保留，族的标题与同义词不参与。2026-10-13 实测：
+  `Ingénieur logiciel H/F`、`ソフトウェアエンジニア`、`Desarrollador de software`、
+  `Engenheiro de Software Sênior`，连同一族德语标题 `Softwareentwickler`，全部以 `role` 拒绝。
+  也就是说即使搜到了当地语言的职位，也会在初筛被丢掉。
+
+做法：
+
+- **语言集一处定义**：`references/languages.json`（代码、别名、Web 搜索模板），四个模块不再各写一份。
+  市场与城市只强制 en/de/zh-Hans 名称，其他语言名称可选，缺失时查询用英文名。
+- **族的标题与同义词同时是初筛词**：搜什么就认什么，一个列表。六个族补齐 fr/es/pt/ja，
+  词表校验要求每个族覆盖语言目录里的每种语言，新增语言就会在加载时报出缺口。
+- **折叠拉丁重音，不动假名**：`Développeur`/`Developpeur`、`Sênior`/`Senior` 同等；整体 NFKD 去
+  组合符会把「データ」变成「テータ」，所以只去掉拉丁字母上的组合符。
+- **资历词多语言**：新增词带空格边界（` stage ` 不命中 `backstage`），原有英中词保持子串读法。
+- **词表外的角色交给 agent 翻译**：词表只覆盖六个技术族，而用户的角色是任意的（销售、会计、护士）。
+  维护一张全语言职位词典做不到；运行本 skill 的模型本身就能翻译。plan 列出 `roles_needing_translation`，
+  agent 把译名写进 `user_intent.localized_roles` 重跑；译名经校验（语言在目录内、每语言 1–3 个、
+  长度上限），同时进入查询和 `effective-profile` 的 `roles`，搜索与初筛用同一套词（与 [R3-06] 同理）。
+  角色本身所用语言（`role_language`）不要求翻译。
+
+韩语、意大利语、荷兰语、波兰语等不在本次范围：加入一种语言 = `languages.json` 加一条 +
+六个族补该语言的标题与同义词 + 相应国家的 `search_languages`。
+
 ### [R5-06] 复验结论为什么需要独立的写入口
 
 P7 给行加了 `verified_at` 与 `needs_verification`，但 `verified` 的唯一写入路径仍然在**评估结果**里，

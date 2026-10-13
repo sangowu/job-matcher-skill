@@ -86,7 +86,10 @@ def test_a_generic_location_produces_a_plan(resources, location, market_id, expe
     assert all(row["market_id"] == market_id for row in plan["search_plan"])
     english = [row for row in plan["search_plan"] if row["language"] == "en"]
     assert english and all(row["location"] == expected_location for row in english)
-    assert plan["search_plan"][0]["query_string"] == f"Data Scientist jobs {expected_location}"
+    # English is searched too, after the market's own language where it has one.
+    assert f"Data Scientist jobs {expected_location}" in [
+        row["query_string"] for row in english
+    ]
 
 
 def test_a_german_speaking_generic_market_searches_in_german_too(resources):

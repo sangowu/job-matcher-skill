@@ -15,6 +15,7 @@ A lightweight take on [JobRadar](https://github.com/sangowu/JobRadar) — it com
 - 📄 **CV parsing**: PDF / DOCX / TXT / MD, or pasted text (no OCR).
 - 🧠 **Structured extraction**: target roles, skills, seniority, locations, languages; auto-leveling by *relevant* years.
 - 🌍 **Worldwide**: 6 curated markets (ie / uk / cn / de / us / nl, with local job boards and city catalogs) plus 212 generic markets -- every country and territory in `geo_countries.json`, with major-city aliases. A generic market is reached through the structured ATS channel and Web Search and has no local job board; a location nothing can read still stops and asks.
+- 🗣️ **Searches and filters in the market's language**: French in France, Japanese in Japan, Portuguese in Brazil, Spanish in Spanish-speaking countries, plus English; local-language titles and seniority words (Sénior, Pleno, シニア, Stage…) are recognized. A role outside the taxonomy is translated by the agent and enters search and filtering through `localized_roles`.
 - 🔎 **Live job retrieval**: runs browser-platform and model/Web discovery together by default; the browser provider follows Neo → authorized user browser, while a regional source catalog selects platforms without hard-coded site selectors.
 - 🎯 **5-dimension scoring**: title / seniority / skills / location / must-have, with a five-tier recommendation (strong apply → skip). Deterministic seniority caps and contract validation catch scoring drift.
 - 🗂️ **Incremental cache**: three-layer cache (CV / JD / match score); multi-source same-job aggregation with exact job-id matching on regional platforms; auto re-score when the query changes.
@@ -76,7 +77,8 @@ job-matcher/
 │   ├── search_playbook.md    # fan-out / per-market / adaptive batching
 │   ├── markets.json          # curated markets: cities, languages and query templates
 │   ├── geo_countries.json    # generic markets: every other country/territory, with major cities, search languages and areas
-│   ├── role_taxonomy.json    # role families, synonyms, skill-gated edges
+│   ├── role_taxonomy.json    # role families: titles/synonyms in every language (searched and matched), skill-gated edges
+│   ├── languages.json        # searchable languages: codes, aliases, Web Search templates; this file defines the set
 │   ├── model_tiers.json      # model-to-tier map used to pick a subagent model by min_tier
 │   ├── source_seeds.json     # verified public seeds for ie/uk/cn/de/us (no credentials)
 │   ├── multi_region_smoke_plan.json # Phase D2 fixed sources and request limits

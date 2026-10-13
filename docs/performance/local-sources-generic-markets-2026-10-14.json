@@ -1,0 +1,665 @@
+{
+  "checked_at": "2026-10-14",
+  "subject": "Local job boards for the generic markets with the most postings",
+  "method": "scripts/check_robots.py's reading against each candidate's search URL with its query, then one GET of that URL to see a listing is served there -- job titles or per-job links in the page as served, not after a browser renders it. One request per host for robots and one for the page, 1.5 s apart. Read-only throughout. A page whose jobs appear only after scripts run was not added: nothing could be observed in it.",
+  "markets_chosen_by": "postings per generic market across the 64 structured boards, 2026-10-13: in 477, ca 461, fr 248, sg 169, jp 143, es 132, au 129, pl 99, br 94, it 90",
+  "outcome": "26 sources for 10 generic markets: fr, in, ca, au, jp 3 each; pl 4; es, br, it 2; sg 1. Each gives its market a browser channel and Web Search source hints, which generic markets had none of. Japan's three are English-language boards: the Japanese ones checked (Green, doda) refuse the search path or answer nothing readable.",
+  "sources_added": [
+    {
+      "source_id": "choisirleservicepublic-fr",
+      "market": "fr",
+      "robots": {
+        "url": "https://choisirleservicepublic.gouv.fr/nos-offres/filtres/mot-cles/developpeur/",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 4443
+      },
+      "observed": "titles served, e.g. 'Developpeur Backend Python F/H'"
+    },
+    {
+      "source_id": "freework-fr",
+      "market": "fr",
+      "robots": {
+        "url": "https://www.free-work.com/fr/tech-it/jobs?query=developpeur",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 719
+      },
+      "observed": "64 /job-mission links on the search page"
+    },
+    {
+      "source_id": "talent-fr",
+      "market": "fr",
+      "robots": {
+        "url": "https://fr.talent.com/jobs?k=developpeur",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 691
+      },
+      "observed": "/view?id= job links and titles served"
+    },
+    {
+      "source_id": "shine-in",
+      "market": "in",
+      "robots": {
+        "url": "https://www.shine.com/job-search/software-engineer-jobs",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 283
+      },
+      "observed": "/jobs/<title>/<company>/<id> links served"
+    },
+    {
+      "source_id": "internshala-in",
+      "market": "in",
+      "robots": {
+        "url": "https://internshala.com/jobs/software-development-jobs/",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 478
+      },
+      "observed": "titles served; robots disallows /*?*, so searches use its path form"
+    },
+    {
+      "source_id": "talent-in",
+      "market": "in",
+      "robots": {
+        "url": "https://in.talent.com/jobs?k=software+engineer",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 641
+      },
+      "observed": "20 /view job links served"
+    },
+    {
+      "source_id": "jobbank-ca",
+      "market": "ca",
+      "robots": {
+        "url": "https://www.jobbank.gc.ca/jobsearch/jobsearch?searchstring=software+engineer",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 280
+      },
+      "observed": "jobposting links served"
+    },
+    {
+      "source_id": "jobillico-ca",
+      "market": "ca",
+      "robots": {
+        "url": "https://www.jobillico.com/search-jobs?skwd=software+engineer",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 457
+      },
+      "observed": "titles served"
+    },
+    {
+      "source_id": "talent-ca",
+      "market": "ca",
+      "robots": {
+        "url": "https://ca.talent.com/jobs?k=software+engineer",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 676
+      },
+      "observed": "titles served"
+    },
+    {
+      "source_id": "talent-sg",
+      "market": "sg",
+      "robots": {
+        "url": "https://sg.talent.com/jobs?k=software+engineer",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 571
+      },
+      "observed": "/view?id= job links served"
+    },
+    {
+      "source_id": "tokyodev-jp",
+      "market": "jp",
+      "robots": {
+        "url": "https://www.tokyodev.com/jobs",
+        "allowed": true,
+        "rule": "allow: /"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 289
+      },
+      "observed": "titles served"
+    },
+    {
+      "source_id": "japandev-jp",
+      "market": "jp",
+      "robots": {
+        "url": "https://japan-dev.com/jobs",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 550
+      },
+      "observed": "titles served"
+    },
+    {
+      "source_id": "daijob-jp",
+      "market": "jp",
+      "robots": {
+        "url": "https://www.daijob.com/en/jobs/search_result?keywords=engineer",
+        "allowed": true,
+        "rule": "allow: /"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 350
+      },
+      "observed": "titles served"
+    },
+    {
+      "source_id": "infojobs-es",
+      "market": "es",
+      "robots": {
+        "url": "https://www.infojobs.net/jobsearch/search-results/list.xhtml?keyword=desarrollador",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 1196
+      },
+      "observed": "titles served"
+    },
+    {
+      "source_id": "tecnoempleo-es",
+      "market": "es",
+      "robots": {
+        "url": "https://www.tecnoempleo.com/ofertas-trabajo/?te=desarrollador",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 148
+      },
+      "observed": "titles served, '157 Ofertas'"
+    },
+    {
+      "source_id": "careersvic-au",
+      "market": "au",
+      "robots": {
+        "url": "https://www.careers.vic.gov.au/jobs?keywords=software",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 134
+      },
+      "observed": "titles and per-job links served"
+    },
+    {
+      "source_id": "ethicaljobs-au",
+      "market": "au",
+      "robots": {
+        "url": "https://www.ethicaljobs.com.au/jobs?keywords=developer",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 501
+      },
+      "observed": "titles served, '11 Ethical Jobs matching developer'"
+    },
+    {
+      "source_id": "talent-au",
+      "market": "au",
+      "robots": {
+        "url": "https://au.talent.com/jobs?k=software+engineer",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 620
+      },
+      "observed": "titles served"
+    },
+    {
+      "source_id": "justjoinit-pl",
+      "market": "pl",
+      "robots": {
+        "url": "https://justjoin.it/job-offers/all-locations/python",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 1474
+      },
+      "observed": "titles served, '1 009 offers' for Python"
+    },
+    {
+      "source_id": "nofluffjobs-pl",
+      "market": "pl",
+      "robots": {
+        "url": "https://nofluffjobs.com/pl/backend",
+        "allowed": true,
+        "rule": "allow: /"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 755
+      },
+      "observed": "titles served"
+    },
+    {
+      "source_id": "pracuj-pl",
+      "market": "pl",
+      "robots": {
+        "url": "https://www.pracuj.pl/praca/programista;kw",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 721
+      },
+      "observed": "titles served"
+    },
+    {
+      "source_id": "bulldogjob-pl",
+      "market": "pl",
+      "robots": {
+        "url": "https://bulldogjob.pl/companies/jobs/s/skills,Python",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 293
+      },
+      "observed": "titles served"
+    },
+    {
+      "source_id": "vagas-br",
+      "market": "br",
+      "robots": {
+        "url": "https://www.vagas.com.br/vagas-de-desenvolvedor",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 61
+      },
+      "observed": "titles served, '11 vagas'"
+    },
+    {
+      "source_id": "programathor-br",
+      "market": "br",
+      "robots": {
+        "url": "https://programathor.com.br/jobs",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 216
+      },
+      "observed": "titles served"
+    },
+    {
+      "source_id": "talent-it",
+      "market": "it",
+      "robots": {
+        "url": "https://it.talent.com/jobs?k=sviluppatore",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 402
+      },
+      "observed": "/view?id= job links served"
+    },
+    {
+      "source_id": "jobsinmilan-it",
+      "market": "it",
+      "robots": {
+        "url": "https://jobsinmilan.com/",
+        "allowed": true,
+        "rule": "no matching rule"
+      },
+      "search_page": {
+        "status": 200,
+        "kb": 139
+      },
+      "observed": "titles served on the entry page"
+    }
+  ],
+  "sources_examined_and_not_added": [
+    {
+      "source_id": "francetravail-fr",
+      "market": "fr",
+      "reason": "robots disallow: *motsCles=* -- the search parameter itself"
+    },
+    {
+      "source_id": "apec-fr",
+      "market": "fr",
+      "reason": "robots.txt answers 403"
+    },
+    {
+      "source_id": "welcometothejungle-fr",
+      "market": "fr",
+      "reason": "robots disallow: */jobs?query=*"
+    },
+    {
+      "source_id": "welcometothejungle-it",
+      "market": "it",
+      "reason": "robots disallow: */jobs?query=*"
+    },
+    {
+      "source_id": "hellowork-fr",
+      "market": "fr",
+      "reason": "robots disallow: /fr-fr/emploi/recherche.html"
+    },
+    {
+      "source_id": "meteojob-fr",
+      "market": "fr",
+      "reason": "robots disallow: /*?"
+    },
+    {
+      "source_id": "cadremploi-fr",
+      "market": "fr",
+      "reason": "search page answers 403"
+    },
+    {
+      "source_id": "lesjeudis-fr",
+      "market": "fr",
+      "reason": "search page answers 404"
+    },
+    {
+      "source_id": "placeemploipublic-fr",
+      "market": "fr",
+      "reason": "robots.txt unreadable"
+    },
+    {
+      "source_id": "naukri-in",
+      "market": "in",
+      "reason": "35 KB, no listing: client-rendered"
+    },
+    {
+      "source_id": "foundit-in",
+      "market": "in",
+      "reason": "listing only as script data, no rendered job"
+    },
+    {
+      "source_id": "foundit-sg",
+      "market": "sg",
+      "reason": "listing only as script data, no rendered job"
+    },
+    {
+      "source_id": "ncs-in",
+      "market": "in",
+      "reason": "search URL redirects to the home page"
+    },
+    {
+      "source_id": "cutshort-in",
+      "market": "in",
+      "reason": "links are category pages, not jobs"
+    },
+    {
+      "source_id": "instahyre-in",
+      "market": "in",
+      "reason": "listing is a client template ([[searchJobType]])"
+    },
+    {
+      "source_id": "hirist-in",
+      "market": "in",
+      "reason": "no job in the served page: client-rendered"
+    },
+    {
+      "source_id": "iimjobs-in",
+      "market": "in",
+      "reason": "no job in the served page: client-rendered"
+    },
+    {
+      "source_id": "timesjobs-in",
+      "market": "in",
+      "reason": "robots.txt unreadable"
+    },
+    {
+      "source_id": "freshersworld-in",
+      "market": "in",
+      "reason": "robots disallow: /jobs/jobsearch/"
+    },
+    {
+      "source_id": "eluta-ca",
+      "market": "ca",
+      "reason": "robots.txt unreadable"
+    },
+    {
+      "source_id": "workopolis-ca",
+      "market": "ca",
+      "reason": "search page answers 403"
+    },
+    {
+      "source_id": "workbc-ca",
+      "market": "ca",
+      "reason": "search page answers 404"
+    },
+    {
+      "source_id": "quebecemploi-ca",
+      "market": "ca",
+      "reason": "2 KB, client-rendered"
+    },
+    {
+      "source_id": "mycareersfuture-sg",
+      "market": "sg",
+      "reason": "8 KB, client-rendered"
+    },
+    {
+      "source_id": "jobsdb-sg",
+      "market": "sg",
+      "reason": "MyCareersFuture category page, 8 KB, client-rendered"
+    },
+    {
+      "source_id": "careersgov-sg",
+      "market": "sg",
+      "reason": "home page links out to jobs.careers.gov.sg"
+    },
+    {
+      "source_id": "careersgov-jobs-sg",
+      "market": "sg",
+      "reason": "2.5 MB of script data, no rendered job"
+    },
+    {
+      "source_id": "jobstreet-sg",
+      "market": "sg",
+      "reason": "search page answers 403"
+    },
+    {
+      "source_id": "fastjobs-sg",
+      "market": "sg",
+      "reason": "search page answers 403"
+    },
+    {
+      "source_id": "nodeflair-sg",
+      "market": "sg",
+      "reason": "no job link or title in the served page"
+    },
+    {
+      "source_id": "glints-sg",
+      "market": "sg",
+      "reason": "robots disallow: */opportunities/jobs/explore?*"
+    },
+    {
+      "source_id": "efinancialcareers-sg",
+      "market": "sg",
+      "reason": "search page answers 405"
+    },
+    {
+      "source_id": "techinasia-sg",
+      "market": "sg",
+      "reason": "robots.txt answers 403"
+    },
+    {
+      "source_id": "green-jp",
+      "market": "jp",
+      "reason": "robots disallow: /search_key"
+    },
+    {
+      "source_id": "doda-jp",
+      "market": "jp",
+      "reason": "robots.txt unreadable"
+    },
+    {
+      "source_id": "manfred-es",
+      "market": "es",
+      "reason": "no job in the served page"
+    },
+    {
+      "source_id": "empleate-es",
+      "market": "es",
+      "reason": "robots.txt unreadable"
+    },
+    {
+      "source_id": "seek-au",
+      "market": "au",
+      "reason": "search page answers 403"
+    },
+    {
+      "source_id": "apsjobs-au",
+      "market": "au",
+      "reason": "no job link in the served page: client-rendered"
+    },
+    {
+      "source_id": "workforceaustralia-au",
+      "market": "au",
+      "reason": "robots disallow: /"
+    },
+    {
+      "source_id": "jora-au",
+      "market": "au",
+      "reason": "robots disallow: /"
+    },
+    {
+      "source_id": "adzuna-au",
+      "market": "au",
+      "reason": "robots.txt answers 403"
+    },
+    {
+      "source_id": "adzuna-it",
+      "market": "it",
+      "reason": "robots.txt answers 403"
+    },
+    {
+      "source_id": "iworkfornsw-au",
+      "market": "au",
+      "reason": "robots.txt answers 403"
+    },
+    {
+      "source_id": "careerone-au",
+      "market": "au",
+      "reason": "job text served, but one link for the whole list; not needed for a third source"
+    },
+    {
+      "source_id": "theprotocol-pl",
+      "market": "pl",
+      "reason": "redirects to a browser-update page"
+    },
+    {
+      "source_id": "gupy-br",
+      "market": "br",
+      "reason": "page title only, no job in the served page"
+    },
+    {
+      "source_id": "catho-br",
+      "market": "br",
+      "reason": "search page answers 403"
+    },
+    {
+      "source_id": "infojobs-it",
+      "market": "it",
+      "reason": "4 KB, no listing"
+    },
+    {
+      "source_id": "inpa-it",
+      "market": "it",
+      "reason": "no job in the served page: client-rendered"
+    },
+    {
+      "source_id": "jobbydoo-it",
+      "market": "it",
+      "reason": "1 KB, no listing"
+    },
+    {
+      "source_id": "jobs-it",
+      "market": "it",
+      "reason": "search page answers 404"
+    },
+    {
+      "source_id": "careerjet-it",
+      "market": "it",
+      "reason": "11 KB, no listing"
+    },
+    {
+      "source_id": "monster-it",
+      "market": "it",
+      "reason": "robots.txt answers 403"
+    },
+    {
+      "source_id": "subito-it",
+      "market": "it",
+      "reason": "robots.txt answers 403"
+    },
+    {
+      "source_id": "bakeca-it",
+      "market": "it",
+      "reason": "search page answers 403"
+    },
+    {
+      "source_id": "jooble-it",
+      "market": "it",
+      "reason": "search page answers 403"
+    },
+    {
+      "source_id": "concorsipubblici-it",
+      "market": "it",
+      "reason": "robots.txt unreadable"
+    }
+  ]
+}

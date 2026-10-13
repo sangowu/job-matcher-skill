@@ -329,6 +329,7 @@
 同一批数据加入通用市场后可归属职位从 7,359 升到约 10,000，覆盖 60 个通用市场。复测用
 `tools/global_coverage_smoke.py --live`。通用市场没有本地招聘站，浏览器通道在这些市场是
 `unavailable_in_market`；要让某个国家达到精选深度，仍是按 [R3-11] 加一个精选市场。
+（[R3-18] 修正了后半句：本地招聘站不需要精选市场。）
 
 ### [R3-14] 为什么按市场语言搜索与初筛，以及谁来翻译角色
 
@@ -436,6 +437,37 @@
   州名改为整词匹配。
 
 实测（2026-10-13）：11,299 条真实 ATS 地点的归属与改动前完全一致；上面列出的标题与地名改动前全部被拒或认不出，改动后全部通过。
+
+### [R3-18] 为什么给通用市场加本地招聘站，而不是把它们升级成精选市场
+
+[R3-13] 写的是「要达到精选深度，就加一个精选市场」。实际查代码：浏览器通道和 Web Search 的来源提示
+都只看 `source_seeds.json` 里哪些来源声明了这个市场（`discovery_plan` 的 `per_market` 由来源目录推导），
+不看市场是精选还是通用。给 fr 加一个本地来源后，Paris 一轮立刻有了浏览器任务和来源提示。
+
+精选身份另外带来的东西，对这些国家是代价而不是收益：
+
+- **别名按子串匹配**：精选别名是逐条写、逐条按子串测过的；把印度搬进去，`India` 会命中 `Indiana`。
+- **州名限定词会被推翻**：`_named_markets` 只认精选市场，加进去的国家都能推翻美国州名限定词。
+- **一连串义务**：每市场 ≥3 个本地来源、smoke 槽位（`max_sources` 要跟着加）、城市三语名、测试里的市场清单。
+
+所以只加来源。按 64 个结构化 board 上各通用市场的职位数（2026-10-13）选了前 10 个：
+in 477、ca 461、fr 248、sg 169、jp 143、es 132、au 129、pl 99、br 94、it 90。
+
+验证沿用 #99 的做法：`check_robots.py` 的读法检查带查询参数的搜索地址，再 GET 一次那个地址，看页面**发出来时**
+就有职位标题或逐条职位链接。要等脚本运行才出现职位的页面不收：抓下来什么都看不到（MyCareersFuture 8 KB、
+Naukri 35 KB、APSjobs、foundit 只有脚本数据）。84 个候选，收 26 个；未收的 58 个及原因在
+`docs/performance/local-sources-generic-markets-2026-10-14.json`。几个值得记下的：
+
+- **robots 禁止的正是搜索参数**：France Travail（`*motsCles=*`）、Welcome to the Jungle（`*/jobs?query=*`）、
+  HelloWork、Meteojob、Green（日本）、Glints。
+- **403**：SEEK、JobStreet、Catho、Cadremploi 等对搜索页直接拒绝。
+- **Internshala 的 robots 禁止一切带 `?` 的地址**，但它的搜索是路径形式（`/jobs/software-development-jobs/`），
+  所以收录并带上 `constraints: ["no_query_string_urls"]`。
+- **日本的 3 个都是英文站**（TokyoDev、Japan Dev、Daijob）；查过的日文站要么禁止搜索路径，要么什么都读不到。
+- **新加坡只有 1 个**（Talent.com），西班牙、巴西、意大利各 2 个。通用市场没有最少来源数的要求，有几个算几个。
+
+顺带：荷兰在 [R3-17] 加了荷兰语搜索，但 Jobbird、Werken voor Nederland、Intermediair 三个荷兰语站只声明了 `en`，
+荷兰语查询用不上它们；改为 `["nl", "en"]`。
 
 ### [R5-06] 复验结论为什么需要独立的写入口
 

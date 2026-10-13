@@ -84,13 +84,13 @@ def _successful_responses() -> dict[str, multi_region_smoke.FetchResult]:
         "systems, evaluation, monitoring, Python, communication, and experience. "
     )
     cases = {
-        "publicjobs-ie": ("AI Engineer Dublin", "/en/jobs/ai-engineer-dublin-101"),
+        "irishjobs-ie": ("Python Developer Dublin", "/job/python-developer-dublin/acme-job101"),
         "reed-uk": ("Machine Learning Engineer London", "/jobs/ml-engineer-london-202"),
         "arbeitsagentur-de": ("KI-Ingenieur Berlin", "/jobsuche/jobdetail/ki-303"),
         "builtin-us": ("AI Engineer New York", "/job/ai-engineer-new-york-404"),
-        "werkenvoornederland-nl": (
-            "AI Engineer Amsterdam",
-            "/vacatures/ai-engineer-amsterdam-505",
+        "academictransfer-nl": (
+            "Machine Learning PhD Amsterdam",
+            "/en/jobs/505/machine-learning-phd",
         ),
         "shine-in": ("Software Engineer Bangalore", "/jobs/software-engineer/acme/606"),
         "jobbank-ca": ("Software Engineer Toronto", "/jobsearch/jobposting/707"),
@@ -114,6 +114,12 @@ def _successful_responses() -> dict[str, multi_region_smoke.FetchResult]:
             "/vagas/v1111/desenvolvedor-java",
             "Responsabilidades e atividades, requisitos: Java, Spring, SQL. ",
             "Candidatar-se",
+        ),
+        "freework-fr": (
+            "Développeur Python Paris",
+            "/fr/tech-it/job-mission/developpeur-python/1212",
+            "Missions et compétences : Python, Django, PostgreSQL, tests. ",
+            "Postuler",
         ),
     }
     responses: dict[str, multi_region_smoke.FetchResult] = {}
@@ -158,7 +164,7 @@ def test_versioned_plan_is_bounded_and_covers_every_supported_market() -> None:
     assert [item["market_id"] for item in resolved][: len(curated)] == curated
     # Then generic markets whose own boards the tool can read. [R3-18]
     generic = [item["market_id"] for item in resolved][len(curated):]
-    assert generic == ["in", "ca", "jp", "es", "pl", "br"]
+    assert generic == ["in", "ca", "jp", "es", "pl", "br", "fr"]
     # `max_sources` has to leave room for the markets, so it is pinned to them
     # rather than to a number that a sixth market turns stale.
     assert plan["limits"]["max_sources"] >= len(resolved)
@@ -285,6 +291,63 @@ def test_a_job_link_written_in_the_markets_language_is_a_job_link(
     assert len(matches) == 1
 
 
+def test_a_place_on_a_div_card_belongs_to_that_cards_posting() -> None:
+    """Built In's cards are <div>s with the place beside the title, not in it.
+    Read from <li> only, every posting on the page had no place."""
+    page = multi_region_smoke._parse_page(
+        '<div><div><div><h2><a href="/job/software-engineer/1001">Software Engineer</a></h2></div>'
+        '<div><span>New York, NY, USA</span></div></div>'
+        '<div><h2><a href="/job/software-engineer/1002">Software Engineer</a></h2>'
+        '<div><span>Dublin, IRL</span></div></div></div>'
+    )
+    matches, funnel = multi_region_smoke._collect_candidates(
+        page, "https://builtin.com/jobs/dev-engineering", ["software engineer"], ["new york"]
+    )
+
+    assert matches == ["https://builtin.com/job/software-engineer/1001"]
+    assert funnel["role_matched"] == 2
+
+
+def test_a_place_in_the_links_own_path_counts() -> None:
+    page = multi_region_smoke._parse_page(
+        '<ul><li><a href="/job/embedded-software-engineer-dublin-permanent/acme-job1234">'
+        'Embedded Software Engineer</a><span>Acme</span></li></ul>'
+    )
+    matches, _ = multi_region_smoke._collect_candidates(
+        page, "https://www.irishjobs.ie/jobs/software-engineer", ["software engineer"], ["dublin"]
+    )
+
+    assert len(matches) == 1
+
+
+def test_a_posting_is_opened_before_a_search_category_that_also_matches() -> None:
+    """The first match is the detail page the run opens. A listing links its
+    own categories, and one of those matching first had the run check a
+    search page as if it were a posting."""
+    page = multi_region_smoke._parse_page(
+        '<ul><li><a href="/jobs/python-developer/in-county-dublin">Python Developer</a></li></ul>'
+        '<ul><li><a href="/job/python-developer-dublin/acme-job107981299">Python Developer</a>'
+        '<span>Dublin</span></li></ul>'
+    )
+    matches, _ = multi_region_smoke._collect_candidates(
+        page, "https://www.irishjobs.ie/jobs/python-developer/in-dublin", ["python"], ["dublin"]
+    )
+
+    assert matches[0].endswith("acme-job107981299")
+
+
+def test_a_block_too_long_for_one_card_is_not_read_as_one() -> None:
+    filler = "<p>" + "Dublin office news. " * 200 + "</p>"
+    page = multi_region_smoke._parse_page(
+        f'<div>{filler}<a href="/job/software-engineer/1003">Software Engineer</a></div>'
+    )
+    matches, _ = multi_region_smoke._collect_candidates(
+        page, "https://example.com/jobs", ["software engineer"], ["dublin"]
+    )
+
+    assert matches == []
+
+
 def test_china_card_location_does_not_leak_across_jobs_or_match_host_ai() -> None:
     page = multi_region_smoke._parse_page(
         '<li><a href="/correcruit/content/id/1.html">AI infra工程师</a>'
@@ -324,9 +387,8 @@ def test_captcha_stops_source_without_following_candidate_links() -> None:
 
 def test_external_response_limit_is_evidence_state_not_exception() -> None:
     plan = _load(PLAN_PATH)
-    source_urls = _source_urls()
     responses: dict[str, multi_region_smoke.FetchResult | Exception] = _successful_responses()
-    responses[source_urls["publicjobs-ie"]] = multi_region_smoke.TransportError(
+    responses[_request_urls()["irishjobs-ie"]] = multi_region_smoke.TransportError(
         "response_limit", "too large"
     )
 
@@ -342,9 +404,8 @@ def test_external_response_limit_is_evidence_state_not_exception() -> None:
 
 def test_missing_fixed_role_and_location_match_is_observed_zero_not_failure() -> None:
     plan = copy.deepcopy(_load(PLAN_PATH))
-    source_urls = _source_urls()
     responses = _successful_responses()
-    ireland_url = source_urls["publicjobs-ie"]
+    ireland_url = _request_urls()["irishjobs-ie"]
     responses[ireland_url] = _result(
         ireland_url,
         '<html><title>Jobs</title><a href="/jobs/accountant-cork-1">Accountant Cork</a></html>',

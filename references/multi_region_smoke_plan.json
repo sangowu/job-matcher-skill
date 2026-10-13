@@ -2,7 +2,7 @@
   "schema_version": 1,
   "evidence_boundary": "This bounded smoke run observes only the selected source entry pages and at most one matching detail page per market. It does not estimate market recall or justify enabling a source by default.",
   "limits": {
-    "max_sources": 12,
+    "max_sources": 13,
     "max_requests_per_source": 2,
     "max_response_bytes": 1048576,
     "timeout_seconds": 8,
@@ -12,10 +12,11 @@
     {
       "market_id": "ie",
       "source_slot": "ie-local-1",
-      "source_id": "publicjobs-ie",
+      "source_id": "irishjobs-ie",
       "mode": "public_get",
-      "role_terms": ["ai engineer", "machine learning engineer"],
-      "location_terms": ["dublin", "ireland"]
+      "request_path": "/jobs/python-developer/in-dublin",
+      "role_terms": ["python", "software engineer", "developer"],
+      "location_terms": ["dublin"]
     },
     {
       "market_id": "uk",
@@ -50,23 +51,17 @@
       "source_id": "builtin-us",
       "mode": "public_get",
       "request_path": "/jobs/dev-engineering",
-      "role_terms": ["ai engineer", "machine learning engineer", "backend engineer"],
-      "location_terms": ["new york", "san francisco", "united states"]
+      "role_terms": ["software engineer", "backend engineer", "machine learning engineer", "ai engineer"],
+      "location_terms": ["new york", "san francisco", "usa", "united states"]
     },
     {
       "market_id": "nl",
       "source_slot": "nl-local-1",
-      "source_id": "werkenvoornederland-nl",
+      "source_id": "academictransfer-nl",
       "mode": "public_get",
-      "role_terms": [
-        "ai engineer",
-        "machine learning engineer"
-      ],
-      "location_terms": [
-        "amsterdam",
-        "netherlands",
-        "nederland"
-      ]
+      "request_path": "/en/jobs/?q=machine+learning",
+      "role_terms": ["machine learning", "ai", "artificial intelligence"],
+      "location_terms": ["amsterdam", "delft", "utrecht", "eindhoven", "leiden", "groningen", "nijmegen", "rotterdam", "enschede", "tilburg", "maastricht", "wageningen"]
     },
     {
       "market_id": "in",
@@ -121,6 +116,15 @@
       "request_path": "/vagas-de-desenvolvedor-em-sao-paulo",
       "role_terms": ["desenvolvedor", "programador", "developer", "engenheiro"],
       "location_terms": ["são paulo", "sao paulo"]
+    },
+    {
+      "market_id": "fr",
+      "source_slot": "fr-local-1",
+      "source_id": "freework-fr",
+      "mode": "public_get",
+      "request_path": "/fr/tech-it/jobs?query=developpeur",
+      "role_terms": ["développeur", "developpeur", "developer"],
+      "location_terms": ["paris", "île-de-france"]
     }
   ]
 }

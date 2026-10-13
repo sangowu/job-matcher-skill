@@ -138,7 +138,7 @@ def test_versioned_plan_is_bounded_and_covers_every_supported_market() -> None:
         key: value for key, value in plan["limits"].items() if key != "max_sources"
     } == {
         "max_requests_per_source": 2,
-        "max_response_bytes": 524288,
+        "max_response_bytes": 1048576,
         "timeout_seconds": 8,
         "max_redirects": 2,
     }

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "evidence_boundary": "This bounded smoke run observes only the selected source entry pages and at most one matching detail page per market. It does not estimate market recall or justify enabling a source by default.",
   "limits": {
-    "max_sources": 13,
+    "max_sources": 16,
     "max_requests_per_source": 2,
     "max_response_bytes": 1048576,
     "timeout_seconds": 8,
@@ -125,6 +125,33 @@
       "request_path": "/fr/tech-it/jobs?query=developpeur",
       "role_terms": ["développeur", "developpeur", "developer"],
       "location_terms": ["paris", "île-de-france"]
+    },
+    {
+      "market_id": "sg",
+      "source_slot": "sg-local-1",
+      "source_id": "talent-sg",
+      "mode": "public_get",
+      "request_path": "/jobs?k=software+engineer&l=Singapore",
+      "role_terms": ["software engineer", "software developer", "developer", "engineer"],
+      "location_terms": ["singapore"]
+    },
+    {
+      "market_id": "au",
+      "source_slot": "au-local-1",
+      "source_id": "careersvic-au",
+      "mode": "public_get",
+      "request_path": "/jobs?keywords=software",
+      "role_terms": ["software", "developer", "engineer"],
+      "location_terms": ["melbourne", "victoria"]
+    },
+    {
+      "market_id": "it",
+      "source_slot": "it-local-1",
+      "source_id": "talent-it",
+      "mode": "public_get",
+      "request_path": "/jobs?k=sviluppatore&l=Milano",
+      "role_terms": ["sviluppatore", "programmatore", "developer"],
+      "location_terms": ["milano", "milan"]
     }
   ]
 }

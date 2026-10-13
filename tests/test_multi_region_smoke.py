@@ -121,6 +121,14 @@ def _successful_responses() -> dict[str, multi_region_smoke.FetchResult]:
             "Missions et compétences : Python, Django, PostgreSQL, tests. ",
             "Postuler",
         ),
+        "talent-sg": ("Software Engineer Singapore", "/view?id=1313131313"),
+        "careersvic-au": ("Software Developer Melbourne", "/job/software-developer-1414"),
+        "talent-it": (
+            "Sviluppatore Java Milano",
+            "/view?id=1515151515",
+            "Requisiti e mansioni: Java, Spring, SQL, test automatici. ",
+            "Candidati ora",
+        ),
     }
     responses: dict[str, multi_region_smoke.FetchResult] = {}
     for source_id, case in cases.items():
@@ -164,7 +172,7 @@ def test_versioned_plan_is_bounded_and_covers_every_supported_market() -> None:
     assert [item["market_id"] for item in resolved][: len(curated)] == curated
     # Then generic markets whose own boards the tool can read. [R3-18]
     generic = [item["market_id"] for item in resolved][len(curated):]
-    assert generic == ["in", "ca", "jp", "es", "pl", "br", "fr"]
+    assert generic == ["in", "ca", "jp", "es", "pl", "br", "fr", "sg", "au", "it"]
     # `max_sources` has to leave room for the markets, so it is pinned to them
     # rather than to a number that a sixth market turns stale.
     assert plan["limits"]["max_sources"] >= len(resolved)
@@ -334,6 +342,105 @@ def test_a_posting_is_opened_before_a_search_category_that_also_matches() -> Non
     )
 
     assert matches[0].endswith("acme-job107981299")
+
+
+def test_a_posting_whose_id_is_in_the_query_is_its_own_posting() -> None:
+    """Talent.com links every posting as "/view?id=<n>", titled "Show more".
+    With the query dropped the whole list was one link; with the title read
+    from the link alone, none of it matched a role."""
+    page = multi_region_smoke._parse_page(
+        '<div><div><h2>Software Engineer</h2><span>Singapore</span>'
+        '<a href="/view?id=534436503603382246&utm_source=x">Show more</a></div>'
+        '<div><h2>Accountant</h2><span>Singapore</span>'
+        '<a href="/view?id=534436551741409254">Show more</a></div></div>'
+    )
+    matches, funnel = multi_region_smoke._collect_candidates(
+        page, "https://sg.talent.com/jobs?k=software", ["software engineer"], ["singapore"]
+    )
+
+    assert matches == ["https://sg.talent.com/view?id=534436503603382246"]
+    assert funnel["candidates_raw"] == 2
+
+
+def test_a_filter_number_in_the_query_is_not_a_posting_id() -> None:
+    assert multi_region_smoke._canonical_url(
+        "https://www.irishjobs.ie/jobs/python-developer/in-dublin?salary=10000&salarytypeid=1"
+    ) == "https://www.irishjobs.ie/jobs/python-developer/in-dublin"
+
+
+def test_links_sharing_a_posting_id_are_one_posting_opened_at_its_title() -> None:
+    """Careers.vic puts a save button beside each title; both carry the id."""
+    page = multi_region_smoke._parse_page(
+        '<div><div><a href="/job/software-developer-88851">Software Developer</a>'
+        '<a href="/vpsc-dialog/login_favourite_jobs/88851">Favourite</a>'
+        '<span>Location: Melbourne - CBD</span></div>'
+        '<div><a href="/job/data-engineer-90038">Data Engineer</a>'
+        '<a href="/vpsc-dialog/login_favourite_jobs/90038">Favourite</a>'
+        '<span>Location: Geelong</span></div></div>'
+    )
+    matches, funnel = multi_region_smoke._collect_candidates(
+        page, "https://www.careers.vic.gov.au/jobs", ["software", "data"], ["melbourne"]
+    )
+
+    assert matches == ["https://www.careers.vic.gov.au/job/software-developer-88851"]
+    assert funnel["candidates_raw"] == 2
+
+
+def test_a_cards_tag_links_do_not_make_it_two_postings() -> None:
+    """Daijob's cards link their place to a search for it."""
+    page = multi_region_smoke._parse_page(
+        '<div><div><a href="/en/jobs/detail/1555722"></a><h3>Support Engineer</h3>'
+        '<a href="/en/jobs/search_result?location=tokyo">Tokyo</a></div>'
+        '<div><a href="/en/jobs/detail/1447658"></a><h3>Support Engineer</h3>'
+        '<a href="/en/jobs/search_result?location=osaka">Osaka</a></div></div>'
+    )
+    matches, _ = multi_region_smoke._collect_candidates(
+        page, "https://www.daijob.com/en/jobs/search_result?keywords=engineer",
+        ["support engineer"], ["tokyo"],
+    )
+
+    assert matches == ["https://www.daijob.com/en/jobs/detail/1555722"]
+
+
+def test_a_posting_link_without_a_job_word_is_still_a_posting() -> None:
+    """Tecnoempleo's postings carry a hex id and no job-ish word; its company
+    pages carry "trabajo". The posting is what is opened."""
+    page = multi_region_smoke._parse_page(
+        '<div><div><a href="/desarrollador-java-arelance/spring-git/rf-dc421cdf122153731244">'
+        'Desarrollador Java</a><a href="/grupo-ns-trabajo">Grupo NS</a><span>Madrid</span></div>'
+        '<div><a href="/desarrollador-net/net-ci-cd/rf-94471c8232be43a3044e">Desarrollador .Net</a>'
+        '<span>Sevilla</span></div></div>'
+    )
+    matches, _ = multi_region_smoke._collect_candidates(
+        page, "https://www.tecnoempleo.com/ofertas-trabajo/?te=desarrollador",
+        ["desarrollador"], ["madrid"],
+    )
+
+    assert matches == [
+        "https://www.tecnoempleo.com/desarrollador-java-arelance/spring-git/rf-dc421cdf122153731244"
+    ]
+
+
+def test_an_employer_link_with_an_id_does_not_void_the_card() -> None:
+    """Nankai's cards link the posting and the employer, both with ids. The
+    posting's link says "recruit"; the employer's does not."""
+    page = multi_region_smoke._parse_page(
+        '<li><div><a href="/correcruit/content/id/118533.html">AI infra工程师</a></div>'
+        '<div><a href="/company/index/id/35479.html">【智遨通】</a> 天津市 / 上海市</div></li>'
+        '<li><div><a href="/correcruit/content/id/119612.html">会计</a></div>'
+        '<div><a href="/company/index/id/35480.html">【某公司】</a> 北京市</div></li>'
+    )
+    matches, _ = multi_region_smoke._collect_candidates(
+        page, "https://career.nankai.edu.cn/correcruit/index.html", ["AI infra工程师"], ["上海"]
+    )
+
+    assert matches == ["https://career.nankai.edu.cn/correcruit/content/id/118533.html"]
+
+
+def test_a_year_in_an_address_is_not_a_posting_id() -> None:
+    assert multi_region_smoke._posting_key("https://example.com/blog/2026/hiring") == (
+        "https://example.com/blog/2026/hiring"
+    )
 
 
 def test_a_block_too_long_for_one_card_is_not_read_as_one() -> None:

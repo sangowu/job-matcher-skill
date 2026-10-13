@@ -18,6 +18,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
 from _jobutil import (
+    fold_latin_accents,
     generic_markets,
     internal_languages,
     language_aliases,
@@ -53,9 +54,16 @@ GENERIC_QUERY_TEMPLATES = {
 MAX_ROLE_VARIANTS = 3
 MAX_GENERALIZED_FAMILIES = 2
 _LANGUAGE_ALIASES = language_aliases()
-_REMOTE_TERMS = ("remote", "远程", "home office", "homeoffice")
-_HYBRID_TERMS = ("hybrid", "混合办公", "hybridarbeit")
-_ONSITE_TERMS = ("onsite", "on-site", "现场办公", "vor ort")
+# Matched against folded text, so written without accents: "teletravail"
+# reads "télétravail", "hibrido" reads "híbrido".
+_REMOTE_TERMS = (
+    "remote", "远程", "home office", "homeoffice", "teletravail", "a distance",
+    "remoto", "trabajo a distancia", "リモート", "在宅勤務",
+)
+_HYBRID_TERMS = ("hybrid", "混合办公", "hybridarbeit", "hybride", "hibrido", "ハイブリッド")
+_ONSITE_TERMS = (
+    "onsite", "on-site", "现场办公", "vor ort", "sur site", "presencial", "出社",
+)
 
 
 class MarketPlanError(ValueError):
@@ -453,7 +461,7 @@ def generic_market_entries(
     A generic market has the country, its listed hub cities, and a query
     template per search language. It has no curated local sources, so what
     reaches it is the structured channel and Web Search. Its aliases are matched
-    as whole words (see `_market_alias_matches`), which a curated market's are
+    as whole words (see `_place_entries`), which a curated market's are
     not: "India" sits inside "Indiana" and "Oman" inside "Romania".
     """
     catalog = geo_path or GEO_COUNTRIES_PATH
@@ -463,11 +471,11 @@ def generic_market_entries(
         raise MarketPlanError("geo_countries.json countries must be a non-empty list")
     taken: dict[str, str] = {}
     for market in curated["markets"]:
-        for alias in market["country_aliases"]:
-            taken[_normalize_text(alias)] = market["market_id"]
+        for alias in [*market["country_aliases"], *market["country_names"].values()]:
+            taken[_folded(alias)] = market["market_id"]
         for city in market["cities"]:
-            for alias in [city["name"], *city["aliases"]]:
-                taken[_normalize_text(alias)] = market["market_id"]
+            for alias in [city["name"], *city["aliases"], *city["names"].values()]:
+                taken[_folded(alias)] = market["market_id"]
     entries: list[dict[str, Any]] = []
     for country in countries:
         if not isinstance(country, dict):
@@ -497,9 +505,14 @@ def generic_market_entries(
                 "aliases": city_aliases,
                 "administrative_areas": [],
             })
-        own = [*aliases, *(alias for city in cities for alias in city["aliases"])]
+        country_names = _localized(name, aliases, country.get("names"), market_id)
+        own = [
+            *aliases,
+            *country_names.values(),
+            *(alias for city in cities for alias in [*city["aliases"], *city["names"].values()]),
+        ]
         for alias in own:
-            key = _normalize_text(alias)
+            key = _folded(alias)
             if key in taken and taken[key] != market_id:
                 raise MarketPlanError(
                     f"{market_id} alias {alias!r} is already {taken[key]}'s"
@@ -509,7 +522,7 @@ def generic_market_entries(
             "market_id": market_id,
             "coverage": "generic",
             "country": name,
-            "country_names": _localized(name, aliases, country.get("names"), market_id),
+            "country_names": country_names,
             "country_aliases": aliases,
             "default_search_languages": languages,
             "cities": cities,
@@ -582,8 +595,21 @@ def _normalize_text(value: Any) -> str:
     return re.sub(r"[\s,;/_|]+", " ", text)
 
 
+def _folded(value: Any) -> str:
+    """`_normalize_text` with the accents on Latin letters dropped as well.
+
+    What makes "Zurich" and "Zürich", "Bogota" and "Bogotá", "Malmo" and
+    "Malmö" one name -- postings write both, and the catalog listed each
+    spelling it had thought of as its own alias. Used for the generic
+    aliases and the per-language names, which are whole-word matched. Not
+    for the curated aliases: they are substrings, written and tested
+    unfolded, and folded "Münster" is the Irish province "Munster".
+    """
+    return _normalize_text(fold_latin_accents(str(value or "")))
+
+
 def _work_mode(value: str) -> str:
-    normalized = _normalize_text(value)
+    normalized = _folded(value)
     if any(term in normalized for term in _HYBRID_TERMS):
         return "hybrid"
     if any(term in normalized for term in _REMOTE_TERMS):
@@ -752,19 +778,50 @@ def _contains_words(alias: str, text: str) -> bool:
     return False
 
 
-def _named_markets(normalized: str, markets: dict[str, Any]) -> set[str]:
+def _localized_aliases(names: dict[str, str], aliases: list[str]) -> list[str]:
+    """The names a place has in each language that its aliases do not list.
+
+    "Varsovie", "Varsovia", "Varsóvia", "Warschau", "ワルシャワ" are Warsaw to a
+    reader of each language, and a person types the place the way their
+    language writes it. They are read as whole words whatever the market's
+    coverage, since they were not written under the substring rule the
+    curated aliases were: "Chine" sits inside "machine".
+
+    An alias written with accents is returned too, so its unaccented spelling
+    is read: "München" also reads "Munchen". One without accents is not, which
+    keeps the curated substring rule where it was: folded, "Münster" would be
+    the Irish province "Munster".
+    """
+    listed = {_normalize_text(alias) for alias in aliases}
+    seen: set[str] = set()
+    output: list[str] = []
+    accented = [alias for alias in aliases if _folded(alias) != _normalize_text(alias)]
+    for name in [*names.values(), *accented]:
+        key = _folded(name)
+        if not key or key in seen:
+            continue
+        if _normalize_text(name) in listed and name not in accented:
+            continue
+        seen.add(key)
+        output.append(name)
+    return output
+
+
+def _named_markets(
+    normalized: str, markets: dict[str, Any], folded: str | None = None
+) -> set[str]:
     """Which curated markets the text names by country, not by city.
 
     Curated only: this decides whether an administrative qualifier stands down,
     and a generic country's name is too often a US place to outrank one --
     "Panama City, FL", "Lebanon, PA", "Albuquerque, New Mexico".
     """
+    folded = folded if folded is not None else _folded(normalized)
     return {
         market["market_id"]
-        for market in markets["markets"]
-        if market.get("coverage", "curated") == "curated"
-        for alias in market["country_aliases"]
-        if _alias_matches(alias, normalized)
+        for market, city, _, key, rule in _place_entries(markets)
+        if city is None and market.get("coverage", "curated") == "curated"
+        and _entry_matches(key, rule, normalized, folded)
     }
 
 
@@ -781,20 +838,56 @@ def _alias_matches(alias: str, normalized_value: str) -> bool:
     return alias_normalized in normalized_value
 
 
-def _market_alias_matches(market: dict[str, Any], alias: str, normalized_value: str) -> bool:
-    """A generic market's alias must be a whole word; a curated one keeps its rule.
+# One entry per name a place is matched by: (market, city or None, rank,
+# key, rule). `rule` is "substring" for a curated alias (the rule those were
+# written and tested under, see `_alias_matches`) and "words" for a generic
+# alias or a per-language name, read as whole words in the folded text.
+_PlaceEntry = tuple[dict[str, Any], "dict[str, Any] | None", int, str, str]
+_PLACE_INDEX: dict[int, tuple[list[dict[str, Any]], list[_PlaceEntry]]] = {}
 
-    The generic aliases are two hundred country names and the cities beside them,
-    and a substring reading of that many collides with real places: "India" in
-    "Indiana", "Oman" in "Romania", "Niger" in "Nigeria". The curated aliases
-    were written and tested one at a time under the substring rule, so they keep it.
+
+def _place_entries(markets: dict[str, Any]) -> list[_PlaceEntry]:
+    """Every alias and name of every market, normalized and folded once.
+
+    Building this per call made location matching seven times slower once
+    each place had a name per language: 20 ms a location against 3, over
+    11,000 postings a round. Cached by the identity of the market list,
+    which is built once per `load_resources` and not changed afterwards.
     """
-    if market.get("coverage") != "generic":
-        return _alias_matches(alias, normalized_value)
-    alias_normalized = _normalize_text(alias)
-    return alias_normalized == normalized_value or _contains_words(
-        alias_normalized, normalized_value
-    )
+    catalog = markets["markets"]
+    cached = _PLACE_INDEX.get(id(catalog))
+    if cached is not None and cached[0] is catalog:
+        return cached[1]
+    entries: list[_PlaceEntry] = []
+    for market in catalog:
+        generic = market.get("coverage") == "generic"
+
+        def add(city: dict[str, Any] | None, rank: int, aliases: list[str], names: dict) -> None:
+            for alias in aliases:
+                if generic:
+                    entries.append((market, city, rank, _folded(alias), "words"))
+                else:
+                    entries.append((market, city, rank, _normalize_text(alias), "substring"))
+            for name in _localized_aliases(names, aliases):
+                entries.append((market, city, rank, _folded(name), "words"))
+
+        for city in market["cities"]:
+            add(city, 2, [*city["aliases"], *city["administrative_areas"]], city["names"])
+        add(None, 1, market["country_aliases"], market["country_names"])
+    if len(_PLACE_INDEX) > 8:
+        _PLACE_INDEX.clear()
+    _PLACE_INDEX[id(catalog)] = (catalog, entries)
+    return entries
+
+
+def _entry_matches(key: str, rule: str, normalized: str, folded: str) -> bool:
+    if rule == "substring":
+        if key == normalized:
+            return True
+        if len(key) <= 3 and key.isascii():
+            return key in normalized.split()
+        return key in normalized
+    return key == folded or _contains_words(key, folded)
 
 
 def normalize_location(value: Any, markets: dict[str, Any]) -> dict[str, Any]:
@@ -816,7 +909,8 @@ def normalize_location(value: Any, markets: dict[str, Any]) -> dict[str, Any]:
     normalized = _normalize_text(raw)
     mode = _work_mode(raw)
     owner, qualifier = _administrative_qualifier(raw, normalized, markets)
-    named = _named_markets(normalized, markets)
+    folded = _folded(raw)
+    named = _named_markets(normalized, markets, folded)
     restrict_to: str | None = None
     if qualifier and owner is not None and not named - {owner}:
         # The qualifier decides which market this belongs to. Restricting rather
@@ -855,29 +949,18 @@ def normalize_location(value: Any, markets: dict[str, Any]) -> dict[str, Any]:
             "names": {},
         }
 
-    def _position(alias_norm: str) -> int:
+    def _position(alias_norm: str, text: str = normalized) -> int:
         """Where this alias sits in the text; unfound aliases sort to the end."""
-        found = normalized.find(alias_norm)
-        return len(normalized) if found < 0 else found
+        found = text.find(alias_norm)
+        return len(text) if found < 0 else found
 
     location_matches: list[
         tuple[int, int, dict[str, Any], dict[str, Any] | None, int]
     ] = []
-    for market in markets["markets"]:
-        for city in market["cities"]:
-            aliases = [*city["aliases"], *city["administrative_areas"]]
-            for alias in aliases:
-                alias_norm = _normalize_text(alias)
-                if _market_alias_matches(market, alias, normalized):
-                    location_matches.append(
-                        (len(alias_norm), 2, market, city, _position(alias_norm))
-                    )
-        for alias in market["country_aliases"]:
-            alias_norm = _normalize_text(alias)
-            if _market_alias_matches(market, alias, normalized):
-                location_matches.append(
-                    (len(alias_norm), 1, market, None, _position(alias_norm))
-                )
+    for market, city, rank, key, rule in _place_entries(markets):
+        if _entry_matches(key, rule, normalized, folded):
+            text = normalized if rule == "substring" else folded
+            location_matches.append((len(key), rank, market, city, _position(key, text)))
 
     if restrict_to is not None:
         location_matches = [
@@ -914,18 +997,13 @@ def normalize_location(value: Any, markets: dict[str, Any]) -> dict[str, Any]:
         # read the way it is written rather than by catalog iteration order:
         # "Dublin, Ireland; London, England" is a Dublin job that is also open
         # in London. Alias length only breaks a remaining tie.
-        _, confidence_rank, market, city, _ = max(
-            location_matches, key=lambda item: (item[1], -item[4], item[0])
-        )
-        # Every market the text names, not only the winner's. The field is
-        # plural and its readers treat it as a set, but one match was reported:
-        # "Dublin, Ireland; London, England" resolved to the United Kingdom
-        # alone, attributing a plainly Dublin job to the wrong market. The
-        # winner stays first, so the primary reading is still readable off the
-        # front of the list.
+        #
         # A shorter alias matched entirely inside a longer one is that longer
         # name, not a second place: "Northern Ireland" contains "Ireland", and
-        # counting both would put a Belfast job in the Republic.
+        # counting both would put a Belfast job in the Republic. Set aside
+        # before the winner is chosen as well, since a city outranks a
+        # country: "ポルトガル" (Portugal) holds "ポルト" (Porto), "罗马尼亚"
+        # (Romania) holds "罗马" (Rome), and the city used to win.
         def _subsumed(item: tuple[int, int, Any, Any, int]) -> bool:
             length, _, _, _, start = item
             return any(
@@ -935,14 +1013,17 @@ def normalize_location(value: Any, markets: dict[str, Any]) -> dict[str, Any]:
                 for other in location_matches
             )
 
-        others = sorted(
-            {
-                item[2]["market_id"]
-                for item in location_matches
-                if not _subsumed(item)
-            }
-            - {market["market_id"]}
+        standing = [item for item in location_matches if not _subsumed(item)]
+        _, confidence_rank, market, city, _ = max(
+            standing, key=lambda item: (item[1], -item[4], item[0])
         )
+        # Every market the text names, not only the winner's. The field is
+        # plural and its readers treat it as a set, but one match was reported:
+        # "Dublin, Ireland; London, England" resolved to the United Kingdom
+        # alone, attributing a plainly Dublin job to the wrong market. The
+        # winner stays first, so the primary reading is still readable off the
+        # front of the list.
+        others = sorted({item[2]["market_id"] for item in standing} - {market["market_id"]})
         return {
             "input": raw,
             "market_ids": [market["market_id"], *others],

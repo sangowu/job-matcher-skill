@@ -9,6 +9,7 @@ import functools
 import hashlib
 import json
 import re
+import unicodedata
 from pathlib import Path
 from urllib.parse import parse_qsl, urlparse
 
@@ -98,6 +99,21 @@ _LANGUAGE_CODE = re.compile(r"[a-z]{2}(-[A-Z][a-z]{3})?")
 
 
 @functools.lru_cache(maxsize=1)
+def fold_latin_accents(value: str) -> str:
+    """Drop the accents on Latin letters and nothing else.
+
+    A blanket NFKD-and-strip would also take the voicing marks off Japanese
+    kana -- "データ" would become "テータ" -- so a combining mark is dropped
+    only when the letter it sits on is Latin. The result is NFKC.
+    """
+    output: list[str] = []
+    for char in unicodedata.normalize("NFKD", value or ""):
+        if unicodedata.combining(char) and output and output[-1] < "ɐ":
+            continue
+        output.append(char)
+    return unicodedata.normalize("NFKC", "".join(output))
+
+
 def language_catalog(path: Path | None = None) -> tuple[dict, ...]:
     """The languages a round can search in, from `references/languages.json`.
 

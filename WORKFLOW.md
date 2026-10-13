@@ -102,7 +102,7 @@
 - **行政区决定地点归属哪个市场**：`markets.json` 每个市场可声明 `administrative_areas`（名称 + 两字母代码），`foreign_administrative_areas` 只收没有任何市场覆盖的地方（发布目录里为空）。`Dublin, OH` 因此归 us 而不是 ie；`London, ON` 归 ca（加拿大的省由 ca 声明）。印证按市场读：文本点名**另一个**市场才让行政区判定让位，`Berlin, DE` 因此是德国而不是特拉华。同一行政区不得被两个市场或市场与境外目录同时声明，目录加载即报错。精选市场以外的每个国家都是**通用市场**（`geo_countries.json`，id 为小写 ISO 码，`coverage: generic`）：无本地招聘站，只走结构化与 Web Search；别名按**整词**匹配，中文不要求词边界；州名限定词只被精选市场推翻（`Panama City, FL` 是美国）。`[R3-11]` `[R3-13]`
 - 地点优先级：`user_intent.locations` > `target_locations` > 旧 `preferred_locations` > `current_location`。**无法识别的明确地点返回 `needs_user_input=true`**，不得回退 CV 地点或猜国家。
 - **默认不搜索 remote 职位**：地点含 remote 词的职位在初筛即跳过，无论它同时写了哪个地方。`[R3-10]`
-- `report_language` 只控制报告与解释，`search_languages` 由目标市场决定。语言集以 `references/languages.json` 为准，别名在边界规范化。
+- `report_language` 只控制报告与解释，`search_languages` 由目标市场决定。语言集以 `references/languages.json` 为准，别名在边界规范化。报告界面支持目录里的每种语言（文字在 `assets/report_strings.json`），评分的自然语言文本也用 `report_language` 写。`[R3-15]`
 - **plan 的 `roles_needing_translation` 非空时**，把每个角色译成所列语言（每语言 1–3 个当地招聘常用职位名），写入 `user_intent.localized_roles: {角色: {语言: [职位名]}}` 后重跑 plan 与 `effective-profile`；角色本身的语言用 `user_intent.role_language` 说明。`[R3-14]`
 - 融合 CVProfile + query → `search_plan` + `candidate_profile`。**缺目标职位或地点完全缺失 → 停下追问用户。**
 - 算 `candidate_profile_hash`：把 candidate_profile 喂给 `cp_hash.py`（规范化后再 hash，同语义同 hash），取返回的 `cp_hash`。后续 `merge_jobs` / `render_html` 的 `--cp-hash` 全用它，不要自己另编。

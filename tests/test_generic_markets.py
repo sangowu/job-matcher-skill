@@ -242,13 +242,15 @@ def test_a_candidate_in_a_generic_market_passes_the_contract():
     assert normalized["location_normalized"]["market_ids"] == ["fr"]
 
 
-def test_the_report_names_a_generic_market_in_both_languages():
+def test_the_report_names_a_market_in_the_languages_the_catalog_has():
     names = render_html.market_names(["fr", "ie", "jp"])
 
-    assert names["fr"] == {"en": "France", "zh": "法国"}
-    assert names["jp"]["en"] == "Japan"
-    # A curated market's label is in the template already.
-    assert "ie" not in names
+    assert names["fr"]["region"] == "FR"
+    assert names["fr"]["names"]["en"] == "France"
+    assert names["fr"]["names"]["zh-Hans"] == "法国"
+    assert names["jp"]["names"]["ja"] == "日本"
+    # Curated markets travel the same way; the template lists no markets.
+    assert names["ie"]["names"]["fr"] == "Irlande"
 
 
 def test_the_template_falls_back_to_the_names_the_data_carries():

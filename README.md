@@ -20,7 +20,7 @@
 - 🎯 **5 维匹配打分**：title / seniority / skills / location / must-have，输出五档投递建议（强烈投递→跳过）。资历硬规则与契约校验拦截打分漂移。
 - 🗂️ **增量缓存**：CV、JD、匹配分三层缓存；多来源同职位自动聚合（含区域平台 job-id 强命中）；换 query 自动失效重算。
 - 🛡️ **不可信输入隔离**：搜索结果与 JD 正文按纯数据处理并忽略其中指令；报告内嵌 JSON 转义、链接限 http(s)。
-- 📊 **可交互报告**：两栏布局（左职位列表 30% + 右详情 70%）+ 评分徽章 + 深色模式 + 排序/搜索 + 市场/来源/验证状态筛选 + 多来源发现证据 + 7/30 天运行健康快照 + 中英 i18n，自包含单文件 HTML。
+- 📊 **可交互报告**：两栏布局（左职位列表 30% + 右详情 70%）+ 评分徽章 + 深色模式 + 排序/搜索 + 市场/来源/验证状态筛选 + 多来源发现证据 + 7/30 天运行健康快照 + 界面支持中/英/德/法/西/葡/日（随 `report_language`，页内可切换），自包含单文件 HTML。
 - 🌐 **可选隔离浏览器**：Kernel BYOK 作为最终抓取兜底，支持受限列表翻页、视觉控制和 Live View 人工接管；默认关闭，CI 使用 Fake Provider。
 
 ## 🏗️ 架构
@@ -130,6 +130,7 @@ job-matcher/
 │   ├── _filelock.py          # 共享：跨进程独占文件锁（所有本地存储）
 │   └── _stdio.py             # 共享：stdout/stderr 钉成 UTF-8；stdin 读取有上限，不会无限等待
 ├── assets/template.html  # 静态报告模板（Tailwind + 纯 JS），原样复制为 report.html
+├── assets/report_strings.json  # 报告界面文字，每种语言一张表，每轮写入 report_data.js
 └── data/                 # 运行时数据（.gitignore，含 PII）
 ```
 

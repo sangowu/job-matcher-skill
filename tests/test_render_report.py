@@ -12,7 +12,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import render_html  # noqa: E402
-from _jobutil import make_dedup_key, supported_markets  # noqa: E402
+from _jobutil import known_markets, make_dedup_key  # noqa: E402
 
 
 CV_HASH = "cv-a"
@@ -164,16 +164,24 @@ def test_the_page_carries_no_job_text_at_all(monkeypatch, tmp_path, capsys):
     assert "</script><img" not in data
 
 
-def test_every_supported_market_has_a_label_in_both_languages():
+def test_every_market_is_named_by_the_data_the_page_receives():
     """The template kept its own list of markets, and the fifth one missed it.
 
     A us row rendered its filter option as the raw key `market_us`, seen in a
     browser. Same shape as the schema enum that still said four markets: a
     hand-kept copy of the market set with nothing comparing it to the catalog.
+    The names now come from the catalog for every market, curated or not.
     """
+    markets = known_markets()
+    names = render_html.market_names(markets)
+
+    assert set(names) == set(markets)
+    for market_id, entry in names.items():
+        assert entry["names"]["en"], market_id
+        assert re.fullmatch(r"[A-Z]{2}", entry["region"]), market_id
+    assert names["uk"]["region"] == "GB"
     template = render_html.TEMPLATE_PATH.read_text(encoding="utf-8")
-    for market_id in supported_markets():
-        assert template.count(f"market_{market_id}: ") == 2, market_id
+    assert "market_ie" not in template
 
 
 def test_external_markup_cannot_break_out_of_inline_script(monkeypatch, tmp_path, capsys):
@@ -478,14 +486,15 @@ def test_a_sibling_url_is_sanitized_like_any_other(monkeypatch, tmp_path, capsys
     assert jobs[1]["same_role"][0]["url"] == ""
 
 
-def test_the_template_names_the_repeat_in_both_languages():
+def test_the_template_names_the_repeat_in_every_language():
     template = (
         Path(__file__).resolve().parents[1] / "assets" / "template.html"
     ).read_text(encoding="utf-8")
+    strings = render_html.report_strings()
 
-    assert template.count("same_role_heading") == 3
-    assert "Other postings of this role" in template
-    assert "同一岗位的其他发布" in template
+    assert template.count("same_role_heading") == 1
+    assert strings["en"]["same_role_heading"] == "Other postings of this role"
+    assert strings["zh-Hans"]["same_role_heading"] == "同一岗位的其他发布"
     # The chip on the list card, so a repeat is visible before anything is
     # clicked, and the section in the detail pane that lists the other
     # postings. Dropping either leaves the data computed and unseen.
@@ -495,13 +504,11 @@ def test_the_template_names_the_repeat_in_both_languages():
 
 
 def test_report_template_labels_local_browser_discovery_routes():
-    template = (Path(__file__).resolve().parents[1] / "assets" / "template.html").read_text(
-        encoding="utf-8"
-    )
+    strings = render_html.report_strings()
 
-    assert 'route_browseros_neo: "BrowserOS Neo"' in template
-    assert 'route_user_browser: "用户浏览器"' in template
-    assert 'route_user_browser: "User browser"' in template
+    assert strings["en"]["route_browseros_neo"] == "BrowserOS Neo"
+    assert strings["zh-Hans"]["route_user_browser"] == "用户浏览器"
+    assert strings["en"]["route_user_browser"] == "User browser"
 
 
 def test_report_meta_aggregates_market_coverage_without_treating_failure_as_zero():
@@ -532,8 +539,8 @@ def test_report_meta_aggregates_market_coverage_without_treating_failure_as_zero
         }
     )
 
-    assert meta["lang"] == "zh"
-    assert meta["report_language"] == "zh"
+    assert meta["lang"] == "zh-Hans"
+    assert meta["report_language"] == "zh-Hans"
     assert meta["target_markets"] == ["de", "cn"]
     assert [row["status"] for row in meta["market_coverage"]] == ["executed", "failed"]
     assert meta["market_coverage"][0]["candidates_incremental"] == 4
@@ -793,18 +800,19 @@ def test_the_header_counts_them_so_a_shorter_list_is_not_a_mystery(
     assert meta["session_dependent_count"] == 2
 
 
-def test_the_template_names_the_signed_in_case_in_both_languages():
+def test_the_template_names_the_signed_in_case_in_every_language():
     template = (
         Path(__file__).resolve().parents[1] / "assets" / "template.html"
     ).read_text(encoding="utf-8")
+    strings = render_html.report_strings()
 
-    assert "Signed-in result" in template
-    assert "登录态结果" in template
+    assert strings["en"]["session_dependent"] == "Signed-in result"
+    assert strings["zh-Hans"]["session_dependent"] == "登录态结果"
     # The chip on the card, the note in the detail pane, and the header line.
     assert 'rounded">${t("session_dependent")}</span>' in template
     # Counted, not merely present: an i18n key keeps matching after the line
     # that used it is gone, which is how the detail note slipped a mutation.
-    assert template.count("session_dependent_detail") == 3
+    assert template.count("session_dependent_detail") == 1
     assert '${t("session_dependent_detail")}' in template
     assert template.count("session_dependent_count") == 1
 

@@ -22,7 +22,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from _jobutil import load_config, normalize_company, supported_markets
+from _jobutil import known_markets, load_config, normalize_company
 from runtime_metrics import DEFAULT_THRESHOLDS, build_summaries
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -34,7 +34,7 @@ REPORT_NAME = "report.html"
 REPORT_DATA_NAME = "report_data.js"
 METRICS_PATH = DATA_DIR / "metrics.jsonl"
 EVAL_RUNS_DIR = DATA_DIR / "eval_runs"
-SUPPORTED_MARKETS = set(supported_markets())
+SUPPORTED_MARKETS = set(known_markets())
 # Routes that read a page through the person's own signed-in browser. What
 # they return depends on who is signed in, so a row found only this way is not
 # a row a different account would necessarily see. Not a fault and not a
@@ -213,6 +213,27 @@ def _channels(value: object) -> dict:
         channel: value[channel]
         for channel in CHANNELS
         if value.get(channel) in CHANNEL_STATES
+    }
+
+
+def market_names(market_ids: list[str]) -> dict[str, dict[str, str]]:
+    """`{market_id: {"en", "zh"}}` for the generic markets in this report.
+
+    The template carries labels for the curated markets only. A generic market
+    is one of two hundred countries, so its name travels with the data instead
+    of being written into the page two hundred times.
+    """
+    import market_plan
+
+    wanted = set(market_ids)
+    markets, _ = market_plan.load_resources()
+    return {
+        market["market_id"]: {
+            "en": market["country_names"]["en"],
+            "zh": market["country_names"]["zh-Hans"],
+        }
+        for market in markets["markets"]
+        if market["market_id"] in wanted and market.get("coverage") == "generic"
     }
 
 
@@ -459,6 +480,9 @@ def main() -> None:
     # browser" is the sentence that stops a shorter list next week from reading
     # as the market having moved.
     meta["session_dependent_count"] = sum(job["session_dependent"] for job in jobs)
+    meta["market_names"] = market_names(
+        [*meta.get("target_markets", []), *(m for job in jobs for m in job["market_ids"])]
+    )
     health = build_health_payload()
 
     # The page and the round's data are two files. Every round used to write a

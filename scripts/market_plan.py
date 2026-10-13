@@ -17,7 +17,7 @@ import unicodedata
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
-from _jobutil import supported_markets
+from _jobutil import generic_markets, supported_markets
 from _stdio import StdinUnavailable, read_stdin_text
 
 
@@ -32,6 +32,13 @@ SUPPORTED_MARKETS = supported_markets()
 INTERNAL_LANGUAGES = ("en", "de", "zh-Hans")
 DISCOVERY_ROUTES = {"agent_web_search"}
 SOURCE_TYPES = {"open_web"}
+# A generic market's queries, one per language it searches in. The curated
+# markets write their own in markets.json; these are the same wording.
+GENERIC_QUERY_TEMPLATES = {
+    "en": "{role} jobs {location}",
+    "de": "{role} Stellenangebote {location}",
+    "zh-Hans": "{location} {role} 招聘",
+}
 # Titles one CV role is searched under, and how many of them a generalization
 # may claim. Three is the ceiling the whole expansion is held to, so a role
 # that generalizes twice keeps one own-family title, not none.
@@ -177,6 +184,10 @@ def validate_markets(
     for market in markets:
         if not isinstance(market, dict):
             raise MarketPlanError("each market must be an object")
+        if market.get("coverage") == "generic":
+            # Built from geo_countries.json and checked there; this validator
+            # is for the curated entries markets.json writes by hand.
+            continue
         market_id = str(market.get("market_id") or "")
         if market_id not in SUPPORTED_MARKETS:
             raise MarketPlanError(f"unsupported market_id: {market_id or '<empty>'}")
@@ -416,16 +427,149 @@ def _validate_administrative_areas(markets: list[Any], foreign: Any) -> None:
                 owner[key] = market_id
 
 
+def _has_cjk(text: str) -> bool:
+    return any("\u3000" <= char <= "\u9fff" or "\uac00" <= char <= "\ud7af" for char in text)
+
+
+def _slug(text: str) -> str:
+    folded = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "-", folded.casefold()).strip("-")
+
+
+def _localized(name: str, aliases: list[str]) -> dict[str, str]:
+    """English and German both read the English name; Chinese reads its alias."""
+    chinese = next((alias for alias in aliases if _has_cjk(alias)), name)
+    return {"en": name, "de": name, "zh-Hans": chinese}
+
+
+def generic_market_entries(
+    curated: dict[str, Any], geo_path: Path | None = None
+) -> list[dict[str, Any]]:
+    """One market per country `geo_countries.json` lists, shaped like a curated one.
+
+    A generic market has the country, its listed hub cities, and a query
+    template per search language. It has no curated local sources, so what
+    reaches it is the structured channel and Web Search. Its aliases are matched
+    as whole words (see `_market_alias_matches`), which a curated market's are
+    not: "India" sits inside "Indiana" and "Oman" inside "Romania".
+    """
+    catalog = geo_path or GEO_COUNTRIES_PATH
+    payload = _read_json(catalog)
+    countries = payload.get("countries")
+    if not isinstance(countries, list) or not countries:
+        raise MarketPlanError("geo_countries.json countries must be a non-empty list")
+    taken: dict[str, str] = {}
+    for market in curated["markets"]:
+        for alias in market["country_aliases"]:
+            taken[_normalize_text(alias)] = market["market_id"]
+        for city in market["cities"]:
+            for alias in [city["name"], *city["aliases"]]:
+                taken[_normalize_text(alias)] = market["market_id"]
+    entries: list[dict[str, Any]] = []
+    for country in countries:
+        if not isinstance(country, dict):
+            raise MarketPlanError("geo_countries.json entries must be objects")
+        market_id = str(country.get("country_code") or "").lower()
+        name = country.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise MarketPlanError("geo_countries.json entry is missing a name")
+        aliases = _strings(country.get("aliases"), f"{market_id}.aliases")
+        languages = _strings(
+            country.get("search_languages", ["en"]), f"{market_id}.search_languages"
+        )
+        if any(language not in INTERNAL_LANGUAGES for language in languages):
+            raise MarketPlanError(f"{market_id} uses a non-canonical language code")
+        _require_unique(languages, f"{market_id} search language")
+        cities: list[dict[str, Any]] = []
+        for city in country.get("cities", []):
+            if not isinstance(city, dict) or not isinstance(city.get("name"), str):
+                raise MarketPlanError(f"{market_id}.cities entries need a name")
+            city_aliases = _strings(city.get("aliases"), f"{market_id}.{city['name']}.aliases")
+            cities.append({
+                "city_id": f"{market_id}-{_slug(city['name'])}",
+                "name": city["name"],
+                "names": _localized(city["name"], city_aliases),
+                "aliases": city_aliases,
+                "administrative_areas": [],
+            })
+        own = [*aliases, *(alias for city in cities for alias in city["aliases"])]
+        for alias in own:
+            key = _normalize_text(alias)
+            if key in taken and taken[key] != market_id:
+                raise MarketPlanError(
+                    f"{market_id} alias {alias!r} is already {taken[key]}'s"
+                )
+            taken[key] = market_id
+        entry: dict[str, Any] = {
+            "market_id": market_id,
+            "coverage": "generic",
+            "country": name,
+            "country_names": _localized(name, aliases),
+            "country_aliases": aliases,
+            "default_search_languages": languages,
+            "cities": cities,
+            "query_templates": [
+                {
+                    "template_id": f"{market_id}-generic-{language.casefold()}",
+                    "language": language,
+                    "source_type": "open_web",
+                    "discovery_route": "agent_web_search",
+                    "template": GENERIC_QUERY_TEMPLATES[language],
+                }
+                for language in languages
+            ],
+        }
+        if "administrative_areas" in country:
+            entry["administrative_areas"] = country["administrative_areas"]
+        entries.append(entry)
+    if catalog == GEO_COUNTRIES_PATH and [
+        entry["market_id"] for entry in entries
+    ] != list(generic_markets()):
+        raise MarketPlanError("geo_countries.json does not match the generic market ids")
+    return entries
+
+
 def load_resources(
     markets_path: Path = MARKETS_PATH,
     taxonomy_path: Path = ROLE_TAXONOMY_PATH,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The curated markets, then one generic market per uncovered country.
+
+    Every reader of `markets["markets"]` -- location normalization, the query
+    plan, the structured channel's market filter -- sees both. What tells them
+    apart is `coverage`: `curated` markets carry their own sources and cities,
+    `generic` ones reach the world only through structured boards and Web Search.
+    """
     # The seed catalog is no longer read here. It was read only to check the
     # per-market `source_ids` mirror, which markets no longer carry, and reading
     # it cost this module a dependency on a file it has nothing else to do with.
-    markets = validate_markets(_read_json(markets_path))
+    curated = validate_markets(_read_json(markets_path))
     taxonomy = validate_role_taxonomy(_read_json(taxonomy_path))
-    return markets, taxonomy
+    return with_generic_markets(curated), taxonomy
+
+
+def with_generic_markets(
+    curated: dict[str, Any], geo_path: Path | None = None
+) -> dict[str, Any]:
+    """A validated curated catalog with the generic markets appended."""
+    if any(market.get("coverage") == "generic" for market in curated["markets"]):
+        return curated
+    combined = [
+        {**market, "coverage": "curated"} for market in curated["markets"]
+    ] + generic_market_entries(curated, geo_path)
+    _validate_administrative_areas(combined, curated.get("foreign_administrative_areas"))
+    _require_unique(
+        [city["city_id"] for market in combined for city in market["cities"]], "city_id"
+    )
+    return {**curated, "markets": combined}
+
+
+def market_coverage(markets: dict[str, Any]) -> dict[str, str]:
+    """`{market_id: "curated" | "generic"}` for every market loaded."""
+    return {
+        market["market_id"]: market.get("coverage", "curated")
+        for market in markets["markets"]
+    }
 
 
 def _normalize_text(value: Any) -> str:
@@ -604,10 +748,16 @@ def _contains_words(alias: str, text: str) -> bool:
 
 
 def _named_markets(normalized: str, markets: dict[str, Any]) -> set[str]:
-    """Which markets the text names by country, not by city."""
+    """Which curated markets the text names by country, not by city.
+
+    Curated only: this decides whether an administrative qualifier stands down,
+    and a generic country's name is too often a US place to outrank one --
+    "Panama City, FL", "Lebanon, PA", "Albuquerque, New Mexico".
+    """
     return {
         market["market_id"]
         for market in markets["markets"]
+        if market.get("coverage", "curated") == "curated"
         for alias in market["country_aliases"]
         if _alias_matches(alias, normalized)
     }
@@ -624,6 +774,22 @@ def _alias_matches(alias: str, normalized_value: str) -> bool:
     if len(alias_normalized) <= 3 and alias_normalized.isascii():
         return alias_normalized in normalized_value.split()
     return alias_normalized in normalized_value
+
+
+def _market_alias_matches(market: dict[str, Any], alias: str, normalized_value: str) -> bool:
+    """A generic market's alias must be a whole word; a curated one keeps its rule.
+
+    The generic aliases are two hundred country names and the cities beside them,
+    and a substring reading of that many collides with real places: "India" in
+    "Indiana", "Oman" in "Romania", "Niger" in "Nigeria". The curated aliases
+    were written and tested one at a time under the substring rule, so they keep it.
+    """
+    if market.get("coverage") != "generic":
+        return _alias_matches(alias, normalized_value)
+    alias_normalized = _normalize_text(alias)
+    return alias_normalized == normalized_value or _contains_words(
+        alias_normalized, normalized_value
+    )
 
 
 def normalize_location(value: Any, markets: dict[str, Any]) -> dict[str, Any]:
@@ -697,13 +863,13 @@ def normalize_location(value: Any, markets: dict[str, Any]) -> dict[str, Any]:
             aliases = [*city["aliases"], *city["administrative_areas"]]
             for alias in aliases:
                 alias_norm = _normalize_text(alias)
-                if _alias_matches(alias, normalized):
+                if _market_alias_matches(market, alias, normalized):
                     location_matches.append(
                         (len(alias_norm), 2, market, city, _position(alias_norm))
                     )
         for alias in market["country_aliases"]:
             alias_norm = _normalize_text(alias)
-            if _alias_matches(alias, normalized):
+            if _market_alias_matches(market, alias, normalized):
                 location_matches.append(
                     (len(alias_norm), 1, market, None, _position(alias_norm))
                 )

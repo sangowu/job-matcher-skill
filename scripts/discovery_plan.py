@@ -127,7 +127,7 @@ def _validate_market_plan(value: Any) -> tuple[dict[str, Any], list[str], list[d
     markets = _string_list(
         value.get("target_markets"),
         "market_plan.target_markets",
-        allowed=set(source_registry.SUPPORTED_MARKETS),
+        allowed=set(source_registry.KNOWN_MARKETS),
     )
     if not markets:
         raise DiscoveryPlanError("market_plan.target_markets cannot be empty")
@@ -215,7 +215,7 @@ def _validate_source_plan(value: Any, markets: list[str]) -> tuple[dict[str, Any
         source_markets = _string_list(
             source.get("markets"),
             f"source_plan.sources[{index}].markets",
-            allowed=set(source_registry.SUPPORTED_MARKETS),
+            allowed=set(source_registry.KNOWN_MARKETS),
         )
         priority = source.get("priority")
         if not isinstance(priority, int) or isinstance(priority, bool) or not 0 <= priority <= 100:

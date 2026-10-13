@@ -28,7 +28,7 @@ from typing import Any, Iterable
 from urllib.parse import urlparse
 
 import _filelock
-from _jobutil import supported_markets
+from _jobutil import known_markets, supported_markets
 from _stdio import StdinUnavailable, read_stdin_text
 
 
@@ -43,6 +43,10 @@ SCHEMA_VERSION = 1
 # Derived from references/markets.json, which is the only place the market set
 # is written down. Five modules used to carry their own copy of it.
 SUPPORTED_MARKETS = supported_markets()
+# Curated and generic together: every market a source may declare or a round
+# may ask for. The curated set above is what the local-source minimum and the
+# markets.json checks are written against.
+KNOWN_MARKETS = known_markets()
 INTERNAL_LANGUAGES = ("en", "de", "zh-Hans")
 SOURCE_TYPES = {
     "ats_board",
@@ -260,7 +264,7 @@ def validate_seed_payload(payload: dict[str, Any]) -> dict[str, Any]:
         raise SourceValidationError("source_seeds.json sources must be non-empty")
 
     source_ids: set[str] = set()
-    local_counts = {market_id: 0 for market_id in SUPPORTED_MARKETS}
+    local_counts = {market_id: 0 for market_id in KNOWN_MARKETS}
     structured_total = 0
     for index, source in enumerate(sources):
         if not isinstance(source, dict):
@@ -284,7 +288,7 @@ def validate_seed_payload(payload: dict[str, Any]) -> dict[str, Any]:
             raise SourceValidationError(f"{prefix}.provider is required")
         _validate_https_url(source.get("entry_url"), f"{prefix}.entry_url")
         markets = _string_list(
-            source.get("markets"), f"{prefix}.markets", allowed=SUPPORTED_MARKETS
+            source.get("markets"), f"{prefix}.markets", allowed=KNOWN_MARKETS
         )
         _string_list(
             source.get("search_languages"),
@@ -506,7 +510,7 @@ def validate_registry(payload: dict[str, Any]) -> dict[str, Any]:
         _string_list(
             source.get("markets"),
             f"{prefix}.markets",
-            allowed=SUPPORTED_MARKETS,
+            allowed=KNOWN_MARKETS,
             allow_empty=(
                 source.get("origin") == "legacy_ats"
                 or source.get("source_type") == "ats_board"
@@ -1114,7 +1118,7 @@ def _validate_proposal(proposal: Any, index: int) -> dict[str, Any]:
     if source_type not in SOURCE_TYPES:
         raise SourceValidationError(f"proposals[{index}].source_type is invalid")
     markets = _string_list(
-        proposal.get("markets"), f"proposals[{index}].markets", allowed=SUPPORTED_MARKETS
+        proposal.get("markets"), f"proposals[{index}].markets", allowed=KNOWN_MARKETS
     )
     languages = _string_list(
         proposal.get("search_languages"),
@@ -1363,7 +1367,7 @@ def build_source_plan(
     acknowledged = set(risk_acknowledged)
     requested: list[str] = []
     for market_id in market_ids:
-        if market_id not in SUPPORTED_MARKETS:
+        if market_id not in KNOWN_MARKETS:
             raise SourceValidationError(f"unsupported market_id: {market_id}")
         if market_id not in requested:
             requested.append(market_id)

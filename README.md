@@ -14,6 +14,7 @@
 
 - 📄 **简历解析**：支持 PDF / DOCX / TXT / MD，或直接粘贴文本（不做 OCR）。
 - 🧠 **结构化抽取**：抽取目标职位、技能、资历(seniority)、地点、语言等，自动按相关年限定级。
+- 🌍 **全球地区**：6 个精选市场（ie / uk / cn / de / us / nl，带本地招聘站与城市目录）+ 212 个通用市场（`geo_countries.json` 中的每个国家/地区，含主要城市别名）。通用市场经 ATS 结构化通道与 Web 搜索覆盖，没有本地招聘站；地点无法识别时仍会停下追问。
 - 🔎 **实时职位检索**：默认并行运行浏览器平台搜索与模型/Web 搜索；浏览器按 Neo → 用户浏览器选择提供者，平台由地区来源目录动态规划，不在代码中硬编码站点 selector。
 - 🎯 **5 维匹配打分**：title / seniority / skills / location / must-have，输出五档投递建议（强烈投递→跳过）。资历硬规则与契约校验拦截打分漂移。
 - 🗂️ **增量缓存**：CV、JD、匹配分三层缓存；多来源同职位自动聚合（含区域平台 job-id 强命中）；换 query 自动失效重算。
@@ -61,6 +62,7 @@ job-matcher/
 │   ├── _bootstrap.py     # 把 scripts/ 放上 import 路径（工具测的就是生产模块）
 │   ├── browser_candidate_smoke.py # 临时 store 验证浏览器候选与 merge，不污染正式数据
 │   ├── multi_region_smoke.py # 显式、计数型每市场一槽的公开来源 smoke
+│   ├── global_coverage_smoke.py # 显式、计数型：注册表 ATS board 实际覆盖哪些国家（精选 vs 加通用市场）
 │   ├── shadow_gate.py        # Phase E 幂等 shadow 台账与逐市场发布门
 │   ├── shadow_compare.py     # 只读计算增量、交集、JD 与潜在 Top-N
 │   ├── benchmark_pipeline.py # 固定小数据集核心/Fake Provider 基准
@@ -72,8 +74,8 @@ job-matcher/
 │   ├── cv_schema.md          # CV 抽取规则
 │   ├── scoring_rubric.md     # 5 维打分 + 五档阈值
 │   ├── search_playbook.md    # fan-out / 分市场 / 自适应分批
-│   ├── markets.json          # 市场的地点、语言与 query 模板（市场集以本文件为准）
-│   ├── geo_countries.json    # 没有市场覆盖的国家/地区；用于把「境外」和「读不出」分开
+│   ├── markets.json          # 精选市场的城市、语言与 query 模板
+│   ├── geo_countries.json    # 通用市场：精选市场以外的每个国家/地区，含主要城市、搜索语言、行政区
 │   ├── role_taxonomy.json    # 中英德稳定角色族、同义词与技能门槛泛化边
 │   ├── model_tiers.json      # 型号 ↔ 档位映射，供子代理按 min_tier 选型
 │   ├── source_seeds.json     # 已验证的公开来源种子（不含凭据）；市场由 markets.json 决定

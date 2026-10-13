@@ -54,6 +54,44 @@ def supported_markets(path: Path | None = None) -> tuple[str, ...]:
 
 _MARKET_ID = re.compile(r"[a-z]{2}")
 
+GEO_COUNTRIES_PATH = SKILL_ROOT / "references" / "geo_countries.json"
+
+
+@functools.lru_cache(maxsize=1)
+def generic_markets(path: Path | None = None) -> tuple[str, ...]:
+    """The generic market ids: every country `geo_countries.json` lists.
+
+    A generic market is a country with no curated sources or city list of its
+    own. Structured boards and Web Search reach it; a local job board does not.
+    `supported_markets()` stays the curated set, because the invariants written
+    against it -- a minimum of local sources, one smoke slot, one report label
+    in the template -- are about curation, not about being a place.
+    """
+    catalog = path or GEO_COUNTRIES_PATH
+    try:
+        payload = json.loads(catalog.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise MarketCatalogError(f"cannot read {catalog}: {error}") from error
+    countries = payload.get("countries") if isinstance(payload, dict) else None
+    if not isinstance(countries, list) or not countries:
+        raise MarketCatalogError(f"{catalog} lists no countries")
+    curated = set(supported_markets())
+    ids: list[str] = []
+    for country in countries:
+        code = country.get("country_code") if isinstance(country, dict) else None
+        market_id = str(code or "").lower()
+        if not _MARKET_ID.fullmatch(market_id):
+            raise MarketCatalogError(f"{catalog} has an invalid country_code: {code!r}")
+        if market_id in curated or market_id in ids:
+            raise MarketCatalogError(f"{catalog} defines market {market_id} twice")
+        ids.append(market_id)
+    return tuple(ids)
+
+
+def known_markets() -> tuple[str, ...]:
+    """Every market a location can resolve to: curated first, then generic."""
+    return (*supported_markets(), *generic_markets())
+
 
 def load_config() -> dict:
     try:

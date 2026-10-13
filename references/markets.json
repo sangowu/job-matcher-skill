@@ -7,7 +7,11 @@
       "country_names": {
         "en": "Ireland",
         "de": "Irland",
-        "zh-Hans": "爱尔兰"
+        "zh-Hans": "爱尔兰",
+        "fr": "Irlande",
+        "es": "Irlanda",
+        "pt": "Irlanda",
+        "ja": "アイルランド"
       },
       "country_aliases": [
         "Ireland",
@@ -114,7 +118,11 @@
       "country_names": {
         "en": "United Kingdom",
         "de": "Vereinigtes Königreich",
-        "zh-Hans": "英国"
+        "zh-Hans": "英国",
+        "fr": "Royaume-Uni",
+        "es": "Reino Unido",
+        "pt": "Reino Unido",
+        "ja": "イギリス"
       },
       "country_aliases": [
         "United Kingdom",
@@ -262,7 +270,11 @@
       "country_names": {
         "en": "China",
         "de": "China",
-        "zh-Hans": "中国"
+        "zh-Hans": "中国",
+        "fr": "Chine",
+        "es": "China",
+        "pt": "China",
+        "ja": "中国"
       },
       "country_aliases": [
         "China",
@@ -412,7 +424,11 @@
       "country_names": {
         "en": "Germany",
         "de": "Deutschland",
-        "zh-Hans": "德国"
+        "zh-Hans": "德国",
+        "fr": "Allemagne",
+        "es": "Alemania",
+        "pt": "Alemanha",
+        "ja": "ドイツ"
       },
       "country_aliases": [
         "Germany",
@@ -628,7 +644,11 @@
       "country_names": {
         "en": "United States",
         "de": "Vereinigte Staaten",
-        "zh-Hans": "美国"
+        "zh-Hans": "美国",
+        "fr": "États-Unis",
+        "es": "Estados Unidos",
+        "pt": "Estados Unidos",
+        "ja": "アメリカ合衆国"
       },
       "country_aliases": [
         "United States",
@@ -874,7 +894,11 @@
       "country_names": {
         "en": "Netherlands",
         "de": "Niederlande",
-        "zh-Hans": "荷兰"
+        "zh-Hans": "荷兰",
+        "fr": "Pays-Bas",
+        "es": "Países Bajos",
+        "pt": "Países Baixos",
+        "ja": "オランダ"
       },
       "country_aliases": [
         "Netherlands",

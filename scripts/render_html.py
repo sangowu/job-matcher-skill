@@ -22,13 +22,21 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from _jobutil import internal_languages, known_markets, load_config, normalize_company
+from _jobutil import (
+    internal_languages,
+    known_markets,
+    language_aliases,
+    language_catalog,
+    load_config,
+    normalize_company,
+)
 from runtime_metrics import DEFAULT_THRESHOLDS, build_summaries
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = SKILL_ROOT / "data"
 TABLE_PATH = DATA_DIR / "jobs_table.json"
 TEMPLATE_PATH = SKILL_ROOT / "assets" / "template.html"
+STRINGS_PATH = SKILL_ROOT / "assets" / "report_strings.json"
 REPORTS_DIR = DATA_DIR / "reports"
 REPORT_NAME = "report.html"
 REPORT_DATA_NAME = "report_data.js"
@@ -216,12 +224,18 @@ def _channels(value: object) -> dict:
     }
 
 
-def market_names(market_ids: list[str]) -> dict[str, dict[str, str]]:
-    """`{market_id: {"en", "zh"}}` for the generic markets in this report.
+# Market ids are lower-case ISO 3166 codes except where a curated market
+# predates that rule.
+REGION_CODES = {"uk": "GB"}
 
-    The template carries labels for the curated markets only. A generic market
-    is one of two hundred countries, so its name travels with the data instead
-    of being written into the page two hundred times.
+
+def market_names(market_ids: list[str]) -> dict[str, dict]:
+    """`{market_id: {"region", "names": {language: name}}}` for this report.
+
+    A market is one of two hundred countries, so its name travels with the
+    data instead of being written into the page two hundred times. `names`
+    holds what the catalog says; for a language it does not cover, the page
+    asks the browser to name `region` before it falls back to English.
     """
     import market_plan
 
@@ -229,18 +243,50 @@ def market_names(market_ids: list[str]) -> dict[str, dict[str, str]]:
     markets, _ = market_plan.load_resources()
     return {
         market["market_id"]: {
-            "en": market["country_names"]["en"],
-            "zh": market["country_names"]["zh-Hans"],
+            "region": REGION_CODES.get(market["market_id"], market["market_id"].upper()),
+            "names": dict(market["country_names"]),
         }
         for market in markets["markets"]
-        if market["market_id"] in wanted and market.get("coverage") == "generic"
+        if market["market_id"] in wanted
     }
+
+
+class ReportStringsError(ValueError):
+    """The interface text does not cover a language the skill searches in."""
+
+
+def report_strings(path: Path | None = None) -> dict[str, dict[str, str]]:
+    """`{language: {key: text}}` for the report page, checked against the catalog.
+
+    The page used to carry a Chinese and an English table of its own, so a
+    French report showed English. Every catalog language now needs a table
+    with every English key; a missing one fails here rather than as raw
+    `context_market` keys in someone's browser.
+    """
+    source = path or STRINGS_PATH
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    tables = payload.get("strings") if isinstance(payload, dict) else None
+    if not isinstance(tables, dict) or not isinstance(tables.get("en"), dict):
+        raise ReportStringsError(f"{source} has no English table")
+    keys = set(tables["en"])
+    for code in internal_languages():
+        table = tables.get(code)
+        if not isinstance(table, dict):
+            raise ReportStringsError(f"{source} has no table for {code}")
+        missing = sorted(keys - set(table))
+        if missing:
+            raise ReportStringsError(f"{source} {code} lacks {', '.join(missing[:5])}")
+    return {code: tables[code] for code in internal_languages()}
+
+
+def report_language(value: object) -> str:
+    """A catalog code for whatever the round or an old meta file wrote."""
+    return language_aliases().get(str(value or "").strip().casefold(), "en")
 
 
 def normalize_report_meta(meta: object, *, now: datetime | None = None) -> dict:
     raw = dict(meta) if isinstance(meta, dict) else {}
-    report_language = raw.get("report_language") or raw.get("lang") or "en"
-    report_language = "zh" if report_language in {"zh", "zh-CN", "zh-Hans"} else "en"
+    language = report_language(raw.get("report_language") or raw.get("lang"))
     target_markets = _unique_strings(raw.get("target_markets"), SUPPORTED_MARKETS)
     if not target_markets:
         coverage_rows = raw.get("market_coverage") or raw.get("route_summaries")
@@ -274,8 +320,8 @@ def normalize_report_meta(meta: object, *, now: datetime | None = None) -> dict:
         empty_state_reason = "executed_zero"
     raw.update(
         {
-            "lang": report_language,
-            "report_language": report_language,
+            "lang": language,
+            "report_language": language,
             "target_markets": target_markets,
             "search_languages": search_languages,
             "run_time": run_time,
@@ -484,6 +530,10 @@ def main() -> None:
         [*meta.get("target_markets", []), *(m for job in jobs for m in job["market_ids"])]
     )
     health = build_health_payload()
+    languages = [
+        {"code": item["code"], "name": item["name"], "locale": item["locale"]}
+        for item in language_catalog()
+    ]
 
     # The page and the round's data are two files. Every round used to write a
     # whole new `report_<timestamp>.html`, so the link changed each time and the
@@ -499,6 +549,8 @@ def main() -> None:
     data = f"""// Written by render_html.py. The page beside this file does not change.
 const JOBS = {_embed_json(jobs)};
 const META = {_embed_json(meta)};
+const I18N = {_embed_json(report_strings())};
+const LANGUAGES = {_embed_json(languages)};
 const HEALTH = {_embed_json(health)};
 let LANG = {json.dumps(lang)};
 """

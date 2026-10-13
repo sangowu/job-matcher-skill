@@ -124,6 +124,9 @@ def language_catalog(path: Path | None = None) -> tuple[dict, ...]:
         template = language.get("query_template")
         if not isinstance(template, str) or "{role}" not in template or "{location}" not in template:
             raise MarketCatalogError(f"{code}.query_template needs {{role}} and {{location}}")
+        for field in ("name", "locale"):
+            if not isinstance(language.get(field), str) or not language[field].strip():
+                raise MarketCatalogError(f"{code} needs a {field}")
         aliases = language.get("aliases")
         if not isinstance(aliases, list) or not aliases:
             raise MarketCatalogError(f"{code} needs aliases")

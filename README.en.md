@@ -20,7 +20,7 @@ A lightweight take on [JobRadar](https://github.com/sangowu/JobRadar) — it com
 - 🎯 **5-dimension scoring**: title / seniority / skills / location / must-have, with a five-tier recommendation (strong apply → skip). Deterministic seniority caps and contract validation catch scoring drift.
 - 🗂️ **Incremental cache**: three-layer cache (CV / JD / match score); multi-source same-job aggregation with exact job-id matching on regional platforms; auto re-score when the query changes.
 - 🛡️ **Untrusted input isolation**: search results and JD text are treated as data and their embedded instructions ignored; report JSON is escaped and links are restricted to http(s).
-- 📊 **Interactive report**: two-column layout (job list 30% + detail 70%) + score badges + dark mode + sort/search + market/source/verification filters + multi-source discovery evidence + 7/30-day runtime health snapshots + zh/en i18n, a self-contained single-file HTML.
+- 📊 **Interactive report**: two-column layout (job list 30% + detail 70%) + score badges + dark mode + sort/search + market/source/verification filters + multi-source discovery evidence + 7/30-day runtime health snapshots + an interface in English, Chinese, German, French, Spanish, Portuguese and Japanese (follows `report_language`, switchable on the page), a self-contained single-file HTML.
 - 🌐 **Optional isolated browser**: Kernel BYOK as the final fetch fallback, with bounded listing pagination, visual controls, and Live View handoff; disabled by default, with a Fake Provider in CI.
 
 ## 🏗️ Architecture
@@ -130,6 +130,7 @@ job-matcher/
 │   ├── _filelock.py          # shared: cross-process exclusive file lock (every local store)
 │   └── _stdio.py             # shared: UTF-8 stdout/stderr, and a stdin read that cannot hang
 ├── assets/template.html  # static report template (Tailwind + vanilla JS), copied verbatim to report.html
+├── assets/report_strings.json  # report interface text, one table per language, written into report_data.js each round
 └── data/                 # runtime data (.gitignored, contains PII)
 ```
 

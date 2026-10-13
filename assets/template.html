@@ -289,7 +289,10 @@ function bullets(arr) {
   return `<ul class="text-xs space-y-1 list-disc list-inside">${arr.map(x => `<li>${esc(x)}</li>`).join("")}</ul>`;
 }
 function categoryLabel(prefix, value) {
-  return t(`${prefix}_${value || "unknown"}`);
+  const key = `${prefix}_${value || "unknown"}`;
+  const names = prefix === "market" && META.market_names && META.market_names[value];
+  if (names && !(key in I18N.en)) return LANG === "zh" ? (names.zh || names.en) : names.en;
+  return t(key);
 }
 function formatRunTime(value) {
   const parsed = new Date(value);

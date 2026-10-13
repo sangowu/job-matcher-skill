@@ -35,6 +35,7 @@ SKILL_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import ats_provider  # noqa: E402
+import market_plan  # noqa: E402
 import source_registry  # noqa: E402
 from _jobutil import extract_board, extract_board_hint  # noqa: E402
 from _stdio import StdinUnavailable, read_stdin_text  # noqa: E402
@@ -75,8 +76,14 @@ def _load_market_aliases(markets_path: Path = MARKETS_PATH) -> list[tuple[str, s
 def _markets_from_locations(
     candidates: list[dict[str, Any]], aliases: list[tuple[str, str]]
 ) -> Counter[str]:
-    """市场归属由实际职位地点决定，不按公司总部推断。"""
+    """市场归属由实际职位地点决定，不按公司总部推断。
+
+    策展市场先按别名子串匹配（原规则）；都没命中的，再交给
+    `market_plan.normalize_location` 认通用市场（整词匹配，"India" 不会落进 "Indiana"）。
+    否则一个只在巴黎招人的 board 没有任何市场，会被当作无覆盖丢弃。
+    """
     hits: Counter[str] = Counter()
+    resources = None
     for candidate in candidates:
         location = str(candidate.get("location") or "").lower()
         if not location:
@@ -85,6 +92,12 @@ def _markets_from_locations(
             if alias in location:
                 hits[market_id] += 1
                 break
+        else:
+            if resources is None:
+                resources = market_plan.load_resources()[0]
+            resolved = market_plan.normalize_location(location, resources)["market_ids"]
+            if resolved:
+                hits[resolved[0]] += 1
     return hits
 
 
@@ -170,7 +183,7 @@ def confirm_board(
         hits = _markets_from_locations(jobs, aliases)
         markets = [
             market_id
-            for market_id in source_registry.SUPPORTED_MARKETS
+            for market_id in source_registry.KNOWN_MARKETS
             if hits.get(market_id)
         ]
         return token, markets, len(jobs), requests
@@ -215,7 +228,7 @@ def probe_board(
     hits = _markets_from_locations(jobs, aliases)
     markets = [
         market_id
-        for market_id in source_registry.SUPPORTED_MARKETS
+        for market_id in source_registry.KNOWN_MARKETS
         if hits.get(market_id)
     ]
     return True, markets, len(jobs)

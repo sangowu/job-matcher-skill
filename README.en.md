@@ -14,6 +14,7 @@ A lightweight take on [JobRadar](https://github.com/sangowu/JobRadar) — it com
 
 - 📄 **CV parsing**: PDF / DOCX / TXT / MD, or pasted text (no OCR).
 - 🧠 **Structured extraction**: target roles, skills, seniority, locations, languages; auto-leveling by *relevant* years.
+- 🌍 **Worldwide**: 6 curated markets (ie / uk / cn / de / us / nl, with local job boards and city catalogs) plus 212 generic markets -- every country and territory in `geo_countries.json`, with major-city aliases. A generic market is reached through the structured ATS channel and Web Search and has no local job board; a location nothing can read still stops and asks.
 - 🔎 **Live job retrieval**: runs browser-platform and model/Web discovery together by default; the browser provider follows Neo → authorized user browser, while a regional source catalog selects platforms without hard-coded site selectors.
 - 🎯 **5-dimension scoring**: title / seniority / skills / location / must-have, with a five-tier recommendation (strong apply → skip). Deterministic seniority caps and contract validation catch scoring drift.
 - 🗂️ **Incremental cache**: three-layer cache (CV / JD / match score); multi-source same-job aggregation with exact job-id matching on regional platforms; auto re-score when the query changes.
@@ -61,6 +62,7 @@ job-matcher/
 │   ├── _bootstrap.py     # puts scripts/ on the import path (a tool measures the real modules)
 │   ├── browser_candidate_smoke.py # validate browser candidates in a temporary merge store
 │   ├── multi_region_smoke.py # explicit count-only smoke, one source slot per market
+│   ├── global_coverage_smoke.py # explicit count-only: which countries the registry's ATS boards reach, curated vs with generic markets
 │   ├── shadow_gate.py        # idempotent Phase E ledger and per-market gate
 │   ├── shadow_compare.py     # read-only incremental/overlap/JD/Top-N comparison
 │   ├── benchmark_pipeline.py # fixed small core/Fake Provider benchmark
@@ -72,8 +74,8 @@ job-matcher/
 │   ├── cv_schema.md          # CV extraction rules
 │   ├── scoring_rubric.md     # 5-dim scoring + tier thresholds
 │   ├── search_playbook.md    # fan-out / per-market / adaptive batching
-│   ├── markets.json          # per-market locations, languages and query templates; this file defines the market set
-│   ├── geo_countries.json    # countries no market covers, so "foreign" and "unreadable" stay different answers
+│   ├── markets.json          # curated markets: cities, languages and query templates
+│   ├── geo_countries.json    # generic markets: every other country/territory, with major cities, search languages and areas
 │   ├── role_taxonomy.json    # role families, synonyms, skill-gated edges
 │   ├── model_tiers.json      # model-to-tier map used to pick a subagent model by min_tier
 │   ├── source_seeds.json     # verified public seeds for ie/uk/cn/de/us (no credentials)

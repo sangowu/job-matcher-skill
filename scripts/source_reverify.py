@@ -160,7 +160,7 @@ def reverify(
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
     if market_ids:
-        unknown = [m for m in market_ids if m not in source_registry.SUPPORTED_MARKETS]
+        unknown = [m for m in market_ids if m not in source_registry.KNOWN_MARKETS]
         if unknown:
             raise source_registry.SourceValidationError(
                 f"unsupported market_id: {', '.join(unknown)}"

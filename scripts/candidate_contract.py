@@ -9,13 +9,17 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from _jobutil import is_strong_identity_key, supported_markets
+from _jobutil import is_strong_identity_key, known_markets
 from _stdio import StdinUnavailable, read_stdin_text
 
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_PATH = SKILL_ROOT / "references" / "candidate_envelope.schema.json"
-SUPPORTED_MARKETS = set(supported_markets())
+# Curated and generic: a candidate may be placed in any country the catalog knows.
+SUPPORTED_MARKETS = set(known_markets())
+# One location string naming more countries than this is a list, not a place;
+# the envelope schema carries the same ceiling.
+MAX_MARKET_IDS = 32
 INTERNAL_LANGUAGES = {"en", "de", "zh-Hans"}
 SOURCE_TYPES = {
     "ats_board",
@@ -114,7 +118,7 @@ def _market_id_list(value: Any, market_id: str | None) -> list[str]:
     """
     if value is None:
         return [market_id] if market_id else []
-    if not isinstance(value, list) or len(value) > len(SUPPORTED_MARKETS):
+    if not isinstance(value, list) or len(value) > MAX_MARKET_IDS:
         raise CandidateContractError("location_normalized.market_ids is invalid")
     output: list[str] = []
     for item in value:

@@ -26,6 +26,22 @@ def resources():
     return market_plan.load_resources()
 
 
+@pytest.fixture(scope="module")
+def curated_with_foreign():
+    """markets.json alone, with Canada's provinces as a foreign catalog.
+
+    Every country now resolves to a market, so the shipped catalog gives the
+    foreign-area machinery nothing to answer. It is still the code that decides
+    a qualifier no market claims, and this is the world it was written for: no
+    generic markets, and thirteen provinces nobody covers.
+    """
+    raw = json.loads(market_plan.MARKETS_PATH.read_text(encoding="utf-8"))
+    geo = json.loads(market_plan.GEO_COUNTRIES_PATH.read_text(encoding="utf-8"))
+    canada = next(c for c in geo["countries"] if c["country_code"] == "CA")
+    raw["foreign_administrative_areas"] = copy.deepcopy(canada["administrative_areas"])
+    return market_plan.validate_markets(raw)
+
+
 def markets_of(resources):
     return resources[0]
 
@@ -44,8 +60,10 @@ def make_request(cv_language="en", cv_locations=None, **intent):
 def test_versioned_market_and_role_resources_validate(resources):
     markets, taxonomy = resources
 
+    from _jobutil import generic_markets
+
     assert [item["market_id"] for item in markets["markets"]] == [
-        "ie", "uk", "cn", "de", "us", "nl"
+        "ie", "uk", "cn", "de", "us", "nl", *generic_markets()
     ]
     assert all(market["query_templates"] for market in markets["markets"])
     # A market names no sources. It used to mirror, per market, the seeds that
@@ -55,6 +73,8 @@ def test_versioned_market_and_role_resources_validate(resources):
     assert all("source_ids" not in market for market in markets["markets"])
     seeds = source_registry.load_seeds()["sources"]
     for market in markets["markets"]:
+        if market["coverage"] == "generic":
+            continue
         covering = {
             source["source_id"] for source in seeds
             if market["market_id"] in source["markets"]
@@ -165,7 +185,8 @@ def test_explicit_unknown_location_does_not_fall_back_to_cv(resources):
 def test_short_country_codes_do_not_match_inside_unknown_place_names(resources):
     markets, _ = resources
 
-    location = market_plan.normalize_location("Hyderabad", markets)
+    # "de" sits inside it. Hyderabad used to be the example and is now a city.
+    location = market_plan.normalize_location("Odense", markets)
 
     assert location["confidence"] == "unknown"
     assert location["market_ids"] == []
@@ -619,10 +640,10 @@ def test_a_city_qualified_by_a_state_belongs_to_that_state_market(resources, loc
 @pytest.mark.parametrize(
     "location", ["London, ON, Canada", "Toronto, ON", "Vancouver, British Columbia"]
 )
-def test_an_area_no_market_covers_is_still_foreign(resources, location):
-    """The foreign catalog is what is left over. Thirteen Canadian provinces
-    remain in it because no market covers Canada."""
-    markets, _ = resources
+def test_an_area_no_market_covers_is_still_foreign(curated_with_foreign, location):
+    """The foreign catalog is what is left over: an area no market claims.
+    Canada is a generic market now, so this is the curated catalog alone."""
+    markets = curated_with_foreign
 
     normalized = market_plan.normalize_location(location, markets)
 
@@ -691,32 +712,35 @@ def test_a_posting_open_in_several_countries_keeps_the_ones_we_serve(resources):
     assert set(normalized["market_ids"]) == {"ie", "uk", "de", "us"}
 
 
-def test_a_foreign_area_name_may_not_be_a_supported_market_alias(resources):
+def test_a_foreign_area_name_may_not_be_a_supported_market_alias(curated_with_foreign):
     """The same catalog pointed the other way would read a whole market as
     foreign."""
-    markets, _ = resources
-    payload = copy.deepcopy(markets)
+    payload = copy.deepcopy(curated_with_foreign)
     payload["foreign_administrative_areas"]["names"].append("Ireland")
 
     with pytest.raises(market_plan.MarketPlanError, match="supported market alias"):
         market_plan.validate_markets(payload)
 
 
-def test_the_foreign_catalog_is_optional(resources):
+def test_the_foreign_catalog_is_optional(resources, curated_with_foreign):
     """Its absence leaves the behaviour it was added to change, not an error.
 
     Only what it alone claims falls back: an Ontario posting resolves by city
     alias again, while Ohio still names the US, because that claim lives on the
     market rather than in this list.
     """
-    markets, _ = resources
-    payload = copy.deepcopy(markets)
+    payload = copy.deepcopy(curated_with_foreign)
     payload.pop("foreign_administrative_areas")
 
     market_plan.validate_markets(payload)
 
     assert market_plan.normalize_location("London, ON", payload)["market_ids"] == ["uk"]
     assert market_plan.normalize_location("Dublin, OH", payload)["market_ids"] == ["us"]
+    # The shipped catalog carries no foreign list at all: Canada's provinces
+    # belong to the generic Canadian market, so Ontario names a market.
+    markets, _ = resources
+    assert "foreign_administrative_areas" not in markets
+    assert market_plan.normalize_location("London, ON", markets)["market_ids"] == ["ca"]
 
 
 def test_the_plan_says_which_of_the_three_answered_for_roles(resources):
@@ -985,15 +1009,20 @@ def test_the_market_set_comes_from_the_catalog_not_from_five_copies():
     # the suite and fail when run alone.
     sys.path.insert(0, str(SKILL_ROOT / "tools"))
     import multi_region_smoke
-    from _jobutil import supported_markets
+    from _jobutil import known_markets, supported_markets
 
     catalog = set(supported_markets())
 
     assert catalog == set(market_plan.SUPPORTED_MARKETS)
     assert catalog == set(source_registry.SUPPORTED_MARKETS)
-    assert catalog == set(candidate_contract.SUPPORTED_MARKETS)
-    assert catalog == set(render_html.SUPPORTED_MARKETS)
     assert catalog == set(multi_region_smoke.SUPPORTED_MARKETS)
+    # A candidate and a report row may be placed in any market, generic ones
+    # included; the curated set is what curation invariants are written against.
+    everywhere = set(known_markets())
+    assert everywhere == set(source_registry.KNOWN_MARKETS)
+    assert everywhere == set(candidate_contract.SUPPORTED_MARKETS)
+    assert everywhere == set(render_html.SUPPORTED_MARKETS)
+    assert catalog < everywhere
 
 
 def test_a_family_the_cv_already_targets_is_not_a_generalization_of_it(resources):
@@ -1064,7 +1093,6 @@ def test_a_market_catalog_naming_one_market_is_accepted(resources):
     markets, _ = resources
     single = {
         "schema_version": 1,
-        "foreign_administrative_areas": markets["foreign_administrative_areas"],
         "markets": [copy.deepcopy(markets["markets"][0])],
     }
 
@@ -1081,7 +1109,7 @@ def test_an_empty_market_catalog_is_still_refused(resources):
         market_plan.validate_markets(payload)
 
 
-def test_a_city_cannot_also_be_listed_as_foreign(resources):
+def test_a_city_cannot_also_be_listed_as_foreign(curated_with_foreign):
     """The blocker a new market actually hits.
 
     `foreign_administrative_areas` is a closed reverse-catalog of the places no
@@ -1092,8 +1120,7 @@ def test_a_city_cannot_also_be_listed_as_foreign(resources):
     listed, and every posting in it is dropped without a word. Measured while
     adding a US market to the catalog on 2026-09-27.
     """
-    markets, _ = resources
-    payload = copy.deepcopy(markets)
+    payload = copy.deepcopy(curated_with_foreign)
     payload["foreign_administrative_areas"]["names"].append("Dublin")
 
     with pytest.raises(market_plan.MarketPlanError, match="own city"):
@@ -1210,22 +1237,20 @@ def test_a_board_serving_several_markets_is_one_seed_not_one_per_market():
     assert not shared, f"one board token claimed by several seeds: {shared}"
 
 
-def test_every_state_the_us_market_claims_has_left_the_foreign_catalog(resources):
-    """The foreign catalog is what is left over -- places no market covers -- so
-    an area a market covers has to leave it, or two answers decide by iteration
-    order."""
+def test_every_area_is_claimed_by_exactly_one_market(resources):
+    """The foreign catalog was what was left over -- places no market covers.
+    Canada is a generic market now and holds its own provinces, so nothing is
+    left over and the shipped catalog has no foreign list."""
     markets, _ = resources
     us = next(item for item in markets["markets"] if item["market_id"] == "us")
-    foreign = markets["foreign_administrative_areas"]
+    ca = next(item for item in markets["markets"] if item["market_id"] == "ca")
 
     claimed = {name.casefold() for name in us["administrative_areas"]["names"]}
     assert len(claimed) == 51  # fifty states and DC
-    assert not claimed & {name.casefold() for name in foreign["names"]}
-    assert not {code.casefold() for code in us["administrative_areas"]["codes"]} & {
-        code.casefold() for code in foreign["codes"]
-    }
-    # Canada still has no market, so its provinces stay.
-    assert "ontario" in {name.casefold() for name in foreign["names"]}
+    provinces = {name.casefold() for name in ca["administrative_areas"]["names"]}
+    assert "ontario" in provinces and len(provinces) == 13
+    assert not claimed & provinces
+    assert "foreign_administrative_areas" not in markets
 
 
 def test_an_area_claimed_by_two_markets_is_refused(resources):
@@ -1241,7 +1266,7 @@ def test_an_area_claimed_by_two_markets_is_refused(resources):
 def test_an_area_a_market_claims_may_not_also_be_foreign(resources):
     markets, _ = resources
     payload = copy.deepcopy(markets)
-    payload["foreign_administrative_areas"]["names"].append("Ohio")
+    payload["foreign_administrative_areas"] = {"names": ["Ohio"], "codes": ["ZZ"]}
 
     with pytest.raises(market_plan.MarketPlanError, match="foreign catalog also"):
         market_plan.validate_markets(payload)
@@ -1307,14 +1332,14 @@ def test_a_location_naming_two_areas_is_read_in_the_order_it_is_written(
     Asking every market's catalog before the foreign one made catalog precedence
     the tie-breaker, and a live round put a Toronto posting in the US market that
     way: CA was read as California before ON could be read as Ontario. The text's
-    own order decides -- the first segment that resolves wins.
+    own order decides -- the first segment that resolves wins. Ontario is the
+    Canadian market's own area now, so the answer is that market.
     """
     markets, _ = resources
 
     normalized = market_plan.normalize_location(location, markets)
 
-    assert normalized["market_ids"] == []
-    assert normalized["location_type"] == "foreign"
+    assert normalized["market_ids"] == ["ca"]
 
 
 def test_a_state_name_inside_a_longer_segment_still_counts(resources):
@@ -1359,38 +1384,59 @@ def test_no_module_writes_the_market_set_out_by_hand():
         + ", ".join(literals)
     )
 
-# --- countries no market covers ------------------------------------------
+# --- generic markets: every country no curated market covers --------------
 
 @pytest.mark.parametrize(
-    "location,country",
+    "location,market_id,city_id",
     [
-        ("Paris, France", "France"),
-        ("Bangalore, India", "India"),
-        ("Tokyo, Japan", "Japan"),
-        ("Singapore", "Singapore"),
-        ("Sydney, Australia", "Australia"),
-        ("Toronto, ON, Canada", "Canada"),
-        ("Barcelona, Spain", "Spain"),
-        ("Hong Kong", "Hong Kong"),
+        ("Paris, France", "fr", "fr-paris"),
+        ("Paris", "fr", "fr-paris"),
+        ("Bangalore, India", "in", "in-bengaluru"),
+        ("Bengaluru", "in", "in-bengaluru"),
+        ("Tokyo, Japan", "jp", "jp-tokyo"),
+        ("Singapore", "sg", None),
+        ("Sydney, Australia", "au", "au-sydney"),
+        ("Toronto, ON, Canada", "ca", "ca-toronto"),
+        ("Barcelona, Spain", "es", "es-barcelona"),
+        ("Hong Kong", "hk", None),
+        ("Zurich, CH", "ch", "ch-zurich"),
+        ("Tbilisi", "ge", "ge-tbilisi"),
     ],
 )
-def test_a_country_no_market_covers_is_foreign_and_named(resources, location, country):
-    """`foreign` and `unknown` are different answers and were the same one.
+def test_a_country_no_curated_market_covers_is_its_own_generic_market(
+    resources, location, market_id, city_id
+):
+    """Every country the catalog can name is a market a round can target.
 
-    Everything downstream that refuses a posting reads `foreign`. Only Canada
-    reached it, and only because its thirteen provinces had been written out by
-    hand, so an Irish round refused a posting in Toronto and kept one in Paris,
-    Bangalore, Tokyo or Sydney.
+    These were `foreign` -- named, and refused. A Paris round had nothing to
+    search and an Irish round dropped the posting; now the first has a market
+    and the second drops it on `market`, the same way it drops a London one.
     """
     markets, _ = resources
     placed = market_plan.normalize_location(location, markets)
 
-    assert placed["location_type"] == "foreign"
-    assert placed["canonical_name"] == country
-    assert placed["market_ids"] == []
-    # Still no opinion on a market, which is what `unknown` confidence means
-    # here: there is no market to be uncertain about.
-    assert placed["confidence"] == "unknown"
+    assert placed["market_ids"] == [market_id]
+    assert placed["city_id"] == city_id
+    assert placed["location_type"] == ("city" if city_id else "country")
+    assert placed["confidence"] == ("exact" if city_id else "country")
+
+
+@pytest.mark.parametrize(
+    "location",
+    ["Paris, TX", "Panama City, FL", "Lebanon, PA", "Albuquerque, New Mexico",
+     "Vienna, VA", "Atlanta, Georgia", "Jersey City"],
+)
+def test_a_us_place_named_after_another_country_stays_american(resources, location):
+    """A generic country's name is too often a US place to outrank its state.
+
+    Only a curated market named in the text makes a state qualifier stand down,
+    so "Panama City, FL" is Florida and not Panama. The cost is the mirror case:
+    "Tbilisi, Georgia" reads Georgia as the state, as it did before. "Tbilisi"
+    alone is the Georgian market.
+    """
+    markets, _ = resources
+
+    assert market_plan.normalize_location(location, markets)["market_ids"] == ["us"]
 
 
 def test_a_place_that_cannot_be_read_is_still_not_foreign(resources):
@@ -1434,12 +1480,12 @@ def test_a_market_is_read_before_the_country_catalog(
         # A country name inside a longer word, where no market catches the text
         # first -- which is where whole-word matching is the only thing between
         # a posting and a wrong refusal.
-        ("Nigerian Embassy, Accra, Ghana", "Ghana"),
-        ("Chadwick Street, Toronto", None),
-        ("Malian Quarter, Dakar", None),
-        ("Omani Building, Doha", None),
-        ("Cuban Avenue, Lima", None),
-        ("Iranian Street, Baku", None),
+        ("Nigerian Embassy, Accra, Ghana", ["gh"]),
+        ("Chadwick Street, Toronto", ["ca"]),
+        ("Malian Quarter, Dakar", []),
+        ("Omani Building, Doha", ["qa"]),
+        ("Cuban Avenue, Lima", []),
+        ("Iranian Street, Baku", []),
     ],
 )
 def test_a_country_name_inside_a_longer_word_is_not_a_country(
@@ -1452,13 +1498,13 @@ def test_a_country_name_inside_a_longer_word_is_not_a_country(
     enough to look safe and is not: Nigeria sits inside "Nigerian", Chad inside
     "Chadwick", Mali inside "Malian", Oman inside "Omani", Cuba inside "Cuban",
     Iran inside "Iranian". Read as substrings these six answer Nigeria, Chad,
-    Mali, Oman, Cuba and Iran -- and `foreign` is what refuses a posting, so
-    each wrong reading throws away a real job.
+    Mali, Oman, Cuba and Iran -- and each is a market now, so a wrong reading
+    puts a real job in the wrong country.
     """
     markets, _ = resources
     placed = market_plan.normalize_location(location, markets)
 
-    assert placed["canonical_name"] == expected
+    assert placed["market_ids"] == expected
 
 
 @pytest.mark.parametrize(
@@ -1483,12 +1529,19 @@ def test_the_longer_country_name_wins_over_the_one_inside_it(
 
 
 def test_a_market_country_is_never_read_as_foreign(resources):
-    """The two catalogs must not both answer for one country."""
+    """Every country name resolves to its own market.
+
+    Georgia is the one exception and it is deliberate: written alone, it is the
+    US state, as it was before generic markets existed. See the test above.
+    """
     markets, _ = resources
     for market in markets["markets"]:
         for alias in [market["country"], *market["country_aliases"]]:
             placed = market_plan.normalize_location(alias, markets)
             assert placed["location_type"] != "foreign", alias
+            if alias == "Georgia":
+                assert placed["market_ids"] == ["us"]
+                continue
             assert market["market_id"] in placed["market_ids"], alias
 
 
@@ -1506,6 +1559,7 @@ def test_the_country_catalog_names_no_market_and_no_two_letter_code():
     market_names = {
         market_plan._normalize_text(alias)
         for market in markets["markets"]
+        if market["coverage"] == "curated"
         for alias in [market["country"], *market["country_aliases"]]
     }
 
@@ -1546,7 +1600,7 @@ def test_a_posting_outside_the_round_is_refused_by_the_prefilter(resources):
             "source_type": "local_job_board",
         }
 
-    for location in ("Paris, France", "Bangalore, India", "Sydney, Australia"):
+    for location in ("Paris, France", "Bangalore, India", "Sydney, Australia", "Toronto"):
         kept, dropped, _refused = discovery_batch._prefilter_reported_candidates(
             [candidate(location)],
             channel="browser",
@@ -1585,8 +1639,10 @@ def test_a_chinese_country_name_needs_no_separator(resources, location, country)
     markets, _ = resources
     placed = market_plan.normalize_location(location, markets)
 
-    assert placed["location_type"] == "foreign"
-    assert placed["canonical_name"] == country
+    assert placed["location_type"] in {"city", "country"}
+    assert placed["market_ids"] == [
+        next(m["market_id"] for m in markets["markets"] if m["country"] == country)
+    ]
 
 
 def test_a_chinese_market_name_still_wins_over_the_country_catalog(resources):

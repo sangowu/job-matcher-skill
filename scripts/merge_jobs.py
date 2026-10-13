@@ -45,7 +45,7 @@ from analysis_contract import (
 from candidate_contract import CandidateContractError, validate_candidate_envelope
 from _jobutil import (
     all_identity_keys,
-    supported_markets,
+    known_markets,
     all_url_keys,
     is_closed_posting,
     is_strong_identity_key,
@@ -289,7 +289,7 @@ def _market_ids_from_sources(sources: list[dict]) -> list[str]:
     `market_status: "unknown"`, and the report could neither filter it by market
     nor attribute it to one, while its own provenance said `us`.
     """
-    known = set(supported_markets())
+    known = set(known_markets())
     output: list[str] = []
     for source in sources:
         normalized = source.get("location_normalized")

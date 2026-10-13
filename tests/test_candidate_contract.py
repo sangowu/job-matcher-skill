@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -57,13 +58,13 @@ def test_json_schema_and_runtime_validator_share_required_contract():
         candidate_contract.SOURCE_TYPES
     )
     location = schema["properties"]["location_normalized"]["properties"]
-    assert set(location["market_id"]["enum"]) == (
-        candidate_contract.SUPPORTED_MARKETS | {None}
-    )
-    assert set(location["market_ids"]["items"]["enum"]) == (
-        candidate_contract.SUPPORTED_MARKETS
-    )
-    assert location["market_ids"]["maxItems"] == len(candidate_contract.SUPPORTED_MARKETS)
+    # A pattern, not an enum: the market set is two hundred countries read from
+    # the catalog, and a hand-kept copy of it here is the drift this replaced.
+    pattern = re.compile(location["market_id"]["pattern"])
+    assert location["market_ids"]["items"]["pattern"] == pattern.pattern
+    assert all(pattern.fullmatch(market) for market in candidate_contract.SUPPORTED_MARKETS)
+    assert {"ie", "fr", "jp", "ca"} <= candidate_contract.SUPPORTED_MARKETS
+    assert location["market_ids"]["maxItems"] == candidate_contract.MAX_MARKET_IDS
     assert "market_ids" in normalized["location_normalized"]
     assert normalized["search_language"] == "de"
     assert normalized["identity_keys"] == ["greenhouse:123"]

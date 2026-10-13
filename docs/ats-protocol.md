@@ -8,7 +8,7 @@
 - `ats_pipeline.py` 只允许官方公开 HTTPS GET，不需要 API key，**不调用申请、Harvest、Hire 或 Partner API**。默认请求 gzip；压缩响应的 wire bytes 与解压后 payload **各自**受 25 MB 上限约束，未知或损坏的编码按该 board 安全失败。
 - Greenhouse 标识发现接受 `job-boards.greenhouse.io` 与 `job-boards.eu.greenhouse.io`，但两者都调官方 `boards-api.greenhouse.io`；**不要虚构 EU API host**。
 - 在内存中规范化并按 CV 的 title/location/seniority 做确定性初筛（remote 一律跳过，见第 3 步）：单独的 `AI` 产品或团队后缀是低信息量 token，不能独立触发岗位匹配；`AI evaluation`、`AI systems`、`agent systems` 这类明确岗位短语仍可匹配。
-- 角色初筛之后再按**计划的市场**筛一道：`markets_by_board` 由 `discovery_batch.py` 从每个 structured task 的 `markets` 传入，目录无法归入该市场的地点一律剔除并记入 `jobs_out_of_market`。同名城市按 `markets.json` 的 `foreign_administrative_areas` 判否；两字母代码只在**独立逗号分段**里算数（尾随邮编先剔除）；只有文本没点名任何受支持市场时该判定才生效。**被拉取了却没有计划市场的 board 是错误，不是「无范围」。**
+- 角色初筛之后再按**计划的市场**筛一道：`markets_by_board` 由 `discovery_batch.py` 从每个 structured task 的 `markets` 传入，目录无法归入该市场的地点一律剔除并记入 `jobs_out_of_market`。同名城市按各市场声明的 `administrative_areas` 判归属（`Dublin, OH` 归 us，`London, ON` 归 ca）；两字母代码只在**独立逗号分段**里算数（尾随邮编先剔除）；只有文本没点名任何受支持市场时该判定才生效。**被拉取了却没有计划市场的 board 是错误，不是「无范围」。**
 - 候选的 `source_type`/`discovery_route` 按目录里该来源的真实类型写（`ats_board`→`ats_expansion`、`company_careers`→`company_careers`），**不得统一写成 ATS**——`discovery_batch.py` 按 task 的目录类型比对，一条不符整批作废。
 - 最多输出 `top_n + precise_buffer` 个候选，再进入统一强身份 merge。
 - **`ats_defer_jd`（默认 true）把正文推到这个名额之后**：Greenhouse 列表先按 `content=false` 读一遍，只有本轮真正保留的候选各花一次请求取自己的正文。Ashby、Lever、`amazon_jobs` 只提供一份自带正文的列表，忽略该开关。正文取不到的候选照常入库、`jd_text` 留空，由评估 worker 的容错阶梯自己读页面；请求预算耗尽是停止补正文，不是判该 board 失败。第二趟计入 `jd_requests` / `jd_fetch_failed` / `jd_fetch_skipped`，不并进 `requests` 总数。

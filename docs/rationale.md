@@ -501,6 +501,24 @@ Naukri 35 KB、APSjobs、foundit 只有脚本数据）。84 个候选，收 26 �
 改后 13 个槽位全部 `sufficient`（`docs/performance/multi-region-live-smoke-20261014-2.json`）。ie、es、br、fr 的详情页没认出申请按钮
 （`application_route_visible = 0`）——它不在 `sufficient` 的条件里，记在这里。
 
+**再往下一层：认出「这是哪个职位」**（同日）。按每个槽位实际打开的详情页地址核对（只在本地打印，不进产物），
+上面那次 es 的 `sufficient` 打开的是 Tecnoempleo 的公司主页 `/grupo-ns-trabajo`，不是职位——那条结论不成立。四个问题，一个根子：
+工具靠链接里的职位词认职位，而一个职位往往有几个链接、有的根本没有职位词。
+
+- **Tecnoempleo** 的职位是 `/desarrollador-java-…/spring-git/rf-<十六进制>`，没有职位词；有职位词的只有公司主页（`-trabajo`）。
+- **Talent.com** 的职位是 `/view?id=<n>`、链接文字是「Show more」：去掉查询参数后整页一个地址，标题又只在卡片里。
+- **Careers.vic** 每张卡片还有收藏按钮 `/vpsc-dialog/login_favourite_jobs/88851`，与职位 `/job/software-developer-88851` 算成两个职位，卡片作废。
+- **Daijob** 卡片里的地点标签链到地点搜索，同样让卡片作废；职位链接的文字是空的。
+
+改为按**职位编号**认职位：5 位以上数字（4 位会是年份）或 12 位以上含数字的十六进制串；编号在查询参数里时保留名字以 `id` 结尾的参数
+（IrishJobs 的 `?salary=10000` 是筛选，不保留）。同一编号的链接是同一个职位，从文字最长的那个链接（标题）打开；角色和地点都从卡片文字和链接里读。
+只有编号、没有职位词的链接算不算职位，按整页数：南开的卡片同时链接职位（`/correcruit/content/id/…`）和雇主（`/company/index/id/…`），
+雇主链接也有编号，算成职位就让每张卡片作废；Tecnoempleo 的一个雇主链接「Empleo en Telefónica」既有职位词又有编号，
+不能凭这一个链接否定三十个只有编号的职位。所以只有编号的链接要至少是「职位词 + 编号」链接的两倍才算。
+
+sg（Talent.com）、au（Careers.vic）、it（Talent.com）因此有了槽位，10 个通用市场都有了。16 个槽位全部 `sufficient`，
+每个打开的都是职位详情页（`docs/performance/multi-region-live-smoke-20261014-3.json`）。
+
 ### [R5-06] 复验结论为什么需要独立的写入口
 
 P7 给行加了 `verified_at` 与 `needs_verification`，但 `verified` 的唯一写入路径仍然在**评估结果**里，

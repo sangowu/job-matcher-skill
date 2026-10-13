@@ -66,7 +66,10 @@ JOB_LINK_MARKERS = (
     "求人",
     "채용",
 )
-_POSTING_ID = re.compile(r"\d{4,}")
+# A posting's id in its address: five or more digits (four would be a year,
+# "/blog/2026/"), or a hex token of twelve or more with a digit in it --
+# Tecnoempleo's "/rf-dc421cdf122153731244".
+_POSTING_ID = re.compile(r"\d{5,}|(?=[0-9a-f]*\d)[0-9a-f]{12,}")
 # Longer than any one posting's card on the boards in the plan (Built In's,
 # with its summary, runs to about 700 characters).
 MAX_CARD_CHARS = 2000
@@ -385,9 +388,73 @@ def _blocked_reason(result: FetchResult, page: _PageParser) -> str | None:
 
 
 def _canonical_url(url: str) -> str:
+    """Scheme, host and path -- and the query, when a posting's id lives there.
+
+    Talent.com addresses every posting as "/view?id=<n>"; dropped, its whole
+    list was one URL. Only the id-bearing parameters are kept, so tracking
+    parameters still do not split one posting into many -- nor a filter:
+    IrishJobs' "?salary=10000" is a number and not an id.
+    """
     parsed = urllib.parse.urlsplit(url)
     path = re.sub(r"/+", "/", parsed.path or "/").rstrip("/") or "/"
-    return urllib.parse.urlunsplit(("https", parsed.netloc.lower(), path, "", ""))
+    query = ""
+    if not _POSTING_ID.search(path):
+        query = urllib.parse.urlencode(sorted(
+            (key, value)
+            for key, value in urllib.parse.parse_qsl(parsed.query)
+            if key.casefold().endswith("id") and _POSTING_ID.search(value)
+        ))
+    return urllib.parse.urlunsplit(("https", parsed.netloc.lower(), path, query, ""))
+
+
+def _posting_key(canonical: str) -> str:
+    """One key for every link to one posting.
+
+    A card links its posting more than once -- the title, "Show more", a
+    save button ("/vpsc-dialog/login_favourite_jobs/88851" beside
+    "/job/software-developer-88851" on Careers.vic) -- and counted as two
+    postings, the card was not read as anybody's. The id they share is the
+    posting; an address without one is its own key.
+    """
+    parsed = urllib.parse.urlsplit(canonical)
+    ids = _POSTING_ID.findall(parsed.path) or _POSTING_ID.findall(parsed.query)
+    return f"{parsed.netloc}#{ids[-1]}" if ids else canonical
+
+
+def _has_job_word(text: str) -> bool:
+    return any(marker in text for marker in JOB_LINK_MARKERS)
+
+
+def _has_posting_id(url: str) -> bool:
+    return "#" in _posting_key(_canonical_url(url))
+
+
+def _ids_mark_postings(page: _PageParser, base_url: str) -> bool:
+    """Whether a link with an id and no job-ish word is read as a posting.
+
+    Tecnoempleo's postings are "/desarrollador-java-.../spring-git/rf-<hex>"
+    and Talent.com's "/view?id=<n>", with no job-ish word anywhere; the only
+    Tecnoempleo links that had one were its company pages ("/grupo-ns-
+    trabajo"), and one of those was opened as the posting. But where postings
+    do carry the word, an id alone is something else: Nankai's cards link the
+    employer as "/company/index/id/35479.html", and counted as a second
+    posting it voided every card. So an id alone counts where postings with
+    an id and no word outnumber those with both at least twice over -- a
+    count, because one link is not the page: Tecnoempleo's "Empleo en
+    Telefonica" employer link has both, beside thirty postings with the id
+    alone.
+    """
+    worded: set[str] = set()
+    bare: set[str] = set()
+    for href, anchor in page.links:
+        absolute = urllib.parse.urljoin(base_url, href)
+        if not _is_same_site(base_url, absolute) or not _has_posting_id(absolute):
+            continue
+        text = _normalized_text(f"{anchor} {urllib.parse.urlsplit(absolute).path}")
+        key = _posting_key(_canonical_url(absolute))
+        (worded if _has_job_word(text) else bare).add(key)
+    bare -= worded
+    return bool(bare) and len(bare) >= 2 * len(worded)
 
 
 def _collect_candidates(
@@ -404,24 +471,32 @@ def _collect_candidates(
     # round reported none in New York from a page full of them. A block too
     # long to be one card (a page with a single job on it) is not read as one,
     # so the page's own search box cannot supply the place.
+    #
+    # Within a block, postings with an id are what is counted when there are
+    # any: a card's tag links ("Tokyo" -> a search for Tokyo, on Daijob) are
+    # job-ish links too, and counting them left no card with one posting.
+    ids_alone = _ids_mark_postings(page, base_url)
+
+    def is_job_link(text: str, url: str) -> bool:
+        return _has_job_word(text) or (ids_alone and _has_posting_id(url))
+
     card_text: dict[str, str] = {}
     for link_start, link_end, text_start, text_end in page.blocks:
-        job_links = {
-            _canonical_url(absolute)
+        keys = {
+            _posting_key(_canonical_url(absolute))
             for href, _ in page.links[link_start:link_end]
-            if any(
-                marker in _normalized_text(urllib.parse.urlsplit(href).path)
-                for marker in JOB_LINK_MARKERS
-            )
-            and _is_same_site(base_url, absolute := urllib.parse.urljoin(base_url, href))
+            if _is_same_site(base_url, absolute := urllib.parse.urljoin(base_url, href))
+            and is_job_link(_normalized_text(urllib.parse.urlsplit(absolute).path), absolute)
         }
-        if len(job_links) != 1:
+        keys = {key for key in keys if "#" in key} or keys
+        if len(keys) != 1:
             continue
         text = _normalized_text(" ".join(page.visible_parts[text_start:text_end]))
-        (canonical,) = job_links
-        if len(text) <= MAX_CARD_CHARS and len(text) > len(card_text.get(canonical, "")):
-            card_text[canonical] = text
-    raw: dict[str, tuple[str, str]] = {}
+        (key,) = keys
+        if len(text) <= MAX_CARD_CHARS and len(text) > len(card_text.get(key, "")):
+            card_text[key] = text
+    # Per posting: the address to open, and everything its links say.
+    postings: dict[str, dict[str, Any]] = {}
     for href, anchor_text in page.links:
         absolute = urllib.parse.urljoin(base_url, href)
         try:
@@ -432,31 +507,41 @@ def _collect_candidates(
             continue
         canonical = _canonical_url(absolute)
         link_text = _normalized_text(f"{anchor_text} {urllib.parse.urlsplit(absolute).path}")
-        if canonical == base_canonical or not any(marker in link_text for marker in JOB_LINK_MARKERS):
+        if canonical == base_canonical or not is_job_link(link_text, absolute):
             continue
-        # The place may be on the card or in the link's own path
-        # ("/job/embedded-software-engineer-dublin-permanent/..."): both count.
-        raw.setdefault(canonical, (link_text, f"{card_text.get(canonical, '')} {link_text}"))
+        posting = postings.setdefault(
+            _posting_key(canonical), {"url": canonical, "anchor": "", "texts": []}
+        )
+        posting["texts"].append(link_text)
+        # The posting is opened at the link that names it at most length --
+        # its title -- not at "Show more" or a save button.
+        anchor = _normalized_text(anchor_text)
+        if len(anchor) > len(posting["anchor"]):
+            posting["url"], posting["anchor"] = canonical, anchor
 
     normalized_roles = [_normalized_text(term) for term in role_terms]
     normalized_locations = [_normalized_text(term) for term in location_terms]
-    role_matches = {
-        url: texts
-        for url, texts in raw.items()
-        if any(_contains_term(texts[0], term) for term in normalized_roles)
+    # The title and the place may each be on the card or in a link -- the
+    # anchor or its path ("/job/embedded-software-engineer-dublin-permanent/").
+    readings = {
+        key: f"{card_text.get(key, '')} {' '.join(posting['texts'])}"
+        for key, posting in postings.items()
     }
+    role_matches = [
+        key for key in postings
+        if any(_contains_term(readings[key], term) for term in normalized_roles)
+    ]
     location_matches = [
-        url
-        for url, texts in role_matches.items()
-        if any(_contains_term(texts[1], term) for term in normalized_locations)
+        key for key in role_matches
+        if any(_contains_term(readings[key], term) for term in normalized_locations)
     ]
     # The first match is the one opened as the detail page, and a listing
     # links its own search categories too: IrishJobs' "/jobs/python-developer/
     # in-county-dublin" matches a role and a place and is not a posting. A
     # posting's address carries its id, so one that does is opened first.
-    location_matches.sort(key=lambda url: _POSTING_ID.search(urllib.parse.urlsplit(url).path) is None)
-    return location_matches, {
-        "candidates_raw": len(raw),
+    location_matches.sort(key=lambda key: postings[key]["url"] == key)
+    return [postings[key]["url"] for key in location_matches], {
+        "candidates_raw": len(postings),
         "role_matched": len(role_matches),
         "location_matched": len(location_matches),
         "candidates_unique": len(location_matches),

@@ -66,6 +66,10 @@ JOB_LINK_MARKERS = (
     "求人",
     "채용",
 )
+_POSTING_ID = re.compile(r"\d{4,}")
+# Longer than any one posting's card on the boards in the plan (Built In's,
+# with its summary, runs to about 700 characters).
+MAX_CARD_CHARS = 2000
 CAPTCHA_MARKERS = (
     "captcha",
     "recaptcha",
@@ -282,22 +286,33 @@ class BoundedHttpTransport:
         )
 
 
+# Elements a job card is built from. A card is read as the outermost one of
+# these holding a single job link -- see `_collect_candidates`.
+_BLOCK_TAGS = {
+    "article", "dd", "div", "dl", "li", "ol", "section", "table", "tbody", "td",
+    "tr", "ul",
+}
+
+
 class _PageParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.links: list[tuple[str, str]] = []
         self.visible_parts: list[str] = []
         self.title_parts: list[str] = []
-        self.list_items: list[tuple[list[tuple[str, str]], str]] = []
-        self._list_stack: list[dict[str, Any]] = []
+        # Every closed block as (first link, end link, first text part, end
+        # text part): indexes into `links` and `visible_parts`, so a block's
+        # contents are slices rather than copies made at every nesting level.
+        self.blocks: list[tuple[int, int, int, int]] = []
+        self._block_stack: list[tuple[str, int, int]] = []
         self._anchor_href: str | None = None
         self._anchor_parts: list[str] = []
         self._hidden_depth = 0
         self._in_title = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag == "li":
-            self._list_stack.append({"links": [], "parts": []})
+        if tag in _BLOCK_TAGS:
+            self._block_stack.append((tag, len(self.links), len(self.visible_parts)))
         if tag in {"script", "style", "noscript"}:
             self._hidden_depth += 1
         if tag == "title":
@@ -308,15 +323,19 @@ class _PageParser(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         if tag == "a" and self._anchor_href:
-            link = (self._anchor_href, " ".join(self._anchor_parts))
-            self.links.append(link)
-            if self._list_stack:
-                self._list_stack[-1]["links"].append(link)
+            self.links.append((self._anchor_href, " ".join(self._anchor_parts)))
             self._anchor_href = None
             self._anchor_parts = []
-        if tag == "li" and self._list_stack:
-            item = self._list_stack.pop()
-            self.list_items.append((item["links"], " ".join(item["parts"])))
+        if tag in _BLOCK_TAGS and any(open_tag == tag for open_tag, _, _ in self._block_stack):
+            # Close back to the matching element: a page that leaves a
+            # <div> open inside an <li> still closes the <li>.
+            while self._block_stack:
+                open_tag, link_start, text_start = self._block_stack.pop()
+                self.blocks.append(
+                    (link_start, len(self.links), text_start, len(self.visible_parts))
+                )
+                if open_tag == tag:
+                    break
         if tag == "title":
             self._in_title = False
         if tag in {"script", "style", "noscript"} and self._hidden_depth:
@@ -329,8 +348,6 @@ class _PageParser(HTMLParser):
         if not cleaned:
             return
         self.visible_parts.append(cleaned)
-        if self._list_stack:
-            self._list_stack[-1]["parts"].append(cleaned)
         if self._anchor_href is not None:
             self._anchor_parts.append(cleaned)
         if self._in_title:
@@ -380,16 +397,30 @@ def _collect_candidates(
     location_terms: list[str],
 ) -> tuple[list[str], dict[str, int]]:
     base_canonical = _canonical_url(base_url)
+    # A posting's card is the outermost block holding its job link and no
+    # other: the list around it holds many, the title inside it holds no
+    # place. Read from <li> only, a board whose cards are <div>s -- Built In,
+    # Free-Work, Careers.vic -- gave every posting no place at all, and a
+    # round reported none in New York from a page full of them. A block too
+    # long to be one card (a page with a single job on it) is not read as one,
+    # so the page's own search box cannot supply the place.
     card_text: dict[str, str] = {}
-    for links, text in page.list_items:
-        job_links = [href for href, _ in links if any(
-            marker in _normalized_text(urllib.parse.urlsplit(href).path)
-            for marker in JOB_LINK_MARKERS
-        )]
-        if len(job_links) == 1:
-            absolute = urllib.parse.urljoin(base_url, job_links[0])
-            if _is_same_site(base_url, absolute):
-                card_text[_canonical_url(absolute)] = _normalized_text(text)
+    for link_start, link_end, text_start, text_end in page.blocks:
+        job_links = {
+            _canonical_url(absolute)
+            for href, _ in page.links[link_start:link_end]
+            if any(
+                marker in _normalized_text(urllib.parse.urlsplit(href).path)
+                for marker in JOB_LINK_MARKERS
+            )
+            and _is_same_site(base_url, absolute := urllib.parse.urljoin(base_url, href))
+        }
+        if len(job_links) != 1:
+            continue
+        text = _normalized_text(" ".join(page.visible_parts[text_start:text_end]))
+        (canonical,) = job_links
+        if len(text) <= MAX_CARD_CHARS and len(text) > len(card_text.get(canonical, "")):
+            card_text[canonical] = text
     raw: dict[str, tuple[str, str]] = {}
     for href, anchor_text in page.links:
         absolute = urllib.parse.urljoin(base_url, href)
@@ -403,7 +434,9 @@ def _collect_candidates(
         link_text = _normalized_text(f"{anchor_text} {urllib.parse.urlsplit(absolute).path}")
         if canonical == base_canonical or not any(marker in link_text for marker in JOB_LINK_MARKERS):
             continue
-        raw.setdefault(canonical, (link_text, card_text.get(canonical, link_text)))
+        # The place may be on the card or in the link's own path
+        # ("/job/embedded-software-engineer-dublin-permanent/..."): both count.
+        raw.setdefault(canonical, (link_text, f"{card_text.get(canonical, '')} {link_text}"))
 
     normalized_roles = [_normalized_text(term) for term in role_terms]
     normalized_locations = [_normalized_text(term) for term in location_terms]
@@ -417,6 +450,11 @@ def _collect_candidates(
         for url, texts in role_matches.items()
         if any(_contains_term(texts[1], term) for term in normalized_locations)
     ]
+    # The first match is the one opened as the detail page, and a listing
+    # links its own search categories too: IrishJobs' "/jobs/python-developer/
+    # in-county-dublin" matches a role and a place and is not a posting. A
+    # posting's address carries its id, so one that does is opened first.
+    location_matches.sort(key=lambda url: _POSTING_ID.search(urllib.parse.urlsplit(url).path) is None)
     return location_matches, {
         "candidates_raw": len(raw),
         "role_matched": len(role_matches),

@@ -484,6 +484,23 @@ Naukri 35 KB、APSjobs、foundit 只有脚本数据）。84 个候选，收 26 �
 - Jobs in Milan 的 `www` 主机 301 到 `http://`，被 HTTPS 校验拒绝；入口改为 `https://jobsinmilan.com/`。
 - ProgramaThor 直接请求某些旧职位地址返回 500，从列表点进去正常；浏览器通道按点击走，不受影响。
 
+**精选市场 ie/us/nl 的槽位从来没读到过职位**（同日排查）。ie 自 2026-09-18 第一次运行起就是 0，us/nl 加入后也是 0：
+
+- **ie**：`publicjobs-ie` 的槽位请求的是首页，职位搜索在另一个站点 `publicjobs.tal.net`，工具只在同站内取，这个槽位不可能成功。
+  改用 `irishjobs-ie` 的 `/jobs/python-developer/in-dublin`（689 KB；搜 software-engineer 的页 943 KB，离 1 MiB 上限太近）。
+- **nl**：Werken voor Nederland 的列表由脚本渲染，静态页面里只有筛选和导航链接。改用 `academictransfer-nl` 的搜索页。
+- **us**：Built In 的卡片是 `<div>`，地点在标题旁边、不在链接里；工具只把 `<li>` 当卡片，地点永远读不到。另外 Built In
+  按访问者 IP 推荐地点：从爱尔兰请求 `/jobs/new-york/dev-engineering` 返回的是爱尔兰职位，所以槽位改用不带城市的
+  `/jobs/dev-engineering`，从卡片读地点。
+
+工具因此改了三处：卡片是**只含一个职位链接的最外层块元素**（`li`、`div`、`article`……，超过 2000 字的不算，免得整页的搜索框
+提供地点）；地点在卡片文字**或链接路径**里都算（`/job/embedded-software-engineer-dublin-permanent/…`）；第一个匹配会被打开当详情页，
+而列表页也链接自己的搜索分类（IrishJobs 的 `/jobs/python-developer/in-county-dublin` 同时匹配角色和地点），所以路径里带 4 位以上
+数字（职位编号）的匹配排在前面。卡片识别也让 Free-Work 读出了地点，fr 加了槽位；Careers.vic 仍读不出，au 仍没有。
+
+改后 13 个槽位全部 `sufficient`（`docs/performance/multi-region-live-smoke-20261014-2.json`）。ie、es、br、fr 的详情页没认出申请按钮
+（`application_route_visible = 0`）——它不在 `sufficient` 的条件里，记在这里。
+
 ### [R5-06] 复验结论为什么需要独立的写入口
 
 P7 给行加了 `verified_at` 与 `needs_verification`，但 `verified` 的唯一写入路径仍然在**评估结果**里，

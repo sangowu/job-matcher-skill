@@ -805,6 +805,50 @@ def test_a_board_with_fewer_postings_than_its_share_does_not_hold_a_slot_back(
     assert len(result["candidates"]) == 5
 
 
+def test_a_market_fewer_boards_hire_in_still_gets_its_turn(isolated_ats):
+    """2026-10-14: a Singapore/Spain/Italy round's boards offered 46 Spanish, 4
+    Singaporean and 1 Italian posting. Boards taking turns gave Spain 16 of the
+    twenty slots and Italy none, and the round stopped there."""
+    big = board(token="big")
+    small = board(token="small")
+    provider = FakeAtsProvider({
+        "boards/big/jobs": [greenhouse_listing(
+            *((index, "AI Engineer", "Madrid, Spain") for index in range(100, 108)),
+            (199, "AI Engineer", "Milan, Italy"),
+        )],
+        "boards/small/jobs": [greenhouse_listing(
+            *((index, "AI Engineer", "Madrid, Spain") for index in range(900, 904))
+        )],
+    })
+    no_locations = {"preferred_roles": ["AI Engineer"], "blocked_levels": ["lead"]}
+
+    result = ats_pipeline.sync_registry(
+        registry(big, small), no_locations,
+        config=config(top_n=4, precise_buffer=0, ats_defer_jd=False),
+        provider_client=provider,
+        markets_by_board={
+            big["board_id"]: ["sg", "es", "it"], small["board_id"]: ["sg", "es", "it"],
+        },
+    )
+
+    locations = [candidate["location"] for candidate in result["candidates"]]
+    assert len(locations) == 4
+    assert "Milan, Italy" in locations
+    # Spain's two boards still take turns between themselves.
+    assert {candidate["source_id"] for candidate in result["candidates"]} == {
+        big["board_id"], small["board_id"],
+    }
+
+
+def test_a_posting_in_several_markets_counts_for_the_first_the_round_names():
+    resources = market_plan.load_resources()[0]
+    job = {"location": "Dublin; Madrid; Milan"}
+
+    assert ats_pipeline.planned_market(job, ["it", "es"], resources=resources) == "it"
+    assert ats_pipeline.planned_market(job, ["es", "it"], resources=resources) == "es"
+    assert ats_pipeline.planned_market(job, ["sg"], resources=resources) is None
+
+
 def junior_profile():
     return {
         **profile(),

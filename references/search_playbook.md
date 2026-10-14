@@ -73,7 +73,7 @@ locations : 用户本轮明确地点 > CV.target_locations > CV.preferred_locati
   ├─ 累计 ≥ stop_threshold → 停
   └─ < 阈值 → 追加下一批（plan 剩余 query）
 停止判定由 discovery_batch.py 输出（`continuation.decision`），三条任一成立即停：
-  · 累计唯一候选 ≥ stop_threshold          → target_reached
+  · 每个市场新增都 ≥ ceil(stop_threshold / 市场数) → target_reached（单市场即累计 ≥ stop_threshold）
   · plan 中已无下一波任务                   → plan_exhausted
   · 连续 consecutive_empty_stop 批 0 新增   → diminishing_returns
 计的是 merge 新增的**唯一候选**，未经评分、也不代表 JD 完整。

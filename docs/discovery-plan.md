@@ -92,7 +92,13 @@ job title, company, snippet, or JD.
 
 The returned `continuation` decision uses the canonical merge's new-candidate
 count, count-only prior progress, plan-owned remaining waves, and the existing
-`stop_threshold`/`consecutive_empty_stop` settings. Only `continue` exposes the
+`stop_threshold`/`consecutive_empty_stop` settings. The threshold is split
+evenly across the round's markets (`share_per_market`) and judged per market:
+the round continues while `markets_below_share` is non-empty, the next wave is
+the first later wave holding a task for one of those markets, and
+`next_task_ids` lists only such tasks. The caller passes
+`unique_candidates_by_market` back as
+`progress.unique_candidates_before_by_market`. Only `continue` exposes the
 next wave ID and task IDs. Callers cannot override remaining-work availability
 for a wave-aware plan. Legacy plans without `waves` retain the previous
 count-only compatibility field. This controls discovery expansion only; it is

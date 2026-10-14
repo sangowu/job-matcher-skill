@@ -26,7 +26,16 @@ from _stdio import StdinUnavailable, read_stdin_text
 
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
-_LISTING_TAIL = re.compile(r"/(jobs|careers|search|positions|opportunities)/?$", re.I)
+# The listing word may carry a one-word prefix: Antal sends a withdrawn
+# posting to `/job-search`, which the bare `/search` form never matched, so a
+# live round kept it as alive (2026-10-14). The prefix is a closed set -- a
+# posting slug such as `/senior-search-engineer` ends in a word, not in one of
+# these, and a free prefix would read `/careers/research-positions` as a list.
+_LISTING_TAIL = re.compile(
+    r"/(?:(?:job|jobs|career|careers|all|open|current)-)?"
+    r"(?:jobs|careers|search|positions|opportunities|vacancies|openings)/?$",
+    re.I,
+)
 # 只有这两个码是服务器在说"这个资源没了"。其余 4xx/5xx 说的是它不肯或不能
 # 回答**这次请求**，与职位的死活无关。
 GONE_CODES = frozenset({404, 410})

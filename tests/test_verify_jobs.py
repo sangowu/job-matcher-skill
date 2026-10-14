@@ -119,6 +119,31 @@ def test_a_redirect_that_drops_the_job_id_is_still_read_as_gone(served):
     assert result["final_url"] == "https://example.test/jobs"
 
 
+@pytest.mark.parametrize(
+    "final",
+    ["https://www.antal.com/job-search", "https://example.test/open-positions",
+     "https://example.test/careers/all-jobs/", "https://example.test/vacancies"],
+)
+def test_a_redirect_to_a_prefixed_listing_is_gone_too(served, final):
+    """2026-10-14: a withdrawn Antal posting redirected to `/job-search`, and
+    only the bare `/search` form was recognized, so it stayed alive."""
+    served(_Response(200, text="many jobs", url=final))
+
+    assert verify_jobs.check("https://example.test/job/ai-engineer")["alive"] is False
+
+
+@pytest.mark.parametrize(
+    "final",
+    ["https://example.test/careers/listing/senior-search-engineer/123",
+     "https://example.test/jobs/research-positions-lead",
+     "https://example.test/jobs/search?gh_jid=8160776"],
+)
+def test_a_redirect_to_another_posting_address_stays_alive(served, final):
+    served(_Response(200, text="<h1>Engineer</h1>", url=final))
+
+    assert verify_jobs.check("https://example.test/job/1")["alive"] is True
+
+
 def test_a_transport_failure_is_undetermined_not_dead(served):
     served(_Response(200), raises="timeout")
 

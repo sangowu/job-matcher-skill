@@ -370,6 +370,7 @@ function card(job, idx) {
           ${isNew ? `<span class="text-[10px] font-semibold px-1 py-0.5 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 rounded">NEW</span>` : ""}
           ${job.multi_source ? `<span class="text-[10px] font-semibold px-1 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 rounded">${t("multi_source")}</span>` : ""}
           ${job.same_role_count ? `<span class="text-[10px] font-semibold px-1 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded">${t("same_role")}</span>` : ""}
+          ${job.same_posting_count ? `<span class="text-[10px] font-semibold px-1 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded">${t("same_posting")}</span>` : ""}
           ${job.session_dependent ? `<span class="text-[10px] font-semibold px-1 py-0.5 bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300 rounded">${t("session_dependent")}</span>` : ""}
         </div>
         <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">${esc(job.company)}${job.location ? " · " + esc(job.location) : ""}</div>
@@ -409,6 +410,17 @@ function renderDetail(job) {
   const sameRole = sameRolePostings
     ? `<section class="mt-4"><h4 class="text-xs font-bold text-gray-500 mb-2">${t("same_role_heading")}</h4><p class="text-xs text-gray-500 dark:text-gray-400 mb-1.5">${t("same_role_note").replace("{0}", String((job.same_role || []).length))}</p><ul class="text-xs list-disc pl-4 space-y-0.5">${sameRolePostings}</ul></section>`
     : "";
+  // Another publisher carrying the same text: an agency reposting a client's
+  // role. Named, not merged -- each one is its own way to apply.
+  const samePostingItems = (job.same_posting || []).map(other => {
+    const label = esc([other.company, other.location].filter(Boolean).join(" · ") || t("na"));
+    return other.url
+      ? `<li><a href="${esc(other.url)}" target="_blank" rel="noopener noreferrer" class="text-blue-600 dark:text-blue-400 hover:underline">${label}</a></li>`
+      : `<li class="text-gray-500">${label}</li>`;
+  }).join("");
+  const samePosting = samePostingItems
+    ? `<section class="mt-4"><h4 class="text-xs font-bold text-gray-500 mb-2">${t("same_posting_heading")}</h4><p class="text-xs text-gray-500 dark:text-gray-400 mb-1.5">${t("same_posting_note").replace("{0}", String((job.same_posting || []).length))}</p><ul class="text-xs list-disc pl-4 space-y-0.5">${samePostingItems}</ul></section>`
+    : "";
   const flags = [];
   if (job.verified === "unverified") flags.push(chip(t("unverified"), "bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400"));
   if (job.scored_from === "snippet") flags.push(chip(t("from_snippet"), "bg-gray-100 dark:bg-gray-700 text-gray-500"));
@@ -416,6 +428,7 @@ function renderDetail(job) {
   if (job.stale_score && job.score == null) flags.push(chip(t("stale_score"), "bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400"));
   if (job.multi_source) flags.push(chip(t("multi_source"), "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300"));
   if (job.same_role_count) flags.push(chip(t("same_role"), "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"));
+  if (job.same_posting_count) flags.push(chip(t("same_posting"), "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"));
   if (job.session_dependent) flags.push(chip(t("session_dependent"), "bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-400"));
 
   pane.innerHTML = `
@@ -457,6 +470,7 @@ function renderDetail(job) {
       </div>
 
       ${sameRole}
+      ${samePosting}
       ${job.session_dependent ? `<p class="mt-4 text-xs text-sky-700 dark:text-sky-400">${t("session_dependent_detail")}</p>` : ""}
       ${job.verified_at ? `<p class="mt-2 text-xs text-gray-400">${t("verified_at", esc(String(job.verified_at).slice(0, 16).replace("T", " ")))}</p>` : ""}
       <section class="mt-4">

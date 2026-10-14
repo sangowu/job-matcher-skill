@@ -30,6 +30,7 @@ from _jobutil import (
     load_config,
     normalize_company,
 )
+from jd_fingerprint import near_duplicates
 from runtime_metrics import DEFAULT_THRESHOLDS, build_summaries
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -386,7 +387,54 @@ def same_role_postings(jobs: list) -> dict[int, list[dict]]:
     return siblings
 
 
-def flatten(job: dict, mk: str, *, same_role: list[dict] | None = None) -> dict:
+def same_posting_elsewhere(jobs: list) -> dict[int, list[dict]]:
+    """For each job, the rows from other publishers that carry the same text.
+
+    `same_role_postings` covers one company advertising a title twice. This is
+    the other case: a recruitment agency reposting a client's role under its
+    own name, so the company differs and nothing joined the rows. A live
+    Singapore round kept one "AI Engineer" three times that way (2026-10-14).
+
+    Both conditions are required: the same title, written the same way, and JD
+    fingerprints a few bits apart. The title is what keeps two different roles
+    of one employer -- long shared boilerplate, different jobs -- apart; the
+    fingerprint is what says the text is one text. Rows from the same company
+    are left to `same_role_postings`. Annotated, never merged: each publisher
+    is a separate way to apply.
+    """
+    by_title: dict[str, list[int]] = {}
+    for position, job in enumerate(jobs):
+        if isinstance(job, dict) and job.get("jd_fingerprint"):
+            title = " ".join(str(job.get("title") or "").split()).lower()
+            by_title.setdefault(title, []).append(position)
+    found: dict[int, list[dict]] = {}
+    for positions in by_title.values():
+        for position in positions:
+            job = jobs[position]
+            company = normalize_company(str(job.get("company") or ""))
+            others = [
+                {
+                    "company": str(jobs[other].get("company") or ""),
+                    "location": str(jobs[other].get("location") or ""),
+                    "url": _safe_url(str(jobs[other].get("url") or "")),
+                }
+                for other in positions
+                if other != position
+                and normalize_company(str(jobs[other].get("company") or "")) != company
+                and near_duplicates(job["jd_fingerprint"], jobs[other].get("jd_fingerprint"))
+            ]
+            if others:
+                found[position] = others
+    return found
+
+
+def flatten(
+    job: dict,
+    mk: str,
+    *,
+    same_role: list[dict] | None = None,
+    same_posting: list[dict] | None = None,
+) -> dict:
     scores = job.get("match_scores") or {}
     # 只认当前 cv:cp 口径的评分。不回退其他 CV/求职意向的旧分：
     # 评分是 JD × CV × 意向的函数，跨口径展示会误导（stale_score 标记待重评）。
@@ -476,6 +524,8 @@ def flatten(job: dict, mk: str, *, same_role: list[dict] | None = None) -> dict:
         # rows, and never a reason to drop one: each has its own apply URL.
         "same_role": list(same_role or []),
         "same_role_count": len(same_role or []),
+        "same_posting": list(same_posting or []),
+        "same_posting_count": len(same_posting or []),
         "jd": job.get("jd_profile") or {},
     }
 
@@ -518,8 +568,9 @@ def main() -> None:
     mk = f"{args.cv_hash}:{args.cp_hash}"
     table_jobs = table.get("jobs", [])
     siblings = same_role_postings(table_jobs)
+    reposts = same_posting_elsewhere(table_jobs)
     jobs = [
-        flatten(job, mk, same_role=siblings.get(position))
+        flatten(job, mk, same_role=siblings.get(position), same_posting=reposts.get(position))
         for position, job in enumerate(table_jobs)
     ]
     # Counted for the report header: "three of these came from your signed-in

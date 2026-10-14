@@ -107,5 +107,7 @@ deal_breaker 性质问题压 `must_have_score` 和 `title_score`），overall �
 - **有子代理则多片并行**（受 `max_parallel_subagents` 约束，与搜索 worker 共用预算）；否则串行逐片。
 - **精排 worker 一条龙**：抓 JD 全文 → 抽 jd_profile → 打分 → 回传，全部在同一个子代理内完成，减少编排者往返。
 - JD 全文留在子代理/工作区内，只回传结构化 `jd_profile` + `MatchScore`，不回传全文。
+- 读过 JD 全文的，把正文交给 `python scripts/jd_fingerprint.py`（stdin），回传它给出的 `jd_fingerprint`。
+  它只是 16 位指纹，报告用它找出不同发布方转发的同一职位；不影响打分。
 - JD 抓取失败 → 走容错阶梯（headless 一层受 `enable_headless_fallback` 与 `headless_budget` 约束）；
   彻底失败用 snippet 粗分并标 `scored_from = "snippet"`。

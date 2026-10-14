@@ -43,6 +43,7 @@ from analysis_contract import (
     validate_evaluation_result,
 )
 from candidate_contract import CandidateContractError, validate_candidate_envelope
+from jd_fingerprint import jd_fingerprint
 from _jobutil import (
     all_identity_keys,
     known_markets,
@@ -833,6 +834,10 @@ def _merge_into(hit: dict, cand: dict) -> bool:
 def _apply_jd_content_hash(job: dict, jd_text: str) -> bool:
     """Persist only a digest; invalidate derived analysis when ATS JD changes."""
     digest = hashlib.sha256(jd_text.encode("utf-8")).hexdigest()
+    # Not an evaluation input, so it neither bumps the version nor clears the
+    # analysis; it is filled in for rows stored before it existed.
+    if job.get("jd_content_hash") != digest or not job.get("jd_fingerprint"):
+        job["jd_fingerprint"] = jd_fingerprint(jd_text)
     if job.get("jd_content_hash") == digest:
         return False
     job["jd_content_hash"] = digest
@@ -1333,6 +1338,8 @@ def cmd_update(
             if result["jd_profile"] is not None:
                 job["jd_profile"] = result["jd_profile"]
                 job["fetched_at"] = _now().isoformat()
+            if result["jd_fingerprint"] is not None:
+                job["jd_fingerprint"] = result["jd_fingerprint"]
             job.setdefault("match_scores", {})[mk] = result["match_score"]
             if result["verified"] is not None:
                 job["verified"] = result["verified"]

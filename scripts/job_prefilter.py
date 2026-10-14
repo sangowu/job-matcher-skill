@@ -148,6 +148,52 @@ def _normalized_text(value: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w+#.]+", " ", folded).lower()).strip()
 
 
+# A title names one role in both grammatical genders, and the vocabulary
+# lists it in one: "Sviluppatore/Sviluppatrice Java", "Ingeniero/a de IA",
+# "Engenheiro(a) de Software", "Développeur·euse", "Entwickler:in". Each of
+# those normalized to "sviluppatore sviluppatrice java" or "ingeniero a de ia",
+# which contains no listed term, so a live Milan round dropped the posting on
+# role. A slash offers alternatives, and the title is read once with each; an
+# attached short ending is the other gender's suffix, and is dropped.
+_ALTERNATIVES = re.compile(r"\w+(?:\s*/\s*\w+)+")
+_GENDER_SUFFIX = re.compile(r"(?<=\w)(?:\([a-z]{1,4}\)|[·:*_][a-z]{1,5}\b)")
+
+# Connecting words a title may leave out: "Ingegnere software Java" is the
+# vocabulary's "Ingegnere del software", and "Ingeniero Software" its
+# "Ingeniero de Software". Removed from both sides before comparing.
+_LINKING_WORDS = frozenset({
+    "d", "da", "das", "de", "degli", "dei", "del", "della", "delle", "dello",
+    "des", "di", "do", "dos", "du",
+})
+
+
+def _title_readings(value: str) -> list[str]:
+    """`value` normalized once for each way its gendered forms can be read."""
+    unsuffixed = _GENDER_SUFFIX.sub("", value or "")
+    readings = [value or "", unsuffixed]
+    for pick in (0, -1):
+        readings.append(_ALTERNATIVES.sub(
+            lambda match, pick=pick: match.group(0).split("/")[pick], unsuffixed,
+        ))
+    return list(dict.fromkeys(_comparable(reading) for reading in readings))
+
+
+def _comparable(value: str) -> str:
+    return " ".join(
+        token for token in _normalized_text(value).split()
+        if token not in _LINKING_WORDS
+    )
+
+
+@functools.lru_cache(maxsize=1)
+def _comparable_terms() -> dict[str, tuple[str, ...]]:
+    by_term, _ = _vocabulary()
+    return {
+        family: tuple(text for term in terms if (text := _comparable(term)))
+        for family, terms in by_term.items()
+    }
+
+
 def _title_segments(value: str) -> list[str]:
     parts = (_normalized_text(part) for part in _TITLE_SEGMENT.split(value or ""))
     return [part for part in parts if part]
@@ -169,11 +215,11 @@ def _family_tokens_match(value: str, family_tokens: frozenset[str]) -> bool:
 
 
 def _role_families(value: str) -> set[str]:
-    by_term, by_token = _vocabulary()
-    normalized = _normalized_text(value)
+    _, by_token = _vocabulary()
+    readings = _title_readings(value)
     families = {
-        family for family, terms in by_term.items()
-        if any(_normalized_text(term) in normalized for term in terms)
+        family for family, terms in _comparable_terms().items()
+        if any(term in reading for term in terms for reading in readings)
     }
     families.update(
         family for family, tokens in by_token.items()
@@ -186,13 +232,15 @@ def _title_matches(title: str, roles: list[str]) -> bool:
     if not roles:
         return True
     normalized_title = _normalized_text(title)
+    title_readings = _title_readings(title)
     title_families = _role_families(title)
     title_tokens = set(normalized_title.split()) - _GENERIC_TITLE_TOKENS
     for role in roles:
         normalized_role = _normalized_text(str(role))
-        if normalized_role and (
-            normalized_role in normalized_title or normalized_title in normalized_role
-        ):
+        role_text = _comparable(str(role))
+        if role_text and any(role_text in reading for reading in title_readings):
+            return True
+        if normalized_role and normalized_title in normalized_role:
             return True
         if title_families & _role_families(str(role)):
             return True

@@ -35,7 +35,7 @@ The deterministic plan contains three task lists and bounded execution waves:
   `search_plan`: the browser spends none of `max_websearch_calls`, and reading
   the capped list left a multi-market round one title per role. The per-source
   cut takes the source's own `search_languages` order first and the profile's
-  roles second, so a German board leads with `KI-Ingenieur` rather than with
+  roles second, so a French board leads with `Ingénieur IA` rather than with
   the CV's one spelling of the role.
 - `web_search`: the existing localized query rows, each with one-call scope and
   bounded public source hints. A source may be a Web hint even when its policy

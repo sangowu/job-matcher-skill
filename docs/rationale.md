@@ -75,7 +75,7 @@
 
 ### [R3-08] search_plan 与 role_plan 为什么拆开
 
-- **`search_plan` 是 Web Search 预算的切片，`role_plan` 是完整展开。**`max_websearch_calls` 只管 Web Search，浏览器通道不花这笔预算；两者共读一份被切到 6 条的列表时，三市场一轮只剩每角色一个标题。现在 `role_plan`（只含 `market_id`/`language`/`role`/`location`，不含 query 串）承载完整展开，`discovery_plan.py` 的浏览器任务读它，Web Search 任务仍读 `search_plan`。浏览器任务的取词顺序**先按来源自己的 `search_languages` 分层、再按 profile 的角色排序**：`target_roles` 只有一种拼写，只按它排会让德语站先搜 `AI Engineer` 而不是 `KI-Ingenieur`。
+- **`search_plan` 是 Web Search 预算的切片，`role_plan` 是完整展开。**`max_websearch_calls` 只管 Web Search，浏览器通道不花这笔预算；两者共读一份被切到 6 条的列表时，三市场一轮只剩每角色一个标题。现在 `role_plan`（只含 `market_id`/`language`/`role`/`location`，不含 query 串）承载完整展开，`discovery_plan.py` 的浏览器任务读它，Web Search 任务仍读 `search_plan`。浏览器任务的取词顺序**先按来源自己的 `search_languages` 分层、再按 profile 的角色排序**：`target_roles` 只有一种拼写，只按它排会让法语站先搜 `AI Engineer` 而不是 `Ingénieur IA`。
 
 
 ### [R3-10] 为什么默认不搜 remote
@@ -442,6 +442,16 @@
 - **角色词表**：六个族补四种语言的标题与同义词；`match_terms` 补不在标题里的词（`intelligenza artificiale`、
   `sztuczna inteligencja`、`kunstmatige intelligentie`、`머신러닝`、`프런트엔드`），平台与产品两个只用于识别的族也补上。
   意大利、荷兰、波兰的技术岗位常直接用英文标题，所以这些语言的标题列表里保留了英文写法。
+- **意大利语、德语的技术岗位标题英文在前**（2026-10-14）：标题列表的第一个词就是本地站和 Web 搜索用的词。
+  一轮新加坡 / 马德里 / 米兰实测里，Talent.com 意大利搜 `Ingegnere AI`，首页 20 条全是电子、能源、土木工程师。
+  同一天在 Talent.com 各站首页对比相关职位数（本地词 → 英文词）：意大利 `Ingegnere AI` 0 → `AI Engineer` 20，
+  `Sviluppatore Backend` 5 → `Backend Developer` 19，`Sviluppatore Full Stack` 13 → 20，`Sviluppatore Frontend` 3 → 5；
+  德国 `KI-Ingenieur`、`Backend-Entwickler`、`Dateningenieur` 都是 0 条结果（连字符复合词搜不到），
+  英文 `AI Engineer` 18、`Backend Developer` 12、`Data Engineer` 17。所以这两种语言的 AI、后端、数据、前端、全栈
+  五个族把英文标题放在第一位，本地写法保留在后面，初筛照样认。`Softwareentwickler`（17/19）与
+  `Sviluppatore software` 本身就搜得到，软件工程族不变。西语、法语、葡语的本地词也搜得到相关职位
+  （`Ingeniero de IA` 7、`Ingénieur IA` 8、`Engenheiro de IA` 10，英文分别是 18、约 15、19），且有英文搜不到的职位
+  （`Ingeniero/a IA Junior`），所以不改；波兰语 `Inżynier AI` 返回的本来就是英文标题的职位（19/20）。
 - **资历与工作方式词**：`Stagista`、`Tirocinio`、`Afstudeerstage`、`Stażysta`、`인턴`、`Neolaureato`、`신입`、`Młodszy`、
   `Regular`、`Medior`、`Starszy`、`시니어`、`Responsabile`、`Teamleider`、`Kierownik`、`팀장`；`da remoto`、`zdalna`、
   `Thuiswerken`、`재택`、`Ibrido`、`Hybrydowo`、`하이브리드`、`In sede`、`Op kantoor`、`stacjonarna`、`출근`。

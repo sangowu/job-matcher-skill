@@ -84,8 +84,8 @@ def _by_target_role(
     """Take `limit` queries, the source's own language and the profile's own roles first.
 
     The language comes first because `target_roles` are spelled the way the CV
-    spells them, which is one language. Ranking a German site's pool by that
-    alone put "AI Engineer" ahead of "KI-Ingenieur" -- an exact-spelling match
+    spells them, which is one language. Ranking a French site's pool by that
+    alone put "AI Engineer" ahead of "Ingénieur IA" -- an exact-spelling match
     for the CV, and the wrong query for the site. `search_languages` is the
     source's own order, so a local board leads with its language and a global
     English-first career site leads with English.

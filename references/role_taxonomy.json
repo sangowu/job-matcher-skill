@@ -10,6 +10,7 @@
           "LLM Engineer"
         ],
         "de": [
+          "AI Engineer",
           "KI-Ingenieur",
           "Machine-Learning-Ingenieur",
           "LLM Engineer"
@@ -45,6 +46,7 @@
           "LLM 엔지니어"
         ],
         "it": [
+          "AI Engineer",
           "Ingegnere AI",
           "Ingegnere Machine Learning",
           "Sviluppatore AI"
@@ -97,8 +99,7 @@
           "생성형 AI 엔지니어"
         ],
         "it": [
-          "Ingegnere di intelligenza artificiale",
-          "AI Engineer"
+          "Ingegnere di intelligenza artificiale"
         ],
         "nl": [
           "Generatieve AI-engineer",
@@ -203,6 +204,7 @@
           "Software Engineer Backend"
         ],
         "de": [
+          "Backend Developer",
           "Backend-Entwickler",
           "Backend Softwareentwickler",
           "Softwareentwickler Backend"
@@ -238,9 +240,9 @@
           "서버 개발자"
         ],
         "it": [
+          "Backend Developer",
           "Sviluppatore Backend",
-          "Ingegnere Backend",
-          "Backend Developer"
+          "Ingegnere Backend"
         ],
         "nl": [
           "Backend Developer",
@@ -259,7 +261,6 @@
           "API Engineer"
         ],
         "de": [
-          "Backend Developer",
           "Serverentwickler"
         ],
         "zh-Hans": [
@@ -395,8 +396,8 @@
           "Analytics Engineer"
         ],
         "de": [
-          "Dateningenieur",
-          "Data Engineer"
+          "Data Engineer",
+          "Dateningenieur"
         ],
         "zh-Hans": [
           "数据工程师",
@@ -645,8 +646,8 @@
           "Frontend Developer"
         ],
         "de": [
-          "Frontend-Entwickler",
-          "Frontend Developer"
+          "Frontend Developer",
+          "Frontend-Entwickler"
         ],
         "zh-Hans": [
           "前端工程师",
@@ -673,6 +674,7 @@
           "프론트엔드 개발자"
         ],
         "it": [
+          "Frontend Developer",
           "Sviluppatore Frontend",
           "Sviluppatore Front-End"
         ],
@@ -719,8 +721,7 @@
           "UI 개발자"
         ],
         "it": [
-          "Sviluppatore Web",
-          "Frontend Developer"
+          "Sviluppatore Web"
         ],
         "nl": [
           "Webontwikkelaar",
@@ -763,8 +764,8 @@
           "Full Stack Developer"
         ],
         "de": [
-          "Full-Stack-Entwickler",
-          "Fullstack Developer"
+          "Fullstack Developer",
+          "Full-Stack-Entwickler"
         ],
         "zh-Hans": [
           "全栈工程师",
@@ -791,6 +792,7 @@
           "풀스택 개발자"
         ],
         "it": [
+          "Full Stack Developer",
           "Sviluppatore Full Stack",
           "Ingegnere Full Stack"
         ],

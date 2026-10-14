@@ -20,11 +20,10 @@ from jd_fingerprint import (  # noqa: E402
     jd_fingerprint,
     near_duplicates,
 )
-from test_eval_pipeline import (  # noqa: E402,F401 - the fixture is used by name
+from test_eval_pipeline import (  # noqa: E402
     candidate,
     evaluation_result,
     invoke,
-    isolated_store,
     load_run,
     load_table,
 )
@@ -85,6 +84,22 @@ def test_cli_prints_only_the_digest():
 
 # --- the evaluation result carries it --------------------------------------
 
+@pytest.fixture
+def store(monkeypatch, tmp_path):
+    """`test_eval_pipeline`'s isolated store, without importing its fixture."""
+    data_dir = tmp_path / "data"
+    for name, path in {
+        "DATA_DIR": data_dir, "TABLE_PATH": data_dir / "jobs_table.json",
+        "ARCHIVE_PATH": data_dir / "archive.json", "EVAL_RUNS_DIR": data_dir / "eval_runs",
+        "EVAL_HISTORY_PATH": data_dir / "eval_runs" / "history.jsonl",
+        "LOCK_PATH": data_dir / "jobs_table.lock", "METRICS_PATH": data_dir / "metrics.jsonl",
+    }.items():
+        monkeypatch.setattr(merge_jobs, name, path)
+    monkeypatch.setattr(merge_jobs, "load_config", lambda: {
+        "jd_ttl_days": 30, "table_lock_timeout_seconds": 2, "stale_lock_seconds": 10})
+    return data_dir
+
+
 def _result(**overrides):
     payload = {
         "record_id": "job_1", "dedup_key": "a|b", "base_record_version": 1,
@@ -107,29 +122,29 @@ def test_the_contract_takes_an_optional_fingerprint_and_nothing_like_it():
 
 
 def test_merge_keeps_the_fingerprint_of_a_structured_jd_but_never_its_text(
-    isolated_store, monkeypatch, capsys
+    store, monkeypatch, capsys
 ):
     output = invoke(monkeypatch, capsys, merge_jobs.cmd_merge,
                     [candidate(source="ashby", jd_text=PROSE)], "cv", "cp")
 
-    job = load_table(isolated_store)["jobs"][0]
+    job = load_table(store)["jobs"][0]
     assert job["jd_fingerprint"] == jd_fingerprint(PROSE)
-    assert PROSE not in (isolated_store / "jobs_table.json").read_text(encoding="utf-8")
+    assert PROSE not in (store / "jobs_table.json").read_text(encoding="utf-8")
     assert output["to_analyze"]
 
 
 def test_a_worker_reported_fingerprint_is_stored_and_is_not_an_evaluation_input(
-    isolated_store, monkeypatch, capsys
+    store, monkeypatch, capsys
 ):
     output = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate()], "cv", "cp")
     task = load_run(output["eval_run"]["path"])["tasks"][0]
-    before = merge_jobs.make_jd_input_hash(load_table(isolated_store)["jobs"][0])
+    before = merge_jobs.make_jd_input_hash(load_table(store)["jobs"][0])
 
     invoke(monkeypatch, capsys, merge_jobs.cmd_update,
            [evaluation_result(task, jd_fingerprint=jd_fingerprint(BULLETS))],
            "cv", "cp", output["eval_run"]["run_id"])
 
-    job = load_table(isolated_store)["jobs"][0]
+    job = load_table(store)["jobs"][0]
     assert job["jd_fingerprint"] == jd_fingerprint(BULLETS)
     job_without = dict(job, jd_fingerprint=None)
     assert merge_jobs.make_jd_input_hash(job) == merge_jobs.make_jd_input_hash(job_without)

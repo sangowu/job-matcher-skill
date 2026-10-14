@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import re
 
+from jd_fingerprint import is_fingerprint
+
 
 SCORE_FIELDS = (
     "overall_score",
@@ -53,6 +55,10 @@ ALLOWED_RESULT_FIELDS = {
     "match_score",
     "verified",
     "scored_from",
+    # Optional: `jd_fingerprint.py` over the JD the worker read. Only the
+    # digest crosses this boundary; it marks one posting carried by several
+    # publishers in the report and is never an evaluation input.
+    "jd_fingerprint",
 }
 HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
@@ -118,6 +124,12 @@ def validate_evaluation_result(payload: object) -> dict:
 
     verified = normalize_verified(payload.get("verified"))
 
+    fingerprint = payload.get("jd_fingerprint")
+    if fingerprint in (None, ""):
+        fingerprint = None
+    elif not is_fingerprint(fingerprint):
+        raise AnalysisContractError("jd_fingerprint must be 16 lowercase hex characters")
+
     return {
         "record_id": record_id,
         "dedup_key": dedup_key,
@@ -127,6 +139,7 @@ def validate_evaluation_result(payload: object) -> dict:
         "match_score": match_score,
         "verified": verified,
         "scored_from": scored_from,
+        "jd_fingerprint": fingerprint,
     }
 
 

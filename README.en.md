@@ -122,6 +122,7 @@ job-matcher/
 │   ├── board_harvest.py      # recover ATS boards from job URLs and register verified ones
 │   ├── seed_promotion.py    # promote verified harvested sources into the tracked seed catalog
 │   ├── cp_hash.py            # stable candidate_profile hash
+│   ├── jd_fingerprint.py     # JD wording fingerprint, to spot one job reposted
 │   ├── precise_pick.py       # precise-scoring picks, shared between markets
 │   ├── verify_jobs.py        # dead-link / closed-posting detection
 │   ├── check_robots.py      # read robots.txt the way RFC 9309 specifies, and say whether a URL is permitted

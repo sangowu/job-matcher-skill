@@ -122,6 +122,7 @@ job-matcher/
 │   ├── board_harvest.py      # 从职位 URL 反推 ATS board，复验后写入来源注册表
 │   ├── seed_promotion.py    # 把已复验的采集来源提升进版本控制的种子目录
 │   ├── cp_hash.py            # 稳定的 candidate_profile hash
+│   ├── jd_fingerprint.py     # JD 文本指纹（识别转发的同一职位）
 │   ├── precise_pick.py       # 精排名单（多市场按市场分额）
 │   ├── verify_jobs.py        # 失效职位状态码检测
 │   ├── check_robots.py      # 按 RFC 9309 读 robots.txt，回答某个 URL 站点是否允许抓取

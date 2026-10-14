@@ -18,7 +18,13 @@ POLICIES = {"necessary_only", "ask_every_time"}
 CONTAINER_ROLES = {"dialog", "alertdialog"}
 CONTROL_ROLES = {"button", "link", "checkbox", "switch"}
 SAFE_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}")
-COOKIE_SIGNALS = ("cookie", "cookies", "tracking", "cookie einstellungen")
+COOKIE_SIGNALS = (
+    "cookie", "cookies", "tracking", "cookie einstellungen",
+    # The word a dialog uses when it does not say "cookie": Talent.com's Italian
+    # banner speaks only of "tecnologie di tracciamento".
+    "traceurs", "seguimiento", "rastreamento", "tracciamento", "śledzenia",
+    "クッキー", "トラッキング", "쿠키", "추적",
+)
 SAFE_NECESSARY_ONLY_LABELS = {
     # English
     "just necessary",
@@ -56,6 +62,86 @@ SAFE_NECESSARY_ONLY_LABELS = {
     "拒絕可選 cookie",
     "全部拒絕",
     "拒絕全部",
+    # French
+    "tout refuser",
+    "refuser tout",
+    "refuser les cookies",
+    "refuser les cookies non essentiels",
+    "refuser les cookies optionnels",
+    "continuer sans accepter",
+    "uniquement les cookies nécessaires",
+    "accepter uniquement les cookies nécessaires",
+    "cookies nécessaires uniquement",
+    # Spanish
+    "rechazar todo",
+    "rechazar todas",
+    "rechazar todas las cookies",
+    "rechazar cookies",
+    "rechazar cookies opcionales",
+    "rechazar cookies no necesarias",
+    "continuar sin aceptar",
+    "solo necesarias",
+    "solo cookies necesarias",
+    "aceptar solo las necesarias",
+    "aceptar solo cookies necesarias",
+    # Portuguese
+    "rejeitar todos",
+    "rejeitar tudo",
+    "rejeitar todos os cookies",
+    "rejeitar cookies opcionais",
+    "recusar todos",
+    "recusar cookies",
+    "continuar sem aceitar",
+    "apenas necessários",
+    "somente necessários",
+    "aceitar apenas necessários",
+    "aceitar apenas cookies necessários",
+    # Italian
+    "rifiuta tutti",
+    "rifiuta tutto",
+    "rifiuta i cookie",
+    "rifiuta cookie non necessari",
+    "rifiuta i cookie non necessari",
+    "continua senza accettare",
+    "solo necessari",
+    "solo cookie necessari",
+    "accetta solo necessari",
+    "accetta solo i cookie necessari",
+    # Dutch
+    "alles weigeren",
+    "alle weigeren",
+    "alle cookies weigeren",
+    "cookies weigeren",
+    "optionele cookies weigeren",
+    "doorgaan zonder te accepteren",
+    "alleen noodzakelijk",
+    "alleen noodzakelijke cookies",
+    "alleen noodzakelijke cookies accepteren",
+    "alleen functionele cookies",
+    # Polish
+    "odrzuć wszystkie",
+    "odrzuć wszystko",
+    "odrzuć pliki cookie",
+    "odrzuć opcjonalne pliki cookie",
+    "kontynuuj bez akceptacji",
+    "tylko niezbędne",
+    "tylko niezbędne pliki cookie",
+    "akceptuj tylko niezbędne",
+    "zezwól tylko na niezbędne",
+    # Japanese
+    "すべて拒否",
+    "全て拒否",
+    "すべて拒否する",
+    "必要なcookieのみ",
+    "必要なcookieのみ許可",
+    "必須cookieのみ許可",
+    "必要なクッキーのみ",
+    "必要なクッキーのみ許可",
+    # Korean
+    "모두 거부",
+    "전체 거부",
+    "필수 쿠키만",
+    "필수 쿠키만 허용",
 }
 
 

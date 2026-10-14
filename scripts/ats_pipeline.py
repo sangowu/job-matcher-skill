@@ -246,13 +246,30 @@ def filter_to_markets(
     A job whose location resolves to no market at all is dropped too. "Seattle,
     WA" is not an Irish posting just because the catalog has no US market.
     """
-    scoped = set(markets)
-    kept = []
-    for job in jobs:
-        location = market_plan.normalize_location(job.get("location"), resources)
-        if scoped & set(location["market_ids"]):
-            kept.append(job)
-    return kept
+    return [
+        job for job in jobs
+        if planned_market(job, markets, resources=resources) is not None
+    ]
+
+
+def planned_market(
+    job: dict[str, Any], markets: list[str], *, resources: dict[str, Any]
+) -> str | None:
+    """The first of `markets` the job's location resolves to, or None.
+
+    A posting listing several countries counts for one market of the round, the
+    first the round names, so a share is never filled twice by one posting.
+    """
+    placed = set(market_plan.normalize_location(job.get("location"), resources)["market_ids"])
+    return next((market for market in markets if market in placed), None)
+
+
+def _in_turns(queues: list[list[Any]]) -> list[Any]:
+    """One item from each queue in turn, skipping a queue once it is empty."""
+    taken: list[Any] = []
+    for position in range(max((len(queue) for queue in queues), default=0)):
+        taken.extend(queue[position] for queue in queues if position < len(queue))
+    return taken
 
 
 def _clean_candidate(job: dict[str, Any], board_id: str) -> dict[str, Any]:
@@ -575,7 +592,10 @@ def sync_registry(
         results = list(executor.map(run, eligible))
 
     state_rows: list[dict[str, Any]] = []
-    filtered_by_board: list[list[dict[str, Any]]] = []
+    # Each kept posting with the market of the round it counts for (None when
+    # the run is not scoped to markets).
+    filtered_by_board: list[list[tuple[dict[str, Any], str | None]]] = []
+    market_order: list[str | None] = []
     market_resources = (
         market_plan.load_resources()[0] if markets_by_board is not None else {}
     )
@@ -593,7 +613,8 @@ def sync_registry(
             board["consecutive_unavailable"] = 0
         filtered = prefilter_jobs(jobs, profile)
         if markets_by_board is None:
-            in_market = filtered
+            planned: list[str | None] = [None]
+            in_market = [(job, None) for job in filtered]
         else:
             planned = markets_by_board.get(board["board_id"])
             if planned is None:
@@ -601,9 +622,12 @@ def sync_registry(
                     "a fetched board has no planned markets: "
                     f"{board['board_id']}"
                 )
-            in_market = filter_to_markets(
-                filtered, planned, resources=market_resources
-            )
+            in_market = [
+                (job, market)
+                for job in filtered
+                if (market := planned_market(job, planned, resources=market_resources))
+            ]
+        market_order.extend(market for market in planned if market not in market_order)
         filtered_by_board.append(in_market)
         state_rows.append(
             _safe_state_row(
@@ -626,32 +650,36 @@ def sync_registry(
     # offered before any stretch posting, and those before the rest -- so a
     # senior role reaches the cap only when slots remain, instead of taking
     # them because its board came first (see `level_tier`).
-    tiers = [[[], [], []] for _ in filtered_by_board]
-    for board_tiers, jobs in zip(tiers, filtered_by_board):
-        for job in jobs:
-            board_tiers[level_tier(str(job.get("title") or ""), profile)].append(job)
-    # Within a tier, one posting per board per pass, rather than filling the cap
-    # from the first boards in the list. A board with 1,799 postings used to
-    # take every slot it could reach: measured 2026-09-27, three boards of
-    # thirty-two filled all twenty candidate slots and the other twenty-nine
-    # contributed nothing, so the round's breadth was decided by catalog order.
-    # Within one board the order it returned is kept.
-    for tier in range(3):
-        queues = [list(board_tiers[tier]) for board_tiers in tiers]
-        while len(selected) < candidate_limit and any(queues):
-            progressed = False
-            for board, queue in zip(eligible, queues):
-                if not queue or len(selected) >= candidate_limit:
-                    continue
-                job = queue.pop(0)
-                progressed = True
-                identity = str((job.get("identity_keys") or [""])[0])
-                if not identity or identity in seen_identities:
-                    continue
-                seen_identities.add(identity)
-                selected.append((board, job))
-            if not progressed:
+    # tiers[tier][market][board] -> that board's postings, in the order it
+    # returned them.
+    tiers: list[dict[str | None, list[list[tuple[dict[str, Any], dict[str, Any]]]]]] = [
+        {market: [[] for _ in eligible] for market in market_order} for _ in range(3)
+    ]
+    for position, (board, jobs) in enumerate(zip(eligible, filtered_by_board)):
+        for job, market in jobs:
+            tier = level_tier(str(job.get("title") or ""), profile)
+            tiers[tier][market][position].append((board, job))
+    # Within a tier the round's markets take turns, and within a market its
+    # boards take turns, one posting per turn. Boards taking turns: a board with
+    # 1,799 postings used to take every slot it could reach -- measured
+    # 2026-09-27, three boards of thirty-two filled all twenty slots, so the
+    # round's breadth was decided by catalog order. Markets taking turns: with
+    # boards alone, a market that more boards hire in took the slots of one
+    # that fewer do -- measured 2026-10-14, a Singapore/Spain/Italy round's
+    # boards offered 46 Spanish, 4 Singaporean and 1 Italian posting, and the
+    # twenty slots went 16/3/0.
+    for by_market in tiers:
+        offered = _in_turns(
+            [_in_turns(by_market[market]) for market in market_order]
+        )
+        for board, job in offered:
+            if len(selected) >= candidate_limit:
                 break
+            identity = str((job.get("identity_keys") or [""])[0])
+            if not identity or identity in seen_identities:
+                continue
+            seen_identities.add(identity)
+            selected.append((board, job))
 
     jd_rows_by_board = _fill_deferred_jd(
         selected,

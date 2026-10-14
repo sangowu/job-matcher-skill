@@ -328,6 +328,7 @@ def _select_wave_tasks(
             "next_wave_id": None,
             "next_task_ids": None,
             "remaining_waves": None,
+            "later_waves": [],
         }
     if not isinstance(waves, list) or not waves:
         raise DiscoveryBatchError("discovery_plan.waves must be a non-empty list")
@@ -425,6 +426,7 @@ def _select_wave_tasks(
             "next_wave_id": next_wave["wave_id"] if next_wave else None,
             "next_task_ids": next_wave["task_ids"] if next_wave else None,
             "remaining_waves": len(normalized_waves) - selected_index - 1,
+            "later_waves": normalized_waves[selected_index + 1:],
         },
     )
 
@@ -675,6 +677,47 @@ def _run_structured_channel(
     return merge_candidates, outcomes
 
 
+def _markets_with_share(
+    progress: dict[str, Any], config: dict[str, Any], markets: list[str]
+) -> set[str]:
+    """Round markets that already had their share before this wave."""
+    share = _market_share(config, markets)
+    before = (
+        {markets[0]: progress["unique_candidates_before"]}
+        if len(markets) == 1
+        else progress["unique_candidates_before_by_market"]
+    )
+    return {market for market in markets if before.get(market, 0) >= share}
+
+
+def _scope_structured_tasks(
+    tasks: dict[str, dict[str, Any]], done: set[str]
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Narrow each structured task to the markets still short of their share.
+
+    A global board plans every market of the round. Fetched for all of them in
+    a later wave, it spends the candidate cap on the market that already has
+    enough -- the one whose surplus stopped the round in the first place.
+    A task with no market left is not fetched and is reported skipped.
+    """
+    scoped: dict[str, dict[str, Any]] = {}
+    not_run: dict[str, dict[str, Any]] = {}
+    for task_id, task in tasks.items():
+        remaining = [market for market in task.get("markets") or [] if market not in done]
+        if remaining:
+            scoped[task_id] = {**task, "markets": remaining} if done else task
+        else:
+            not_run[task_id] = {
+                "status": "skipped",
+                "failure_kind": "market_share_reached",
+                "candidates_raw": 0,
+                "candidates_prefiltered": 0,
+                "candidates_unique": 0,
+                "pages": [],
+            }
+    return scoped, not_run
+
+
 def _fold_structured_outcomes(
     summary: dict[str, Any], outcomes: dict[str, dict[str, Any]]
 ) -> dict[str, Any]:
@@ -887,12 +930,27 @@ def _validate_progress(value: Any, *, allow_legacy_has_more: bool) -> dict[str, 
     }
     if allow_legacy_has_more:
         allowed.add("has_more_tasks")
+    else:
+        allowed.add("unique_candidates_before_by_market")
     if not isinstance(value, dict) or set(value) - allowed:
         raise DiscoveryBatchError("progress contains unsupported fields")
     has_more = value.get("has_more_tasks", False) if allow_legacy_has_more else None
     if allow_legacy_has_more and not isinstance(has_more, bool):
         raise DiscoveryBatchError("progress.has_more_tasks must be boolean")
+    by_market = value.get("unique_candidates_before_by_market", {})
+    if not isinstance(by_market, dict) or any(
+        not isinstance(market, str) for market in by_market
+    ):
+        raise DiscoveryBatchError(
+            "progress.unique_candidates_before_by_market must map markets to counts"
+        )
     return {
+        "unique_candidates_before_by_market": {
+            market: _non_negative(
+                count, f"progress.unique_candidates_before_by_market.{market}"
+            )
+            for market, count in by_market.items()
+        },
         "unique_candidates_before": _non_negative(
             value.get("unique_candidates_before"), "progress.unique_candidates_before"
         ),
@@ -903,12 +961,57 @@ def _validate_progress(value: Any, *, allow_legacy_has_more: bool) -> dict[str, 
     }
 
 
+def _task_markets(channel: str, task: dict[str, Any]) -> list[str]:
+    planned = task.get("markets") if channel == "structured" else [task.get("market_id")]
+    return [value for value in (planned or []) if isinstance(value, str) and value]
+
+
+def _round_markets(
+    plan: dict[str, Any], tasks: dict[str, tuple[str, dict[str, Any]]]
+) -> list[str]:
+    """The round's markets in the order the plan names them."""
+    named = plan.get("target_markets")
+    if isinstance(named, list) and named and all(isinstance(m, str) for m in named):
+        return list(dict.fromkeys(named))
+    ordered: list[str] = []
+    for channel, task in tasks.values():
+        ordered.extend(m for m in _task_markets(channel, task) if m not in ordered)
+    return ordered
+
+
+def _market_share(config: dict[str, Any], markets: list[str]) -> int:
+    """How many new candidates each market needs before the round stops for it.
+
+    `stop_threshold` is the round's target, split evenly: one market keeps the
+    whole of it, three markets need a third each.
+    """
+    target = _positive_config(config, "stop_threshold", 12)
+    return math.ceil(target / len(markets)) if markets else target
+
+
+def _new_by_market(merge_result: dict[str, Any], markets: list[str]) -> dict[str, int]:
+    """Records this merge added, each counted for the first round market it is in."""
+    counts: dict[str, int] = {}
+    for task in merge_result.get("to_analyze") or []:
+        if not isinstance(task, dict) or task.get("status") != "new":
+            continue
+        placed = set(task.get("market_ids") or [])
+        market = next((m for m in markets if m in placed), None)
+        if market is not None:
+            counts[market] = counts.get(market, 0) + 1
+    return counts
+
+
 def _continuation(
-    merge_stats: dict[str, Any],
+    merge_summary: dict[str, Any],
     progress: dict[str, Any],
     config: dict[str, Any],
     wave: dict[str, Any],
+    *,
+    markets: list[str],
+    tasks: dict[str, tuple[str, dict[str, Any]]],
 ) -> dict[str, Any]:
+    merge_stats = merge_summary["stats"]
     new_count = _non_negative(
         merge_stats.get("newly_added", merge_stats.get("new")), "merge.stats.new", 0
     )
@@ -918,12 +1021,45 @@ def _continuation(
     )
     target = _positive_config(config, "stop_threshold", 12)
     empty_limit = _positive_config(config, "consecutive_empty_stop", 2)
-    has_more_tasks = (
-        wave["next_wave_id"] is not None
-        if wave["managed"]
-        else progress["has_more_tasks"]
-    )
-    if total >= target:
+    share = _market_share(config, markets)
+    new_by_market = merge_summary.get("new_by_market") or {}
+    if len(markets) == 1:
+        # Every candidate of a one-market round is in that market, so its
+        # count is the round's and the rule is exactly the old one.
+        by_market = {markets[0]: total}
+    else:
+        by_market = {
+            market: progress["unique_candidates_before_by_market"].get(market, 0)
+            + int(new_by_market.get(market, 0))
+            for market in markets
+        }
+    if wave["managed"]:
+        # Per market, not for the round. 2026-10-14: a Singapore/Spain/Italy
+        # round's first wave brought 16 Spanish, 3 Singaporean and no Italian
+        # candidates; the round total reached the target, so it stopped, and
+        # neither Italy's job boards nor its Web Search ever ran. A market that
+        # is short of its share keeps going; one that has it is done.
+        below_share = [market for market in markets if by_market[market] < share]
+        next_wave, next_task_ids = None, None
+        for later in wave["later_waves"]:
+            wanted = {
+                channel: [
+                    task_id for task_id in task_ids
+                    if set(_task_markets(*tasks[task_id])) & set(below_share)
+                ]
+                for channel, task_ids in later["task_ids"].items()
+            }
+            if any(wanted.values()):
+                next_wave, next_task_ids = later["wave_id"], wanted
+                break
+        reached = not below_share if markets else total >= target
+        has_more_tasks = next_wave is not None
+    else:
+        below_share = []
+        next_wave, next_task_ids = None, None
+        reached = total >= target
+        has_more_tasks = progress["has_more_tasks"]
+    if reached:
         decision, reason = "stop", "target_reached"
     elif not has_more_tasks:
         decision, reason = "stop", "plan_exhausted"
@@ -937,21 +1073,26 @@ def _continuation(
         "reason": reason,
         "new_unique_candidates": new_count,
         "unique_candidates_total": total,
+        "unique_candidates_by_market": by_market,
         "consecutive_empty": empty_streak,
         "target": target,
+        "share_per_market": share,
+        "markets_below_share": below_share,
         "has_more_tasks": has_more_tasks,
         "current_wave_id": wave["wave_id"],
-        "next_wave_id": wave["next_wave_id"] if should_dispatch else None,
-        "next_task_ids": wave["next_task_ids"] if should_dispatch else None,
+        "next_wave_id": next_wave if should_dispatch else None,
+        "next_task_ids": next_task_ids if should_dispatch else None,
         "remaining_waves": wave["remaining_waves"],
     }
 
 
-def _safe_merge_summary(result: dict[str, Any]) -> dict[str, Any]:
+def _safe_merge_summary(result: dict[str, Any], markets: list[str]) -> dict[str, Any]:
     return {
         "idempotent": bool(result.get("idempotent")),
         "eval_run": result.get("eval_run"),
         "stats": result.get("stats") or {},
+        # Counts per market id only; the records themselves stay in the merge.
+        "new_by_market": _new_by_market(result, markets),
         "metrics_recorded": bool(result.get("metrics_recorded")),
     }
 
@@ -1068,6 +1209,11 @@ def run_discovery_batch(
         payload.get("progress"), allow_legacy_has_more=not wave["managed"]
     )
     config = _read_json(config_path, "config")
+    round_markets = _round_markets(plan, all_tasks)
+    structured_tasks, structured_not_run = _scope_structured_tasks(
+        structured_tasks,
+        _markets_with_share(progress, config, round_markets),
+    )
 
     input_hash = hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
@@ -1112,6 +1258,7 @@ def run_discovery_batch(
             metrics_run_id=metrics_run_id,
             ats_sync=ats_sync,
         )
+        structured_outcomes = {**structured_outcomes, **structured_not_run}
         candidates = [*candidates, *structured_candidates]
         try:
             runner = merge_runner or run_merge_subprocess
@@ -1127,7 +1274,7 @@ def run_discovery_batch(
             )
             if not isinstance(merge_result, dict) or merge_result.get("ok") is not True:
                 raise DiscoveryBatchError("merge runner failed")
-            merge_summary = _safe_merge_summary(merge_result)
+            merge_summary = _safe_merge_summary(merge_result, round_markets)
             # Counts only -- no titles, URLs or description text reach the manifest.
             manifest.update(
                 phase="merge_committed",
@@ -1175,7 +1322,9 @@ def run_discovery_batch(
 
     if structured_outcomes:
         task_summary = _fold_structured_outcomes(task_summary, structured_outcomes)
-    continuation = _continuation(merge_summary["stats"], progress, config, wave)
+    continuation = _continuation(
+        merge_summary, progress, config, wave, markets=round_markets, tasks=all_tasks
+    )
     result = {
         "batch_id": batch_id,
         "task_summary": task_summary,

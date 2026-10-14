@@ -274,6 +274,13 @@
   这类以技术栈命名的标题。此前泛化生成了 `Backend Engineer` 的查询，搜回来的
   `Senior Python Engineer, Platform` 却因为"不属于任何族"被初筛以 `role` 丢掉——搜索付了钱，
   过滤器把结果扔了。短语匹配保证 `Python Trainer` 仍然被拒。
+- 词表每个职位只写一种性别、带介词的一种写法，招聘标题却常写两种性别、省掉介词：
+  `Sviluppatore/Sviluppatrice Java`、`Ingeniero/a de IA`、`Engenheiro(a) de Software`、
+  `Développeur·euse`、`Entwickler:in`、`Ingegnere software Java`（词表是 `Ingegnere del software`）。
+  2026-10-14 米兰实测，这类标题被初筛以 `role` 丢掉。现在标题按斜杠两侧各读一遍，紧贴词尾的
+  短后缀（`(a)`、`·euse`、`:in`）去掉；比较时两边都去掉 `de`/`del`/`di`/`du` 这类连接词。
+  不用「允许中间隔一个词」的模糊匹配：那样 `Software Sales Engineer` 会被当成 `Software Engineer`。
+  同时按技术栈命名的后端标题补齐法、西、葡、德、荷、日、韩（此前只有英、意、波、中）。
 
 ### [R3-11] 加一个市场为什么要动「境外行政区」目录
 

@@ -148,6 +148,48 @@ def test_other_families_are_recognized_in_the_markets_language(title, role):
 
 
 @pytest.mark.parametrize(
+    ("title", "role"),
+    [
+        ("Sviluppatore/Sviluppatrice Software", "Software Engineer"),
+        ("Sviluppatore/Sviluppatrice Java", "Backend Engineer"),
+        ("Ingegnere software Java", "Software Engineer"),
+        ("Ingeniero/a de IA", "AI Engineer"),
+        ("Ingeniero Software", "Software Engineer"),
+        ("Desarrollador/a Python", "Python Backend Engineer"),
+        ("Engenheiro(a) de Software", "Software Engineer"),
+        ("Desenvolvedor(a) Python", "Python Backend Engineer"),
+        ("Développeur·euse logiciel", "Software Engineer"),
+        ("Développeur Python H/F", "Python Backend Engineer"),
+        ("Softwareentwickler:in", "Software Engineer"),
+        ("Python-Entwickler (m/w/d)", "Python Backend Engineer"),
+        ("Python-ontwikkelaar", "Python Backend Engineer"),
+        ("Programista/Programistka Python", "Python Backend Engineer"),
+        ("Pythonエンジニア", "Python Backend Engineer"),
+        ("Python 개발자", "Python Backend Engineer"),
+    ],
+)
+def test_a_title_written_in_both_genders_or_without_its_preposition_is_kept(title, role):
+    """2026-10-14: a Milan round dropped "Sviluppatore/Sviluppatrice Software"
+    and "Ingegnere software Java" on role -- the vocabulary lists one gender
+    and "Ingegnere del software" -- and only English, Italian and Polish named
+    a developer by the language they write."""
+    profile = {"roles": [role]}
+
+    assert job_prefilter.rejection_reason({"title": title, "location": ""}, profile) is None
+
+
+@pytest.mark.parametrize(
+    "title",
+    ["Ingegnere/geometra", "Ingegnere strutturista", "Ingegnere di Processo",
+     "Ingeniero/a de Caminos", "Sviluppatore/a commerciale"],
+)
+def test_reading_a_title_both_ways_does_not_widen_it_to_other_engineers(title):
+    profile = {"roles": ["AI Engineer", "Software Engineer"]}
+
+    assert job_prefilter.rejection_reason({"title": title, "location": ""}, profile) == "role"
+
+
+@pytest.mark.parametrize(
     "title",
     ["Commercial(e) sédentaire (x/f/m)", "Asesor/a comercial autónomo/a", "営業マネージャー",
      "Addetto alle vendite", "Accountmanager", "Przedstawiciel handlowy", "영업 관리자"],

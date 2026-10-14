@@ -13,7 +13,7 @@
 ## 两阶段
 
 - **粗排**（所有候选）：只有 snippet，对 5 维做快速估分排序，`scored_from = "snippet"`。
-- **精排**（Top-(N+5)）：抓 JD 全文 → 先抽 JD 结构（见下）→ 再精确 5 维打分，`scored_from = "jd"`。
+- **精排**（`precise_pick.py` 选出的 N+5 条；多市场时每个市场先分一份）：抓 JD 全文 → 先抽 JD 结构（见下）→ 再精确 5 维打分，`scored_from = "jd"`。
 
 ## JD 结构抽取（精排时，从 JD 全文）
 ```json

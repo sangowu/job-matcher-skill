@@ -148,6 +148,22 @@
 - **只查任务里 `needs_verification: true` 的行。**快照任务带 `verified` / `verified_at` / `needs_verification`：`alive` 且 `verified_at` 在 `verify_ttl_hours`（默认 24）内的行不再复验——这个判断由 `merge_jobs.py` 做，不是靠你记住。此前没有时间戳，于是每轮把整个 Top-N 重查一遍（20 条 URL，每条超时上限 10 秒），报告里一个月前的 `alive` 和刚查的 `alive` 长得一样。`verify_jobs.py` 现在按 host 分组：不同站点并发（上限 8），**同一站点仍然串行**，请求总数不变。回传时 `verified` 只能是 `alive`/`closed`/`unverified`/`unknown` 或 `null`（布尔仍被接受，存盘统一成枚举）；`null` 表示这轮没查，脚本会保留上一次的结论和时间戳，不会把没做过的检查盖上新时间。JD 正文 hash 变化会同时清掉旧结论与旧时间戳。状态码只回答职位还在不在：404/410 是没了；403/429/5xx 是服务器拒绝或伺候不了**这个客户端**，与职位死活无关，一律 `null`。两者判错的代价不对称——误判成失效会删掉真实职位，而误判成无法判定只是少一条证据。反爬站点因此永远拿不到 `false`，这是对的：普通 HTTP 客户端确实无法判定，要确认就走容错阶梯的下一层（浏览器）。2026-09-25 实测：irishjobs.ie 对 `verify_jobs.py` 的 UA 回 403，同一条职位在浏览器里正常打开、标题完整、无关闭字样。
 
 
+### [R5-08] 精排名额为什么按市场分
+
+精排要读 JD 全文，一轮读 `top_n + precise_buffer`（默认 20）条。原来是按粗排分取全局前 20。
+粗排多半只有标题，分数主要反映标题像不像目标角色，于是哪个市场的标题写得最像，名额就全给了哪个市场。
+2026-10-14 新加坡 / 马德里 / 米兰实测：前 20 里新加坡 18 条（12 条标题都是「AI Engineer」，粗排同分），
+西班牙、意大利各 1 条，其中意大利那条还已下线；两个市场的其余职位只能按标题写进报告。
+发现阶段同样的问题由 [R4-23] 按市场分份额解决，这里是同一规则用在评分阶段。
+
+- `precise_pick.py` 先给每个目标市场 `ceil(上限 / 市场数)` 个名额，按名次在市场之间轮流取；
+  某市场候选不够，空出的名额按分数给剩下的最好者，不管市场。单市场（或没有市场）就是原来的全局前 N。
+- 粗排判 `skip` 的（已经不满足硬约束）不占市场名额，只有其他候选都用完才轮到。
+  名额是为了看到每个市场最好的几条，不是为了凑数。
+- 同时属于几个目标市场的职位只算一次，算给本轮市场顺序里第一个。
+- 代价：分给小市场的名额里可能有粗排分不高的职位（米兰那轮的 Java、嵌入式），会少读几条大市场的同分职位。
+  非英语标题的粗排分本来就不可靠（`Sviluppatore Java` 可能就是后端岗），读 JD 才知道。
+
 ### [R5-07] 评分契约为什么要读代码而不是凭记忆
 
 - **结果形状以 `scripts/analysis_contract.py` 为准，写 worker 提示前先读它，不凭记忆编示例**（2026-09-26 实测：提示里给错了键名，8 条结果整批被拒，`rejected_rate` 直接顶破阈值）。顶层**只**允许上一条列的八个字段，多一个就整条拒收。`match_score` 里五个维度**平铺**，不是嵌套对象：`overall_score`、`title_score`、`skills_score`、`must_have_score`、`seniority_score`、`location_score`，权重 .25/.25/.25/.15/.10，`overall_score` 与加权和的误差必须 ≤ 0.2；再加 `recommendation`，取值 `strong_apply`/`apply`/`stretch_apply`/`low_priority`/`skip`，**只能等于或低于分数对应档**（≥85/≥70/≥60/≥20，以下为 `skip`）。`scored_from` 只接受 `jd` 和 `snippet`；`to_score_only` 复用的 `jd_profile` 也来自 JD，所以仍写 `jd`，`jd_profile` 为空时拒收。`jd_profile` 被校验的字段名是 `must_have`、`good_to_have`、`required_skills`、`years_required`、`work_mode`（`remote`/`onsite`/`hybrid`）、`job_type`；多出的键不校验但会原样存进主表，别把实质内容放在那里。

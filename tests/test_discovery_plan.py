@@ -674,7 +674,7 @@ def test_a_market_plan_without_target_roles_keeps_the_order_it_had():
     assert [query["role"] for query in task["queries"]] == expected
 
 
-def _multi_market_plan():
+def _multi_market_plan(locations=("Dublin", "Berlin")):
     markets, taxonomy = market_plan.load_resources()
     return market_plan.build_market_plan(
         {
@@ -682,15 +682,15 @@ def _multi_market_plan():
                 "target_roles": ["AI Engineer"],
                 "skills": ["Python", "FastAPI"],
             },
-            "user_intent": {"locations": ["Dublin", "Berlin"]},
+            "user_intent": {"locations": list(locations)},
         },
         markets=markets,
         taxonomy=taxonomy,
     )
 
 
-def _multi_market_request(seeds):
-    plan = _multi_market_plan()
+def _multi_market_request(seeds, locations=("Dublin", "Berlin")):
+    plan = _multi_market_plan(locations)
     sources = [
         {
             "source_id": source["source_id"],
@@ -734,9 +734,13 @@ def _browser_roles_by_market(plan):
 def test_the_browser_pool_is_not_capped_by_the_web_search_budget():
     """The browser spends no Web Search calls, so the Web Search budget is not
     its budget. Reading the capped `search_plan` left a multi-market round one
-    title per role on every site it opened."""
+    title per role on every site it opened.
+
+    Three markets, the live round's: German now leads with the English title,
+    as its postings do, and Dublin and Berlin alone no longer spread the budget
+    thin enough to show the cap."""
     seeds = source_registry.load_seeds()
-    request = _multi_market_request(seeds)
+    request = _multi_market_request(seeds, ("Singapore", "Madrid", "Milano"))
     capped = copy.deepcopy(request)
     capped["market_plan"].pop("role_plan")
 
@@ -760,8 +764,8 @@ def test_the_browser_pool_is_not_capped_by_the_web_search_budget():
 
 
 def test_a_local_source_leads_with_its_own_language_not_the_cv_spelling():
-    """`target_roles` are spelled one way, and ranking a German site's pool by
-    that alone put "AI Engineer" ahead of "KI-Ingenieur" -- an exact match for
+    """`target_roles` are spelled one way, and ranking a French site's pool by
+    that alone put "AI Engineer" ahead of "Ingénieur IA" -- an exact match for
     the CV, and the wrong query for the site."""
     seeds = source_registry.load_seeds()
     plan = discovery_plan.build_discovery_plan(

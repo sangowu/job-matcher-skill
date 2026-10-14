@@ -19,6 +19,22 @@ generic language mappings, not site-specific selectors. Simplified and
 Traditional Chinese are separate exact-label sets; for example, `拒絕全部` is
 accepted only inside a bounded Cookie-consent dialog.
 
+Every language in `references/languages.json` has its labels: French
+(`Tout refuser`), Spanish (`Rechazar todo`), Portuguese (`Rejeitar todos`),
+Italian (`Rifiuta tutti`), Dutch (`Alles weigeren`), Polish (`Odrzuć
+wszystkie`), Japanese (`すべて拒否`) and Korean (`모두 거부`), each with its
+necessary-only and continue-without-accepting forms. Until 2026-10-14 the set
+stopped at English, German and Chinese, and the browser channel paused on the
+banner of every local job board in the markets added after them; a live round
+paused on Talent.com Italy's `Rifiuta tutti`. A label is only ever a refusal or
+a necessary-only choice -- no accept form in any language is listed.
+
+The dialog itself is recognized by a Cookie or tracking word in its name or
+text, in each language as well: Talent.com's Italian banner never says
+"cookie", only "tecnologie di tracciamento". A banner offering nothing but
+acceptance, such as Jobs in Milan's `Accept cookies` / `More information`,
+still pauses.
+
 The result is fail-closed:
 
 - one safe button: `auto_select_necessary_only` with one `target_ref`;

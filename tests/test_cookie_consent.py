@@ -77,6 +77,95 @@ def test_traditional_chinese_consent_banner_uses_bounded_cookie_context():
     assert result["target_ref"] == "e2"
 
 
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Tout refuser",
+        "Continuer sans accepter",
+        "Rechazar todo",
+        "Aceptar solo las necesarias",
+        "Rejeitar todos",
+        "Rifiuta tutti",
+        "Alles weigeren",
+        "Alleen noodzakelijke cookies",
+        "Odrzuć wszystkie",
+        "Tylko niezbędne",
+        "すべて拒否",
+        "必要なCookieのみ許可",
+        "모두 거부",
+        "필수 쿠키만 허용",
+    ],
+)
+def test_the_markets_added_since_have_their_necessary_only_actions(label):
+    """2026-10-14: the classifier knew English, German and Chinese only, so the
+    local job boards of every market added after them paused on their banner."""
+    result = classify_cookie_consent(payload(label))
+
+    assert result["decision"] == "auto_select_necessary_only"
+    assert result["target_ref"] == "e2"
+
+
+@pytest.mark.parametrize(
+    "label", ["Accetto", "Tout accepter", "Aceptar todo", "Aceitar tudo", "Alles accepteren",
+              "Akceptuj wszystkie", "すべて許可", "모두 동의"],
+)
+def test_accepting_is_never_selected_in_any_language(label):
+    result = classify_cookie_consent(payload(label))
+
+    assert result["decision"] == "pause"
+    assert result["reason"] == "no_safe_semantic_action"
+
+
+def test_a_banner_that_speaks_of_tracking_rather_than_cookies_is_still_one():
+    """Talent.com's Italian banner never says "cookie"."""
+    value = {
+        "policy": "necessary_only",
+        "container": {
+            "role": "dialog",
+            "name": "La vostra privacy è per noi molto importante",
+            "text": (
+                "Noi e i nostri 1 partner archiviamo e accediamo ai dati personali. "
+                "Selezionando Accetto, abiliti le tecnologie di tracciamento."
+            ),
+            "visible": True,
+        },
+        "controls": [
+            {"ref": "e64", "role": "button", "name": "Elenco dei partner (fornitori)"},
+            {"ref": "e65", "role": "button", "name": "Accetto"},
+            {"ref": "e66", "role": "button", "name": "Rifiuta tutti"},
+            {"ref": "e67", "role": "button", "name": "Mostra finalità"},
+        ],
+    }
+
+    result = classify_cookie_consent(value)
+
+    assert result["decision"] == "auto_select_necessary_only"
+    assert result["target_ref"] == "e66"
+
+
+def test_a_banner_offering_only_to_accept_pauses():
+    """Jobs in Milan offers "Accept cookies" and "More information", nothing else."""
+    value = payload("More information")
+    value["controls"] = [
+        {"ref": "e326", "role": "button", "name": "More information"},
+        {"ref": "e327", "role": "button", "name": "Accept cookies"},
+    ]
+
+    assert classify_cookie_consent(value)["decision"] == "pause"
+
+
+def test_every_label_is_written_the_way_a_button_is_compared():
+    """A label not in normalized form can never match anything."""
+    import cookie_consent
+
+    unnormalized = [
+        label for label in cookie_consent.SAFE_NECESSARY_ONLY_LABELS
+        if cookie_consent._normalize(label) != label
+    ]
+
+    assert unnormalized == []
+
+
 def test_ask_policy_non_cookie_dialog_and_ambiguous_actions_pause():
     assert classify_cookie_consent(payload("Just Necessary", policy="ask_every_time"))[
         "reason"

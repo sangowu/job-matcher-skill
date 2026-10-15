@@ -202,9 +202,44 @@ _LEGAL_SUFFIXES = re.compile(
 )
 
 
+# Legal forms are only recognized at the end of the name: "AS", "SE" or "Pte"
+# inside a name are words. Matched on the lower-cased words with their dots
+# removed, so "S.p.A." is "spa" and "Pte. Ltd." is "pte ltd"; stripped one at a
+# time, so "Pte Ltd" and "GmbH & Co. KG" go a word at a time. A form that is
+# only a legal form next to another one is listed as the pair.
+_TRAILING_LEGAL_FORMS = (
+    {(form,) for form in (
+        "llc", "inc", "ltd", "co", "corp", "corporation", "limited", "plc", "llp", "lp",
+        "gmbh", "ag", "kg", "kgaa", "se", "ug", "sa", "sas", "sarl", "sasu", "bv", "nv",
+        "spa", "srl", "sl", "slu", "ltda", "sro", "ab", "asa", "oy", "oyj", "aps",
+        "pte", "pty", "bhd", "kk", "pvt",
+    )}
+    | {("sdn", "bhd"), ("private", "limited"), ("sp", "z", "oo"), ("de", "cv")}
+)
+_LONGEST_LEGAL_FORM = max(len(form) for form in _TRAILING_LEGAL_FORMS)
+# CJK names carry the legal form without a space, at either end.
+_CJK_LEGAL_FORMS = re.compile(
+    r"^(?:株式会社|有限会社|合同会社|[(（]株[)）]|주식회사|[(（]주[)）]|㈜)\s*"
+    r"|\s*(?:株式会社|有限会社|合同会社|[(（]株[)）]|股份有限公司|有限责任公司|有限責任公司"
+    r"|有限公司|주식회사|[(（]주[)）]|㈜)$"
+)
+
+
 def normalize_company(name: str) -> str:
-    name = _LEGAL_SUFFIXES.sub("", name or "")
-    return re.sub(r"\s+", " ", name).strip().lower()
+    name = _CJK_LEGAL_FORMS.sub("", (name or "").strip())
+    words = re.sub(r"[\s,]+", " ", name).strip().lower().split()
+    while len(words) > 1:
+        bare = [word.replace(".", "") for word in words]
+        if not bare[-1].strip("&+-/"):
+            words.pop()
+            continue
+        size = next((size for size in range(min(_LONGEST_LEGAL_FORM, len(words) - 1), 0, -1)
+                     if tuple(bare[-size:]) in _TRAILING_LEGAL_FORMS), 0)
+        if not size:
+            break
+        del words[-size:]
+    stripped = re.sub(r"\s+", " ", _LEGAL_SUFFIXES.sub("", " ".join(words))).strip()
+    return stripped or " ".join(words)  # "Group Inc" is a name, not nothing
 
 
 def normalize_title(title: str) -> str:

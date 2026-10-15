@@ -16,7 +16,9 @@ from _jobutil import (  # noqa: E402
     all_url_keys,
     canonicalize_url,
     locations_compatible,
+    make_dedup_key,
     make_record_id,
+    normalize_company,
 )
 
 
@@ -358,3 +360,54 @@ def test_two_shared_tokens_still_reach_a_title_the_families_do_not_know():
     assert job_prefilter.rejection_reason(
         {"title": "Workflow Coordinator"}, profile
     ) == "role"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Talent-Merge Pte Ltd", "Talent-Merge Pte. Ltd.", "Talent-Merge Pty Ltd",
+        "Talent-Merge Sdn Bhd", "Talent-Merge Private Limited", "Talent-Merge Pvt. Ltd.",
+        "Talent-Merge Limited", "Talent-Merge, Inc.", "Talent-Merge Co., Ltd.",
+        "Talent-Merge GmbH", "Talent-Merge GmbH & Co. KG", "Talent-Merge SE", "Talent-Merge AG",
+        "Talent-Merge S.p.A.", "Talent-Merge S.r.l.", "Talent-Merge S.L.", "Talent-Merge SAS",
+        "Talent-Merge S.A. de C.V.", "Talent-Merge Ltda.", "Talent-Merge B.V.",
+        "Talent-Merge Sp. z o.o.", "Talent-Merge s.r.o.", "Talent-Merge AB", "Talent-Merge Oy",
+        "Talent-Merge ApS", "Talent-Merge K.K.",
+    ],
+)
+def test_a_legal_form_from_any_market_is_not_part_of_the_company(name):
+    """2026-10-14: "Talent-Merge" and "Talent-Merge Pte Ltd" were two companies
+    -- only "Ltd" came off -- and most markets' forms did not come off at all."""
+    assert normalize_company(name) == "talent-merge"
+    assert make_dedup_key(name, "AI Engineer") == make_dedup_key("Talent-Merge", "AI Engineer")
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("株式会社メルカリ", "メルカリ"),
+        ("メルカリ株式会社", "メルカリ"),
+        ("(株)メルカリ", "メルカリ"),
+        ("腾讯科技（深圳）有限公司", "腾讯科技（深圳）"),
+        ("阿里巴巴股份有限公司", "阿里巴巴"),
+        ("(주)카카오", "카카오"),
+        ("카카오 주식회사", "카카오"),
+    ],
+)
+def test_a_cjk_legal_form_comes_off_either_end(name, expected):
+    assert normalize_company(name) == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("Foo AS Bar", "foo as bar"),  # a form is only one at the end
+        ("SE", "se"),  # never the whole name
+        ("Spa", "spa"),
+        ("Group Inc", "group"),
+        ("Booking.com", "booking.com"),
+        ("Acme Inc Europe", "acme europe"),  # unchanged from before
+    ],
+)
+def test_a_name_is_never_stripped_to_nothing_or_inside(name, expected):
+    assert normalize_company(name) == expected

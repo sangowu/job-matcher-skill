@@ -1447,3 +1447,33 @@ def test_a_check_cannot_smuggle_a_score(isolated_store, monkeypatch, capsys):
             monkeypatch, capsys, merge_jobs.cmd_verify,
             [{"record_id": record_id, "verified": "alive", "match_score": {}}],
         )
+
+
+def test_a_key_stored_under_older_normalization_meets_todays_posting(
+    isolated_store, monkeypatch, capsys
+):
+    """`normalize_company` used to keep "Pte": a stored key of
+    "talent-merge pte|ai engineer" would never weakly match the same posting
+    arriving as "Talent-Merge", and a weak url_key match is refused when the
+    keys differ -- so it would come back as a second row."""
+    isolated_store.mkdir(parents=True, exist_ok=True)
+    stored = {
+        "record_id": "job_stored", "dedup_key": "talent-merge pte|ai engineer",
+        "title": "AI Engineer", "company": "Talent-Merge Pte Ltd", "location": "Singapore",
+        "url": "https://careers.example.com/openings?ref=feed", "raw_sources": [],
+        "first_seen": "2026-10-01", "last_seen": "2026-10-01", "seen_count": 1,
+        "jd_profile": None, "match_scores": {}, "record_version": 1,
+    }
+    (isolated_store / "jobs_table.json").write_text(
+        json.dumps({"jobs": [stored]}), encoding="utf-8"
+    )
+
+    output = invoke(monkeypatch, capsys, merge_jobs.cmd_merge, [candidate(
+        title="AI Engineer", company="Talent-Merge", location="Singapore",
+        url="https://careers.example.com/openings?ref=feed",
+    )], "cv", "cp")
+
+    jobs = load_table(isolated_store)["jobs"]
+    assert [job["record_id"] for job in jobs] == ["job_stored"]
+    assert jobs[0]["dedup_key"] == "talent-merge|ai engineer"
+    assert output["stats"]["identity_records_migrated"] == 1

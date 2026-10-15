@@ -576,9 +576,12 @@ def _ensure_job_identity(job: dict, used_record_ids: set[str]) -> bool:
         ensure_ascii=False,
         sort_keys=True,
     )
-    job["dedup_key"] = str(job.get("dedup_key") or make_dedup_key(
-        job.get("company", ""), job.get("title", "")
-    ))
+    # Recomputed, not kept: a key stored under an older `normalize_company`
+    # would no longer meet the same posting arriving today.
+    if job.get("company") or job.get("title"):
+        job["dedup_key"] = make_dedup_key(job.get("company", ""), job.get("title", ""))
+    else:
+        job["dedup_key"] = str(job.get("dedup_key") or "|")
     url_keys = []
     for key in list(job.get("url_keys") or []) + all_url_keys(job):
         normalized = str(key or "").strip()

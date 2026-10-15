@@ -171,8 +171,11 @@ def test_one_role_reposted_by_three_agencies_is_named_on_each(monkeypatch, tmp_p
 
     _, jobs = _render(monkeypatch, capsys)
 
-    assert [job["same_posting_count"] for job in jobs] == [2, 2, 2, 0]
     assert {other["url"] for other in jobs[0]["same_posting"]} == {"https://b.example/1", "https://c.example/1"}
+    # Talent-Merge with and without "Pte Ltd" is one company posting twice:
+    # `same_role`'s case, and the other publisher is Tap Growth alone.
+    assert [job["same_posting_count"] for job in jobs] == [2, 1, 1, 0]
+    assert [job["same_role_count"] for job in jobs] == [0, 1, 1, 0]
     assert len(jobs) == 4  # named, not merged
 
 
